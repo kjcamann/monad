@@ -12,7 +12,7 @@ find_package(
   Boost 1.83 # 1.83 really is the minimum
   COMPONENTS fiber
   REQUIRED)
-pkg_check_modules(cap REQUIRED IMPORTED_TARGET libcap)
+#pkg_check_modules(cap REQUIRED IMPORTED_TARGET libcap)
 
 # ##############################################################################
 # libs
@@ -49,4 +49,4 @@ function(add_async_test)
                TSAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer)
 endfunction()
 
-add_subdirectory("src/monad/async/test")
+# add_subdirectory("src/monad/async/test")

@@ -39,3 +39,6 @@
 [submodule "core/third_party/unordered_dense"]
 	path = libs/core/third_party/unordered_dense
 	url = https://github.com/martinus/unordered_dense.git
+[submodule "libs/core/third_party/libumem"]
+	path = libs/core/third_party/libumem
+	url = https://github.com/gburd/libumem.git

@@ -177,6 +177,76 @@ add_library(
 monad_compile_options(monad_core_disas)
 target_link_libraries(monad_core_disas PUBLIC monad_core)
 
+add_library(monad_core_c STATIC
+  # rlp
+  "src/monad-c/rlp/rlp_decode.h"
+  "src/monad-c/rlp/rlp_decode.c"
+
+  # support - utility libraries
+  "src/monad-c/support/assert.h"
+  "src/monad-c/support/assert.c"
+  "src/monad-c/support/bit.h"
+  "src/monad-c/support/mapped_file.h"
+  "src/monad-c/support/mapped_file.c"
+  "src/monad-c/support/parse_util.h"
+  "src/monad-c/support/parse_util.c"
+  "src/monad-c/support/perf_counter.h"
+  "src/monad-c/support/range.h"
+  "src/monad-c/support/result.h"
+  "src/monad-c/support/result.c"
+  "src/monad-c/support/thread.h"
+  "src/monad-c/support/thread.c")
+
+target_compile_features(monad_core_c PUBLIC c_std_23)
+
+target_include_directories(monad_core_c
+  PUBLIC ${PROJECT_SOURCE_DIR}/src)
+
+file(CONFIGURE
+     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libumem/config.h"
+     CONTENT [=[
+#define HAVE_DLFCN_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_ISSETUGID 1
+#define HAVE_LIBDL 1
+#define HAVE_SIGNAL_H 1
+#define HAVE_STDINT_H 1
+#define HAVE_STDIO_H 1
+#define HAVE_STDLIB_H 1
+#define HAVE_STRINGS_H 1
+#define HAVE_STRING_H 1
+#define HAVE_SYS_MMAN_H 1
+#define HAVE_SYS_STAT_H 1
+#define HAVE_SYS_TIME_H 1
+#define HAVE_UNISTD_H 1
+#define UMEM_PTHREAD_MUTEX_TOO_BIG 1
+]=])
+
+add_library(libumem STATIC
+  "third_party/libumem/misc.h"
+  "third_party/libumem/sol_compat.h"
+  "third_party/libumem/umem.h"
+  "third_party/libumem/umem_base.h"
+  "third_party/libumem/umem_impl.h"
+  "third_party/libumem/vmem_base.h"
+  "third_party/libumem/vmem_stand.h"
+
+  "third_party/libumem/envvar.c"
+  "third_party/libumem/getpcstack.c"
+  "third_party/libumem/init_lib.c"
+  "third_party/libumem/misc.c"
+  "third_party/libumem/umem.c"
+  "third_party/libumem/umem_fail.c"
+  "third_party/libumem/umem_fork.c"
+  "third_party/libumem/umem_update_thread.c"
+  "third_party/libumem/vmem.c"
+  "third_party/libumem/vmem_base.c"
+  "third_party/libumem/vmem_mmap.c"
+  "third_party/libumem/vmem_sbrk.c")
+
+target_include_directories(libumem PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libumem")
+
 # ##############################################################################
 # tests
 # ##############################################################################

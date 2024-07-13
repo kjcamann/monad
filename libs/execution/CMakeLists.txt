@@ -159,6 +159,25 @@ monad_compile_options(monad_execution)
 
 target_link_options(monad_execution PRIVATE LINKER:-z,defs)
 
+add_library(monad_execution_c STATIC
+  # execution
+  "src/monad-c/execution/block_vm.h"
+  "src/monad-c/execution/block_vm.c"
+  "src/monad-c/execution/block_vm_impl.h"
+  "src/monad-c/execution/exec_fiber.h"
+  "src/monad-c/execution/exec_fiber.c"
+  "src/monad-c/execution/exec_thread.h"
+  "src/monad-c/execution/exec_thread.c"
+  "src/monad-c/execution/scheduler.h"
+  "src/monad-c/execution/scheduler.c")
+
+target_compile_features(monad_execution_c PUBLIC c_std_23)
+target_include_directories(monad_execution_c
+  PUBLIC ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(monad_execution_c PUBLIC monad_ethereum_c monad_core_c PkgConfig::ck)
+target_link_libraries(monad_execution_c PRIVATE libumem)
+
 # ##############################################################################
 # unit tests
 # ##############################################################################

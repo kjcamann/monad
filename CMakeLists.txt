@@ -50,6 +50,7 @@ endfunction()
 find_package(Boost REQUIRED COMPONENTS fiber graph json)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
+pkg_check_modules(ck REQUIRED IMPORTED_TARGET ck)
 
 # cli11
 find_package(CLI11 REQUIRED)
@@ -124,6 +125,7 @@ endfunction()
 add_subdirectory("libs/core")
 add_subdirectory("libs/async")
 add_subdirectory("libs/db")
+add_subdirectory("libs/ethereum")
 add_subdirectory("libs/execution")
 
 # ##############################################################################

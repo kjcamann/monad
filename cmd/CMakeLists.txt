@@ -23,3 +23,5 @@ else()
 endif()
 
 target_compile_definitions(monad PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
+add_subdirectory(replay2)
