@@ -123,6 +123,14 @@ add_library(
   "src/monad/io/buffer_pool.cpp"
   "src/monad/io/buffer_pool.hpp"
   "src/monad/io/config.hpp"
+  # mem
+  "src/monad/mem/align.h"
+  "src/monad/mem/cma/cma_alloc.h"
+  "src/monad/mem/cma/cma_alloc.c"
+  "src/monad/mem/cma/cma_bump_alloc.h"
+  "src/monad/mem/cma/cma_bump_alloc.c"
+  "src/monad/mem/cma/cma_fallback.h"
+  "src/monad/mem/cma/cma_fallback.c"
   # rlp
   "src/monad/rlp/config.hpp"
   "src/monad/rlp/encode.hpp"
