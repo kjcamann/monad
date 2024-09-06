@@ -2,7 +2,7 @@
 
 #include "task.h"
 
-#include <monad/context/boost_result.h>
+#include <monad/core/c_result.h>
 #include <monad/context/config.h>
 #include <monad/context/context_switcher.h>
 
@@ -31,7 +31,7 @@ monad_c_result monad_async_executor_create(
     if (p == nullptr) {
         return monad_c_make_failure(errno);
     }
-    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+    MONAD_C_RESULT_TRY(
         (void)monad_async_executor_destroy((monad_async_executor)p),
         monad_async_executor_create_impl(p, attr));
     *ex = (monad_async_executor)p;
@@ -55,7 +55,7 @@ monad_c_result monad_async_executor_destroy(monad_async_executor ex_)
             ex->head.total_io_completed);
         abort();
     }
-    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(monad_async_executor_destroy_impl(ex));
+    MONAD_C_RESULT_TRY(monad_async_executor_destroy_impl(ex));
     free(ex);
     return monad_c_make_success(0);
 }
@@ -265,7 +265,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                     monad_context_switcher task_switcher = atomic_load_explicit(
                         &task->head.derived.context->switcher,
                         memory_order_acquire);
-                    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                    MONAD_C_RESULT_TRY(
                         task_switcher->resume_many(
                             task_switcher,
                             monad_async_executor_impl_launch_pending_tasks,
@@ -367,7 +367,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                             atomic_load_explicit(
                                 &task->head.derived.context->switcher,
                                 memory_order_acquire);
-                        BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                        MONAD_C_RESULT_TRY(
                             task_switcher->resume_many(
                                 task_switcher,
                                 monad_async_executor_impl_resume_tasks,
@@ -466,7 +466,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                                 atomic_load_explicit(
                                     &task->head.derived.context->switcher,
                                     memory_order_acquire);
-                            BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                            MONAD_C_RESULT_TRY(
                                 task_switcher->resume_many(
                                     task_switcher,
                                     monad_async_executor_impl_resume_tasks,
@@ -844,7 +844,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                         // io_uring has dropped the eventfd poll
                         monad_c_result r2 =
                             monad_async_executor_setup_eventfd_polling(ex);
-                        if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r2)) {
+                        if (MONAD_FAILED(r2)) {
                             // io_uring submit failed, if this happens something
                             // is very wrong
                             abort();
@@ -973,7 +973,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                         monad_context_task task) =
                         task->call_after_suspend_to_executor;
                     task->call_after_suspend_to_executor = nullptr;
-                    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                    MONAD_C_RESULT_TRY(
                         call_after_suspend_to_executor(&task->head.derived));
                 }
             }
@@ -1032,7 +1032,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                     monad_context_switcher task_switcher = atomic_load_explicit(
                         &task->head.derived.context->switcher,
                         memory_order_acquire);
-                    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                    MONAD_C_RESULT_TRY(
                         task_switcher->resume_many(
                             task_switcher,
                             monad_async_executor_impl_resume_tasks,
@@ -1079,7 +1079,7 @@ static inline monad_c_result monad_async_executor_run_impl(
                             monad_context_task task) =
                             task->call_after_suspend_to_executor;
                         task->call_after_suspend_to_executor = nullptr;
-                        BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+                        MONAD_C_RESULT_TRY(
                             call_after_suspend_to_executor(
                                 &task->head.derived));
                     }
@@ -1412,7 +1412,7 @@ monad_c_result monad_async_task_attach(
     LIST_APPEND_ATOMIC_COUNTER(
         ex->tasks_pending_launch, task, &ex->head.tasks_pending_launch);
     if (on_foreign_thread) {
-        BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+        MONAD_C_RESULT_TRY(
             (void)atomic_unlock(&ex->lock),
             monad_async_executor_wake_impl(&ex->lock, ex, nullptr));
     }
@@ -1754,7 +1754,7 @@ monad_c_result monad_async_task_suspend_for_duration(
         completed ? (void *)*completed : nullptr);
     fflush(stdout);
 #endif
-    if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(ret)) {
+    if (MONAD_FAILED(ret)) {
         if (ns > 0 && outcome_status_code_equal_generic(&ret.error, ETIME)) {
             // io_uring returns timeouts as failure with ETIME, so
             // filter those out
@@ -2020,7 +2020,7 @@ monad_c_result monad_async_task_claim_registered_file_io_write_buffer(
                 "buffers?\n");
         }
 #endif
-        BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(monad_async_executor_suspend_impl(
+        MONAD_C_RESULT_TRY(monad_async_executor_suspend_impl(
             ex,
             task,
             monad_async_task_claim_registered_io_write_buffer_cancel,
@@ -2179,7 +2179,7 @@ monad_c_result monad_async_task_release_registered_io_buffer(
     if (ex->registered_buffers[is_for_write]
             .buffer[is_large_page]
             .tasks_awaiting.count > 0) {
-        BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+        MONAD_C_RESULT_TRY(
             monad_async_task_claim_registered_io_write_buffer_resume(
                 ex, is_for_write, is_large_page));
     }

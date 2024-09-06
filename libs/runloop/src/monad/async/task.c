@@ -1,6 +1,6 @@
 #include "monad/async/task.h"
 
-#include <monad/context/boost_result.h>
+#include <monad/core/c_result.h>
 
 #include "executor.h"
 #include "task_impl.h"
@@ -31,7 +31,7 @@ monad_c_result monad_async_task_create(
     p->head.priority.io = monad_async_priority_normal;
     monad_c_result r = switcher->create(
         &p->head.derived.context, switcher, &p->head.derived, &attr->derived);
-    if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+    if (MONAD_FAILED(r)) {
         (void)monad_async_task_destroy((monad_async_task)p);
         return r;
     }
@@ -119,7 +119,7 @@ monad_c_result monad_async_task_destroy(monad_async_task task)
         monad_async_executor ex =
             atomic_load_explicit(&task->current_executor, memory_order_acquire);
         monad_c_result r = monad_async_task_cancel(ex, task);
-        if (BOOST_OUTCOME_C_RESULT_HAS_ERROR(r)) {
+        if (MONAD_FAILED(r)) {
             if (!outcome_status_code_equal_generic(&r.error, ENOENT) &&
                 !outcome_status_code_equal_generic(&r.error, EAGAIN)) {
                 return r;
@@ -130,7 +130,7 @@ monad_c_result monad_async_task_destroy(monad_async_task task)
         }
     }
     memset(p->magic, 0, 8);
-    BOOST_OUTCOME_C_RESULT_SYSTEM_TRY(
+    MONAD_C_RESULT_TRY(
         atomic_load_explicit(
             &p->head.derived.context->switcher, memory_order_acquire)
             ->destroy(p->head.derived.context));
