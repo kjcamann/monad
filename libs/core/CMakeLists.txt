@@ -101,6 +101,7 @@ add_library(
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
   "src/monad/core/spinlock.h"
+  "src/monad/core/thread.h"
   "src/monad/core/tl_tid.c"
   "src/monad/core/tl_tid.h"
   "src/monad/core/unaligned.hpp"
