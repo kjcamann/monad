@@ -24,3 +24,10 @@ target_compile_definitions(
   PRIVATE MONAD_SPINLOCK_TRACK_OWNER_INFO MONAD_SPINLOCK_TRACK_STATS
           MONAD_SPINLOCK_TRACK_STATS_ATOMIC)
 monad_add_test(unordered_map_test "unordered_map.cpp")
+
+# Ensure the API demo described in fiber-api.md compiles
+if(0) # Still for exposition only, compiles but does not link
+  add_executable(fiber-hello fiber-hello.c)
+  monad_compile_options(fiber-hello)
+  target_link_libraries(fiber-hello PRIVATE monad_core)
+endif()

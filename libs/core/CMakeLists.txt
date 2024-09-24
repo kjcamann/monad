@@ -133,6 +133,7 @@ add_library(
   "src/monad/synchronization/spin_lock.hpp"
   # fiber
   "src/monad/fiber/config.hpp"
+  "src/monad/fiber/fiber.h"
   "src/monad/fiber/priority_algorithm.cpp"
   "src/monad/fiber/priority_algorithm.hpp"
   "src/monad/fiber/priority_pool.cpp"
