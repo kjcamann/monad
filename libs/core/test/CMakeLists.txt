@@ -18,6 +18,7 @@ monad_add_test(io_buffers_test "io_buffers.cpp")
 monad_add_test(literal_test "literal_test.cpp")
 monad_add_test(priority_pool_test "priority_pool_test.cpp")
 set_tests_properties(priority_pool_test PROPERTIES RUN_SERIAL TRUE)
+monad_add_test(run_queue_test "run_queue_test.cpp")
 monad_add_test(spinlock_test "spinlock.cpp")
 monad_add_test(spinlock_all_options_test "spinlock.cpp")
 target_compile_definitions(

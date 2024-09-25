@@ -200,8 +200,36 @@ int main(int argc, char **argv)
 2. For the synchronization primitives:
    - To be added in a subsequent commit
 
-3. The scheduler
-   - To be added in a subsequent commit
+3. The "scheduler"
+   - `monad_run_queue.h` - defines the interface for a simple thread-safe
+     priority queue of `monad_fiber_t*` objects
+   - `monad_run_queue.c` - implementation file for `monad_run_queue.h`
+
+### Why is "scheduler" in quotes above?
+
+To keep the design simple and less monolithic, the `monad_fiber` library does
+not have a full-fledged scheduler, or any higher-level abstractions such as a
+task pool, run-loop, worker threads, etc.
+
+The intention is for the user code to solve its problem directly, creating
+complex objects only if it needs them, and using `monad_fiber` as a bare-bones
+helper module. The only point of coupling between the three parts of a fiber
+system is the priority queue, `monad_run_queue_t`.
+
+A `monad_fiber_t` keeps track of an associated `monad_run_queue_t*`, and when
+the fiber is signaled for wakeup by a synchronization primitive, the fiber
+"wakes up" by re-enqueueing itself back on this associated priority queue.
+
+The library does not run anything by itself. Instead it offers a single
+function (`monad_fiber_run`) to start or resume a fiber, which runs the fiber's
+function until that function reaches a suspension point -- at which point
+`monad_fiber_run` just returns. The library does little beyond that.
+
+The only other "automatic" thing it does is re-enqueue the fiber on a priority
+queue if a synchronization primitive wakes the fiber. The user of the library
+must create their own concepts like worker threads, pools, etc. to
+enqueue/dequeue fibers from a `monad_run_queue_t`. The exact topology and way
+of doing this is not specified by the library.
 
 ## `monad_fiber_t` basic design
 
@@ -275,3 +303,37 @@ how and when a fiber performs a context switch. The model we follow is:
   a lightweight scheduler: it decides to run fibers somehow, and typically
   calls `monad_fiber_run` in a loop, with the sequence of fibers it
   wishes to run
+
+- The most obvious design is to use a single global priority queue
+  (a `monad_run_queue_t` object). Each worker takes the
+  next-highest-priority fiber and runs it until it suspends
+
+Here is an example of how you might build such a worker thread (this
+is just an API example, the current implementation is more complex):
+
+```c
+int rc;
+monad_fiber_t *fiber;
+monad_fiber_suspend_info_t suspend_info;
+monad_run_queue_t *const run_queue = /* initialize a fiber priority queue*/
+
+while (!atomic_load(&done)) {
+    // Poll the priority queue for the highest priority fiber that's ready
+    // to run
+    fiber = monad_run_queue_try_pop(run_queue);
+
+    if (fiber == nullptr) {
+        continue; // Nothing is ready to run, poll again
+    }
+
+    // Run the fiber until it suspends
+    rc = monad_fiber_run(fiber, &suspend_info);
+
+    if (rc != 0) {
+        /* something went wrong */
+    }
+    if (suspend_info.suspend_type == MONAD_FIBER_SUSPEND_RETURN) {
+        /* fiber function returned; can't run it anymore */
+    }
+}
+```
