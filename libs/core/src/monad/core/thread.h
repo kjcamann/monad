@@ -13,6 +13,8 @@ extern "C"
  */
 
 #include <errno.h>
+#include <pthread.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <monad/core/likely.h>
@@ -44,6 +46,9 @@ static inline monad_tid_t monad_thread_get_id()
 
 /// Set the name of the calling thread
 int monad_thread_set_name(char const *name);
+
+/// Get the base address and size of a thread's stack
+int monad_thread_get_stack(pthread_t thread, void **stack_addr, size_t *stack_size);
 
 #ifdef __cplusplus
 }

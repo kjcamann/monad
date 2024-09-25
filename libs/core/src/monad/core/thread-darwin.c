@@ -22,3 +22,13 @@ int monad_thread_set_name(char const *name)
     pthread_setname_np(name);
     return 0;
 }
+
+int monad_thread_get_stack(pthread_t thread, void **stack_addr, size_t *stack_size)
+{
+    if (stack_addr == nullptr || stack_size == nullptr) {
+        return EFAULT;
+    }
+    *stack_addr = pthread_get_stackaddr_np(thread);
+    *stack_size = pthread_get_stacksize_np(thread);
+    return 0;
+}
