@@ -27,6 +27,13 @@ option(MONAD_CORE_SPINLOCK_TRACK_STATS
 option(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC
        "use fetch_add on atomics statistics tracking" OFF)
 
+# This is reasonable behavior to have, that is not strictly needed at the moment
+# for `monad` but could cause surprises later and failures in the test suite.
+# This should be the normal behavior (without a configuration option) if we can
+# figure out how to avoid the slight performance hit
+option(MONAD_CORE_RUN_QUEUE_SUPPORT_EQUAL_PRIO
+       "Allow the run_queue to support equal priority fibers" ON)
+
 # ##############################################################################
 # deps
 # ##############################################################################
@@ -142,6 +149,8 @@ add_library(
   "src/monad/fiber/priority_queue.cpp"
   "src/monad/fiber/priority_queue.hpp"
   "src/monad/fiber/priority_task.hpp"
+  "src/monad/fiber/run_queue.c"
+  "src/monad/fiber/run_queue.h"
   # io
   "src/monad/io/buffer_pool.cpp"
   "src/monad/io/buffer_pool.hpp"
@@ -202,6 +211,11 @@ endif()
 if(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
   target_compile_definitions(monad_core
                              PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC)
+endif()
+
+if(MONAD_CORE_RUN_QUEUE_SUPPORT_EQUAL_PRIO)
+  target_compile_definitions(monad_core
+                             PUBLIC MONAD_CORE_RUN_QUEUE_SUPPORT_EQUAL_PRIO)
 endif()
 
 target_link_libraries(monad_core PUBLIC monad_boost_context)

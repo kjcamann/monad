@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -22,6 +23,7 @@
 #include <monad/core/c_result.h>
 #include <monad/core/likely.h>
 #include <monad/fiber/fiber.h>
+#include <monad/fiber/run_queue.h>
 
 namespace fs = std::filesystem;
 using std::chrono::duration_cast, std::chrono::seconds,
@@ -31,12 +33,20 @@ constexpr intptr_t KIBI_MASK = (1L << 10) - 1;
 
 static size_t g_fiber_stack_size = 1UL << 17; // 128 KiB
 static auto g_benchmark_seconds = seconds{10};
+static size_t g_run_queue_fibers = 256;
+
+enum long_only_option
+{
+    LO_RUN_QUEUE_FIBERS
+};
 
 // clang-format off
 static option longopts[] = {
     {.name = "list", .has_arg = 0, .flag = nullptr, .val = 'L'},
     {.name = "stack_shift", .has_arg = 1, .flag = nullptr, .val = 's'},
     {.name = "time", .has_arg = 1, .flag = nullptr, .val = 't'},
+    {.name = "rq-fibers", .has_arg = 1, .flag = nullptr,
+        .val = LO_RUN_QUEUE_FIBERS},
     {.name = "help", .has_arg = 1, .flag = nullptr, .val = 'h'},
     {}};
 // clang-format on
@@ -45,7 +55,10 @@ extern char const *__progname;
 
 static void usage(std::FILE *out)
 {
-    std::fprintf(out, "%s: [-Lh] [-t <sec>] [-s <shift>]\n", __progname);
+    std::fprintf(
+        out,
+        "%s: [-Lh] [-t <sec>] [-s <shift>] [--rq-fibers <#>] [benchmark...]\n",
+        __progname);
 }
 
 template <typename... Args>
@@ -97,6 +110,7 @@ template <typename... Args>
 struct benchmark;
 
 static void switch_benchmark(benchmark const &);
+static void run_queue_benchmark(benchmark const &);
 
 static struct benchmark
 {
@@ -106,7 +120,10 @@ static struct benchmark
 } g_bench_table[] = {
     {.name = "switch",
      .description = "performance of fiber context switch",
-     .func = switch_benchmark}};
+     .func = switch_benchmark},
+    {.name = "rq",
+     .description = "performance of run queue",
+     .func = run_queue_benchmark}};
 
 static int parse_options(int argc, char **argv)
 {
@@ -141,6 +158,14 @@ static int parse_options(int argc, char **argv)
                 errx(EX_CONFIG, "bad -t|--time value '%s'", optarg);
             }
             g_benchmark_seconds = seconds{opt_uint};
+            break;
+
+        case LO_RUN_QUEUE_FIBERS:
+            fcr = std::from_chars(optarg, end_optarg, g_run_queue_fibers);
+            if (fcr.ptr != end_optarg || std::to_underlying(fcr.ec) ||
+                g_run_queue_fibers < 1 || g_run_queue_fibers > 1U << 20) {
+                errx(EX_CONFIG, "bad --rq-fibers value '%s'", optarg);
+            }
             break;
 
         case 'h':
@@ -211,6 +236,65 @@ static void switch_benchmark(benchmark const &self)
         data(self.name),
         context_switch_count / g_benchmark_seconds.count(),
         nanos_per_switch);
+}
+
+void run_queue_benchmark(benchmark const &self)
+{
+    std::unique_ptr<monad_fiber_t *[]> fibers;
+    monad_fiber_t *next_fiber;
+    monad_fiber_suspend_info_t suspend_info;
+    monad_run_queue_t *rq;
+    std::atomic<bool> done{false};
+    monad_fiber_attr_t const fiber_attr = {
+        .stack_size = g_fiber_stack_size, .alloc = nullptr};
+    size_t run_count = 0;
+
+    CHECK_Z(monad_run_queue_create(nullptr, g_run_queue_fibers, &rq));
+    fibers = std::make_unique<monad_fiber_t *[]>(g_run_queue_fibers);
+    for (size_t f = 0; f < g_run_queue_fibers; ++f) {
+        CHECK_Z(monad_fiber_create(&fiber_attr, &fibers[f]));
+        CHECK_Z(monad_fiber_set_function(
+            fibers[f],
+            MONAD_FIBER_PRIO_HIGHEST,
+            yield_forever,
+            (monad_fiber_args_t){.arg = {(uintptr_t)&done}}));
+        CHECK_Z(monad_run_queue_try_push(rq, fibers[f]));
+    }
+
+    auto const start_time = std::chrono::system_clock::now();
+    do {
+        next_fiber = monad_run_queue_try_pop(rq);
+        (void)monad_fiber_run(next_fiber, nullptr);
+        if ((++run_count & KIBI_MASK) == 0) {
+            // Every 1024 yields, check if it's time to exit
+            auto const now = std::chrono::system_clock::now();
+            done.store(
+                duration_cast<seconds>(now - start_time) >= g_benchmark_seconds,
+                std::memory_order::release);
+        }
+    }
+    while (!done);
+
+    while (!monad_run_queue_is_empty(rq)) {
+        next_fiber = monad_run_queue_try_pop(rq);
+        monad_fiber_run(next_fiber, &suspend_info);
+        ASSERT_EQ(MF_SUSPEND_RETURN, suspend_info.suspend_type);
+    }
+
+    monad_run_queue_destroy(rq);
+    for (size_t f = 0; f < g_run_queue_fibers; ++f) {
+        monad_fiber_destroy(fibers[f]);
+    }
+
+    double const nanos_per_run_cycle =
+        ((double)g_benchmark_seconds.count() * 1'000'000'000.0) /
+        (double)run_count;
+    fprintf(
+        stdout,
+        "%s:\tsingle core run cycle rate: %lu r/s, %.1f ns/r\n",
+        data(self.name),
+        run_count / static_cast<unsigned>(g_benchmark_seconds.count()),
+        nanos_per_run_cycle);
 }
 
 int main(int argc, char **argv)
