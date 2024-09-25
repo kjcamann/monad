@@ -120,9 +120,6 @@ add_library(
   "src/monad/core/result.hpp"
   "src/monad/core/size_of.hpp"
   "src/monad/core/small_prng.hpp"
-  "src/monad/core/spinlock.h"
-  "src/monad/core/spinloop.h"
-  "src/monad/core/srcloc.h"
   "src/monad/core/srcloc.hpp"
   "src/monad/core/tl_tid.c"
   "src/monad/core/tl_tid.h"
@@ -134,7 +131,10 @@ add_library(
   "src/monad/synchronization/spin_lock.hpp"
   # fiber
   "src/monad/fiber/config.hpp"
+  "src/monad/fiber/fiber.c"
   "src/monad/fiber/fiber.h"
+  "src/monad/fiber/fiber_inline.h"
+  "src/monad/fiber/fiber_thr.c"
   "src/monad/fiber/priority_algorithm.cpp"
   "src/monad/fiber/priority_algorithm.hpp"
   "src/monad/fiber/priority_pool.cpp"
@@ -204,6 +204,8 @@ if(MONAD_CORE_SPINLOCK_TRACK_STATS_ATOMIC)
   target_compile_definitions(monad_core
                              PUBLIC MONAD_SPINLOCK_TRACK_STATS_ATOMIC)
 endif()
+
+target_link_libraries(monad_core PUBLIC monad_boost_context)
 
 target_compile_definitions(monad_core PRIVATE "BOOST_STACKTRACE_LINK=1")
 if(TARGET Boost::stacktrace_backtrace)
