@@ -39,10 +39,10 @@ int main(int argc, char **argv)
     int rc;
     monad_fiber_t *hello_fiber;
     char const *name;
+    monad_allocator_t *const alloc = nullptr; // Use default allocator
     monad_fiber_attr_t const fiber_attr = {
         .stack_size = 1UL << 17, // 128 KiB stack
-        .alloc = nullptr // Use the default allocator
-    };
+        .alloc = alloc};
 
     // This application says hello to you using a fiber; it expects your name
     // as the first (and only) positional argument
