@@ -8,6 +8,7 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/tx_context.hpp>
 #include <monad/execution/validate_transaction.hpp>
+#include <monad/fiber/fiber_semaphore.h>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
 
@@ -15,8 +16,6 @@
 #include <evmc/evmc.hpp>
 
 #include <intx/intx.hpp>
-
-#include <boost/fiber/future/promise.hpp>
 
 #include <gtest/gtest.h>
 
@@ -61,11 +60,19 @@ TEST(TransactionProcessor, irrevocable_gas_and_refund_new_contract)
     BlockHeader const header{.beneficiary = bene};
     BlockHashBuffer const block_hash_buffer;
 
-    boost::fibers::promise<void> prev{};
-    prev.set_value();
+    monad_fiber_semaphore_t txn_sync_semaphore;
+    monad_fiber_semaphore_init(&txn_sync_semaphore);
+    monad_fiber_semaphore_release(&txn_sync_semaphore, 1);
 
     auto const result = execute_impl<EVMC_SHANGHAI>(
-        EthereumMainnet{}, 0, tx, from, header, block_hash_buffer, bs, prev);
+        EthereumMainnet{},
+        0,
+        tx,
+        from,
+        header,
+        block_hash_buffer,
+        bs,
+        &txn_sync_semaphore);
 
     ASSERT_TRUE(!result.has_error());
 
