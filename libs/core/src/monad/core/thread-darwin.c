@@ -7,7 +7,7 @@
 
 static_assert(sizeof(monad_tid_t) >= sizeof(uint64_t));
 
-__thread monad_tid_t _monad_tl_tid = 0;
+thread_local monad_tid_t _monad_tl_tid = 0;
 
 void _monad_tl_tid_init()
 {

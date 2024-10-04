@@ -18,7 +18,19 @@ extern "C"
 #include <monad/core/likely.h>
 
 typedef long monad_tid_t;
-extern __thread monad_tid_t _monad_tl_tid;
+
+// This constinit is needed on macOS, where the TLS codegen strategy differs
+// between C and C++. The thread id object lives in `thread-{platform}.c`, so
+// it follows the C language rules. These inline functions are usually also
+// included in C++ translation units. Without constinit, this would emit
+// references to an undefined C++ thread_local wrapper function on Darwin. See
+// the comments in clang's `CodeGenModule::EmitGlobalVarDefinition` in
+// CodeGenModule.cpp for more information
+#ifdef __cplusplus
+constinit
+#endif
+extern thread_local monad_tid_t _monad_tl_tid;
+
 void _monad_tl_tid_init();
 
 /// Get the system ID of the calling thread

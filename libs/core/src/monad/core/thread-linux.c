@@ -3,7 +3,7 @@
 
 #include <monad/core/thread.h>
 
-__thread monad_tid_t _monad_tl_tid = 0;
+thread_local monad_tid_t _monad_tl_tid = 0;
 
 static_assert(sizeof(monad_tid_t) >= sizeof(pid_t));
 
