@@ -15,8 +15,8 @@ struct monad_cma_fallback_alloc
 };
 
 int monad_cma_fallback_alloc_init(
-    struct monad_cma_fallback_alloc *ma, monad_allocator_t *primary,
-    monad_allocator_t *secondary);
+    struct monad_cma_fallback_alloc *fallback, monad_allocator_t *primary,
+    monad_allocator_t *secondary, monad_allocator_t **ma);
 
 #ifdef __cplusplus
 } // extern "C"
