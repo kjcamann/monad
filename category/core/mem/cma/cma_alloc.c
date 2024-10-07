@@ -1,7 +1,9 @@
 #include <errno.h>
 #include <stdatomic.h>
+#include <stdbit.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <monad/core/assert.h>
 #include <monad/core/likely.h>
@@ -15,11 +17,15 @@ static atomic_uintptr_t g_global_allocator;
  */
 
 static monad_cma_alloc_fn null_alloc;
+static monad_cma_realloc_fn null_realloc;
 static monad_cma_dealloc_fn null_dealloc;
 static monad_cma_owns_fn null_owns;
 
 static struct monad_allocator_ops g_null_allocator_ops = {
-    .alloc = null_alloc, .dealloc = null_dealloc, .owns = null_owns};
+    .alloc = null_alloc,
+    .realloc = null_realloc,
+    .dealloc = null_dealloc,
+    .owns = null_owns};
 
 static monad_allocator_t g_null_allocator = {.vtable = &g_null_allocator_ops};
 
@@ -33,6 +39,17 @@ null_alloc(monad_allocator_t *ma, size_t, size_t, monad_memblk_t *blk)
     blk->ptr = nullptr;
     blk->size = 0;
     return 0;
+}
+
+static int null_realloc(
+    monad_allocator_t *ma, size_t, size_t, [[maybe_unused]] monad_memblk_t *blk)
+{
+    MONAD_DEBUG_ASSERT(ma == &g_null_allocator);
+    if (MONAD_UNLIKELY(blk == nullptr)) {
+        return EFAULT;
+    }
+    MONAD_ASSERT(blk->ptr == nullptr);
+    return ENOMEM;
 }
 
 static void
@@ -58,10 +75,14 @@ monad_allocator_t *monad_cma_get_null_allocator()
  */
 
 static monad_cma_alloc_fn malloc_alloc;
+static monad_cma_realloc_fn malloc_realloc;
 static monad_cma_dealloc_fn malloc_dealloc;
 
 static struct monad_allocator_ops g_malloc_allocator_ops = {
-    .alloc = malloc_alloc, .dealloc = malloc_dealloc, .owns = nullptr};
+    .alloc = malloc_alloc,
+    .realloc = malloc_realloc,
+    .dealloc = malloc_dealloc,
+    .owns = nullptr};
 
 static monad_allocator_t g_malloc_allocator = {
     .vtable = &g_malloc_allocator_ops};
@@ -73,12 +94,56 @@ static int malloc_alloc(
     if (MONAD_UNLIKELY(blk == nullptr)) {
         return EFAULT;
     }
+    if (MONAD_UNLIKELY(!stdc_has_single_bit(align))) {
+        return EINVAL;
+    }
     size = monad_round_size_to_align(size, align);
     blk->ptr = aligned_alloc(align, size);
     if (MONAD_UNLIKELY(blk->ptr == nullptr)) {
         blk->size = 0;
         return errno;
     }
+    blk->size = size;
+    return 0;
+}
+
+static int malloc_realloc(
+    monad_allocator_t *ma, size_t size, size_t align, monad_memblk_t *blk)
+{
+    void *new_mem;
+    MONAD_DEBUG_ASSERT(ma == &g_malloc_allocator);
+    if (MONAD_UNLIKELY(blk == nullptr)) {
+        return EFAULT;
+    }
+    if (MONAD_UNLIKELY(!stdc_has_single_bit(align))) {
+        return EINVAL;
+    }
+    size = monad_round_size_to_align(size, align);
+    if (MONAD_UNLIKELY(align > alignof(max_align_t))) {
+        // As of 2024, only Microsoft's libc has an interface for reallocation
+        // that allows the caller to also request over-alignment. Thus we need
+        // to always move the memory block. We could speculatively realloc(3)
+        // an already-suitably-aligned block and hope it grows, maintaining the
+        // original alignment. But if it moves our memory and mis-aligns it,
+        // we can't guarantee we'll be able to move it back, breaking the
+        // contract that we do nothing if the realloc can't succeed. Thus we
+        // have to pessimize it this way.
+        new_mem = aligned_alloc(align, size);
+        if (new_mem == nullptr) {
+            return errno;
+        }
+        memcpy(new_mem, blk->ptr, size > blk->size ? size : blk->size);
+        free(blk->ptr);
+        blk->ptr = new_mem;
+        blk->size = size;
+        return 0;
+    }
+    new_mem = realloc(blk->ptr, size);
+    if (MONAD_UNLIKELY(new_mem == nullptr)) {
+        // Could not resize; we do nothing here.
+        return errno;
+    }
+    blk->ptr = new_mem;
     blk->size = size;
     return 0;
 }
