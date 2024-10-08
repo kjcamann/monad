@@ -26,11 +26,12 @@ target_compile_definitions(
           MONAD_SPINLOCK_TRACK_STATS_ATOMIC)
 monad_add_test(unordered_map_test "unordered_map.cpp")
 
-# Ensure the API demo described in fiber-api.md compiles
+# Ensure the API demo described in fiber-api.md compiles. This was written as
+# a C program but must compile as C++ for now because of a Boost.Outcome issue
 add_executable(fiber-hello fiber-hello.cpp)
 monad_compile_options(fiber-hello)
 target_link_libraries(fiber-hello PRIVATE monad_core)
 
-add_executable(fiber_benchmark fiber_bench.c)
+add_executable(fiber_benchmark fiber_bench.cpp)
 monad_compile_options(fiber_benchmark)
 target_link_libraries(fiber_benchmark PRIVATE monad_core)
