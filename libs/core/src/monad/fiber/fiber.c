@@ -26,7 +26,7 @@ static monad_fiber_attr_t g_default_fiber_attr = {
     .alloc = nullptr // Default allocator
 };
 
-static atomic_uint g_next_fiber_id = 0;
+static atomic_uint g_last_fiber_id = 0;
 
 static int
 alloc_fiber_stack(struct monad_fiber_stack *stack, size_t *stack_size)
@@ -127,7 +127,7 @@ int monad_fiber_create(monad_fiber_attr_t const *attr, monad_fiber_t **fiber)
     *fiber = f = memblk.ptr;
     memset(f, 0, sizeof *f);
     monad_spinlock_init(&f->lock);
-    f->fiber_id = g_next_fiber_id++;
+    f->fiber_id = ++g_last_fiber_id;
     f->state = MF_STATE_INIT;
     f->stack = fiber_stack;
     f->create_attr = *attr;
