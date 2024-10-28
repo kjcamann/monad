@@ -11,6 +11,8 @@
 #include <monad/db/db_cache.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
+#include <monad/event/event_recorder.h>
+#include <monad/event/event_server.h>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
@@ -206,6 +208,59 @@ Result<std::pair<uint64_t, uint64_t>> run_monad(
     return {ntxs, total_gas};
 }
 
+/*
+ * Event server functions
+ */
+
+static void monad_event_server_logger(int severity, char const *msg, void *ctx)
+{
+    constexpr quill::LogLevel syslog_to_quill_levels[] = {
+        quill::LogLevel::Critical,
+        quill::LogLevel::Critical,
+        quill::LogLevel::Critical,
+        quill::LogLevel::Error,
+        quill::LogLevel::Warning,
+        quill::LogLevel::Info,
+        quill::LogLevel::Info,
+        quill::LogLevel::Debug};
+    auto *const logger = static_cast<quill::Logger *>(ctx);
+    if (!logger->should_log(syslog_to_quill_levels[severity])) {
+        return;
+    }
+    QUILL_DYNAMIC_LOG(logger, syslog_to_quill_levels[severity], "{}", msg);
+}
+
+static void event_server_thread_main(
+    std::stop_token const token, monad_event_server *server)
+{
+    pthread_setname_np(pthread_self(), "event_server");
+    timespec const timeout{.tv_sec = 1, .tv_nsec = 30'000'000};
+    while (!token.stop_requested() && stop == 0) {
+        (void)monad_event_server_process_work(server, &timeout, nullptr);
+    }
+}
+
+static std::jthread init_event_server(
+    fs::path const &event_socket_path, monad_event_server **event_server)
+{
+    int srv_rc;
+    monad_event_server_options event_server_opts = {
+        .log_fn = monad_event_server_logger,
+        .log_context = quill::get_root_logger(),
+        .socket_path = MONAD_EVENT_DEFAULT_SOCKET_PATH};
+    // Note the comma operator because c_str() is only temporary
+    event_server_opts.socket_path = event_socket_path.c_str(),
+    srv_rc = monad_event_server_create(&event_server_opts, event_server);
+    if (srv_rc != 0) {
+        // TODO(ken): should this be an exception?
+        LOG_ERROR("event server initialization error, server is disabled");
+        return {};
+    }
+
+    // Launch the event server as a separate thread
+    return std::jthread{event_server_thread_main, *event_server};
+}
+
 int main(int const argc, char const *argv[])
 {
 
@@ -223,6 +278,7 @@ int main(int const argc, char const *argv[])
     fs::path genesis;
     fs::path snapshot;
     fs::path dump_snapshot;
+    fs::path event_socket_path;
     std::string statesync;
     auto log_level = quill::LogLevel::Info;
 
@@ -266,6 +322,10 @@ int main(int const argc, char const *argv[])
         "--dump_snapshot",
         dump_snapshot,
         "directory to dump state to at the end of run");
+    cli.add_option(
+        "--event-socket-path",
+        event_socket_path,
+        "path to the socket file used by the event server");
     auto *const group =
         cli.add_option_group("load", "methods to initialize the db");
     group->add_option("--genesis", genesis, "genesis file")
@@ -313,6 +373,19 @@ int main(int const argc, char const *argv[])
     quill::start(true);
     quill::get_root_logger()->set_log_level(log_level);
     LOG_INFO("running with commit '{}'", GIT_COMMIT_HASH);
+
+    /*
+     * Event recorder
+     */
+
+    // Allow recording of all event domains
+    monad_event_recorder_set_domain_mask(MONAD_EVENT_DOMAIN_ENABLE_ALL);
+
+    // Host an event server on a separate thread, so external clients can
+    // connect
+    monad_event_server *event_server;
+    std::jthread event_server_thread =
+        init_event_server(event_socket_path, &event_server);
 
 #ifdef ENABLE_EVENT_TRACING
     quill::FileHandlerConfig handler_cfg;
@@ -530,6 +603,12 @@ int main(int const argc, char const *argv[])
         // WARNING: to_json() does parallel traverse which consumes excessive
         // memory
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
+    }
+
+    if (event_server != nullptr) {
+        event_server_thread.request_stop();
+        event_server_thread.join();
+        monad_event_server_destroy(event_server);
     }
     return result.has_error() ? EXIT_FAILURE : EXIT_SUCCESS;
 }

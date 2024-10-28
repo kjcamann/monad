@@ -8,6 +8,8 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/withdrawal.hpp>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/block_reward.hpp>
 #include <monad/execution/ethereum/dao.hpp>
@@ -99,6 +101,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)
 {
+    MONAD_EVENT(MONAD_EVENT_BLOCK_START, 0);
     TRACE_BLOCK_EVENT(StartBlock);
 
     if constexpr (rev >= EVMC_CANCUN) {
