@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -126,10 +127,13 @@ inline int monad_cma_calloc(
     monad_allocator_t *ma, size_t count, size_t size, size_t align,
     monad_memblk_t *blk)
 {
+    int rc;
     if (SIZE_MAX / count < size) {
         return ENOMEM; // Product of `count * size` would overflow
     }
-    return monad_cma_alloc(ma, count * size, align, blk);
+    rc = monad_cma_alloc(ma, count * size, align, blk);
+    memset(blk->ptr, 0, blk->size);
+    return rc;
 }
 
 inline int monad_cma_realloc(
