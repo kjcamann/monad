@@ -7,8 +7,10 @@
 #include <sys/queue.h>
 #include <threads.h>
 
+#include <pthread.h>
+
 #include <monad/core/spinlock.h>
-#include <monad/core/thread.h>
+#include <monad/core/tl_tid.h>
 #include <monad/fiber/fiber.h>
 
 // This structure keeps track of a global list of all active
@@ -39,23 +41,32 @@ static void monad_thread_executor_dtor(void *arg)
 void _monad_init_thread_executor(monad_thread_executor_t *thr_exec)
 {
     int rc;
+    pthread_attr_t thread_attrs;
     struct monad_fiber_stack *thread_stack;
     size_t thread_stack_size;
 
     memset(thr_exec, 0, sizeof *thr_exec);
     thr_exec->thread = thrd_current();
-    thr_exec->thread_id = monad_thread_get_id();
+    thr_exec->thread_id = (uint64_t)get_tl_tid();
 
     // Get the thread's stack area
     // TODO(ken): is this potentially wrong if mapped with MAP_GROWSDOWN on
     //  Linux (its size could increase, and we won't know?)
     thread_stack = &thr_exec->stack;
-    rc = monad_thread_get_stack(
-        pthread_self(), &thread_stack->stack_bottom, &thread_stack_size);
+
+    rc = pthread_getattr_np(pthread_self(), &thread_attrs);
     if (rc != 0) {
-        fprintf(stderr, "fatal: monad_thread_get_stack(3): %d\n", rc);
+        fprintf(stderr, "fatal: pthread_getattr_np(3): %d\n", rc);
         abort();
     }
+    rc = pthread_attr_getstack(&thread_attrs, &thread_stack->stack_bottom,
+        &thread_stack_size);
+    if (rc != 0) {
+        fprintf(stderr, "fatal: pthread_getattr_np(3): %d\n", rc);
+        abort();
+    }
+    (void)pthread_attr_destroy(&thread_attrs);
+
     thread_stack->stack_base = thread_stack->stack_bottom;
     thread_stack->stack_top =
         (uint8_t *)thread_stack->stack_bottom + thread_stack_size;

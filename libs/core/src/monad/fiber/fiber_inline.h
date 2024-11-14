@@ -17,7 +17,7 @@
 #include <threads.h>
 
 #include <monad/core/assert.h>
-#include <monad/core/thread.h>
+#include <monad/core/tl_tid.h>
 
 #include <monad-boost/context/fcontext.h>
 
@@ -40,7 +40,7 @@ struct monad_thread_executor
     monad_fcontext_t md_suspended_ctx; ///< Saved thread's ctx when suspended
     monad_fiber_t *cur_fiber; ///< Fiber this thread is running (or nullptr)
     thrd_t thread; ///< Opaque system handle for the thread
-    monad_tid_t thread_id; ///< Public ID for the thread, for debugging
+    uint64_t thread_id; ///< Public ID for the thread, for debugging
     struct monad_fiber_stack stack; ///< Descriptor for thread stack
     monad_fiber_suspend_info_t suspend_info; ///< To copy out suspension info
     SLIST_ENTRY(monad_thread_executor) next; ///< Linkage for all thread_locals
@@ -115,7 +115,7 @@ _monad_finish_switch_to_fiber(struct monad_transfer_t xfer_from)
     monad_fiber_t *const fiber = thr_exec->cur_fiber;
 
     MONAD_FIBER_ASAN_FINISH_SWITCH(fiber->fake_stack_save);
-    MONAD_DEBUG_ASSERT(monad_spinlock_is_owned(&fiber->lock));
+    MONAD_DEBUG_ASSERT(monad_spinlock_is_self_owned(&fiber->lock));
 
     // Remember where the thread context suspended
     thr_exec->md_suspended_ctx = xfer_from.fctx;
@@ -188,7 +188,7 @@ inline int monad_fiber_run(
     // The fiber is usually already locked, since fibers remain locked when
     // returned from the run queue. However, you can also run a fiber directly
     // e.g., in the test suite. Acquire the lock if we don't have it
-    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&next_fiber->lock))) {
+    if (MONAD_UNLIKELY(!monad_spinlock_is_self_owned(&next_fiber->lock))) {
         MONAD_SPINLOCK_LOCK(&next_fiber->lock);
     }
 

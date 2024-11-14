@@ -142,7 +142,7 @@ inline int monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber)
         goto Finish;
     }
 
-    if (MONAD_UNLIKELY(!monad_spinlock_is_owned(&fiber->lock))) {
+    if (MONAD_UNLIKELY(!monad_spinlock_is_self_owned(&fiber->lock))) {
         MONAD_SPINLOCK_LOCK(&fiber->lock);
     }
     if (MONAD_UNLIKELY(fiber->state != MF_STATE_CAN_RUN)) {
