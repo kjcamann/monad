@@ -63,6 +63,8 @@ public:
         channel_msgs_.erase(finished); // Reclaim the memory
         MONAD_SPINLOCK_UNLOCK(&channel_msgs_lock_);
     }
+
+    void write_statistics_events();
 };
 
 MONAD_FIBER_NAMESPACE_END

@@ -13,6 +13,8 @@
 #include <monad/core/spinlock.h>
 #include <monad/core/spinloop.h>
 #include <monad/core/srcloc.h>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/fiber/fiber.h>
 
 #ifdef __cplusplus
@@ -81,6 +83,7 @@ TryAgain:
         else {
             // See comment in monad_fiber_channel_pop
             ++self->stats.total_spurious_wakeups;
+            MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_SPURIOUS_WAKEUP, 0, sem);
         }
         TAILQ_INSERT_TAIL(&sem->fiber_queue, self, wait_link);
         MONAD_SPINLOCK_UNLOCK(&sem->lock);
@@ -89,6 +92,8 @@ TryAgain:
     }
     // Take a wakeup token and return
     --sem->tokens;
+
+    MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_ACQUIRE, 0, sem);
     MONAD_SPINLOCK_UNLOCK(&sem->lock);
 }
 
@@ -136,9 +141,10 @@ monad_fiber_semaphore_release(monad_fiber_semaphore_t *sem, unsigned num_tokens)
     }
     do {
         MONAD_SPINLOCK_LOCK(&sem->lock);
-        if (TAILQ_EMPTY(&sem->fiber_queue)) {
-            // There are no fibers waiting to wakeup; keep the remaining wakeup
-            // tokens and exit
+        waiter = TAILQ_FIRST(&sem->fiber_queue);
+        if (waiter == nullptr) {
+            // There are no fibers waiting to wakeup; store the remaining
+            // wakeup tokens and exit
             sem->tokens += num_tokens;
             MONAD_SPINLOCK_UNLOCK(&sem->lock);
             break;
@@ -147,7 +153,6 @@ monad_fiber_semaphore_release(monad_fiber_semaphore_t *sem, unsigned num_tokens)
         // There is at least one waiting fiber; try to wake it up
         ++sem->tokens;
         --num_tokens;
-        waiter = TAILQ_FIRST(&sem->fiber_queue);
         TAILQ_REMOVE(&sem->fiber_queue, waiter, wait_link);
         MONAD_SPINLOCK_UNLOCK(&sem->lock);
         while (!_monad_fiber_try_wakeup(waiter))

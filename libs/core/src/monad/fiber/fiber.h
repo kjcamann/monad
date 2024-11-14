@@ -151,6 +151,7 @@ struct monad_fiber_stats
     size_t total_sleep;      ///< # of times exec slept on a sync. primitive
     size_t total_sched_fail; ///< # times scheduling immediately failed
     size_t total_spurious_wakeups; ///< # times woken up just to sleep again
+    size_t total_skipped_sleeps;   ///< # times signaled before needing sleep
     size_t total_migrate;          ///< # of times moved between threads
 };
 
@@ -195,6 +196,7 @@ enum monad_fiber_state : unsigned
     MF_STATE_INIT,       ///< Fiber function not run yet
     MF_STATE_CAN_RUN,    ///< Not running but able to run
     MF_STATE_WAIT_QUEUE, ///< Asleep on a wait queue
+    MF_STATE_WAKE_READY, ///< Ready to wake up on a condition immediately
     MF_STATE_RUN_QUEUE,  ///< Scheduled on a run queue
     MF_STATE_RUNNING,    ///< Fiber or thread is running
     MF_STATE_FINISHED    ///< Suspended by function return; fiber is finished

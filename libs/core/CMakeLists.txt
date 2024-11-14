@@ -127,6 +127,7 @@ add_library(
   "src/monad/fiber/fiber_semaphore.h"
   "src/monad/fiber/fiber_inline.h"
   "src/monad/fiber/fiber_thr.c"
+  "src/monad/fiber/fiber_trace.h"
   "src/monad/fiber/priority_pool.cpp"
   "src/monad/fiber/priority_pool.hpp"
   "src/monad/fiber/priority_task.hpp"
@@ -149,6 +150,12 @@ add_library(
   "src/monad/rlp/encode.hpp"
   # test
   "src/monad/test/gtest_signal_stacktrace_printer.hpp"
+  # trace
+  "src/monad/trace/trace.c"
+  "src/monad/trace/trace.h"
+  "src/monad/trace/trace.hpp"
+  "src/monad/trace/trace_file.c"
+  "src/monad/trace/trace_file.h"
   # util
   "src/monad/util/stopwatch.hpp")
 

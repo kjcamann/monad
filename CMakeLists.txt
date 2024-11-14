@@ -12,6 +12,13 @@ option(ENABLE_CALL_TRACING "Enable call tracer" ON)
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_SHARED_LIBS OFF)
 
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  set(_monad_enable_trace_default ON)
+else()
+  set(_monad_enable_trace_default OFF)
+endif()
+option(MONAD_ENABLE_TRACE "Enable tracepoints" ${_monad_enable_trace_default})
+
 include(cmake/test.cmake)
 
 # ##############################################################################
@@ -53,6 +60,10 @@ function(monad_compile_options target)
 
   if(ENABLE_CALL_TRACING)
     target_compile_definitions(${target} PUBLIC "ENABLE_CALL_TRACING=1")
+  endif()
+
+  if(MONAD_ENABLE_TRACE)
+    target_compile_definitions(${target} PUBLIC MONAD_ENABLE_TRACE)
   endif()
 endfunction()
 

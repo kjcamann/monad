@@ -7,7 +7,10 @@
 #include <stdio.h>
 
 #include <monad/core/assert.h>
+#include <monad/core/likely.h>
 #include <monad/core/spinlock.h>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/fiber/fiber.h>
 #include <monad/mem/cma/cma_alloc.h>
 
@@ -128,8 +131,9 @@ inline int monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber)
 {
     size_t idx;
     size_t size;
-    int rc = 0;
+    int rc;
     unsigned heapify_iters = 0;
+    [[maybe_unused]] monad_fiber_prio_t sched_prio;
 
     MONAD_DEBUG_ASSERT(rq != nullptr && fiber != nullptr);
     MONAD_SPINLOCK_LOCK(&rq->lock);
@@ -145,22 +149,26 @@ inline int monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber)
     if (MONAD_UNLIKELY(!monad_spinlock_is_self_owned(&fiber->lock))) {
         MONAD_SPINLOCK_LOCK(&fiber->lock);
     }
-    if (MONAD_UNLIKELY(fiber->state != MF_STATE_CAN_RUN)) {
-        switch (fiber->state) {
-        case MF_STATE_INIT:
-            [[fallthrough]];
-        case MF_STATE_FINISHED:
-            rc = ENXIO;
-            break;
-        default:
-            rc = EBUSY;
-            break;
-        }
-        MONAD_SPINLOCK_UNLOCK(&fiber->lock);
+    switch (fiber->state) {
+    case MF_STATE_INIT:
+        [[fallthrough]];
+    case MF_STATE_FINISHED:
+        rc = ENXIO;
+        ++rq->stats.total_push_not_ready;
+        goto Finish;
+
+    case MF_STATE_WAIT_QUEUE:
+        fiber->wait_object = nullptr;
+        [[fallthrough]];
+    case MF_STATE_CAN_RUN:
+        rc = 0;
+        break;
+
+    default:
+        rc = EBUSY;
         ++rq->stats.total_push_not_ready;
         goto Finish;
     }
-
     idx = size++;
 #if MONAD_CORE_RUN_QUEUE_SUPPORT_EQUAL_PRIO
     // To robustly support fibers with equal priority, we need to adjust the
@@ -180,11 +188,18 @@ inline int monad_run_queue_try_push(monad_run_queue_t *rq, monad_fiber_t *fiber)
     }
     fiber->run_queue = rq;
     fiber->state = MF_STATE_RUN_QUEUE;
+#if MONAD_ENABLE_TRACE
+    sched_prio = fiber->priority; // Only for the tracer
+#endif
     MONAD_SPINLOCK_UNLOCK(&fiber->lock);
     atomic_store_explicit(&rq->size, size, memory_order_relaxed);
     ++rq->stats.heapify_iter_histogram[stdc_bit_width(heapify_iters)];
 Finish:
     MONAD_SPINLOCK_UNLOCK(&rq->lock);
+    if (MONAD_LIKELY(rc == 0)) {
+        // This is technically racy since the fiber isn't locked here
+        MONAD_TRACE_EXPR(MONAD_EVENT_RUN_QUEUE_PUSH, 0, sched_prio);
+    }
     return rc;
 }
 
@@ -193,6 +208,7 @@ inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq)
     monad_fiber_t *min_prio_fiber;
     size_t size;
     unsigned heapify_iter;
+    [[maybe_unused]] uint64_t dequeue_time;
 
     MONAD_DEBUG_ASSERT(rq != nullptr);
     ++rq->stats.total_pop;
@@ -243,6 +259,7 @@ inline monad_fiber_t *monad_run_queue_try_pop(monad_run_queue_t *rq)
         ++rq->stats.heapify_iter_histogram[stdc_bit_width(heapify_iter)];
     }
     MONAD_SPINLOCK_UNLOCK(&rq->lock);
+    MONAD_TRACE_EXPR(MONAD_EVENT_RUN_QUEUE_POP, 0, min_prio_fiber->priority);
 
     // Return the fiber in a locked state; the caller is almost certainly going
     // to call monad_fiber_run immediately

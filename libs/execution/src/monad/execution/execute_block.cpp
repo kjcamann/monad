@@ -21,9 +21,11 @@
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_semaphore.h>
+#include <monad/fiber/fiber_trace.h>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
 #include <monad/state3/state.hpp>
+#include <monad/trace/trace.hpp>
 
 #include <evmc/evmc.h>
 
@@ -36,11 +38,15 @@
 #include <cstring>
 #include <memory>
 #include <optional>
-#include <span>
 #include <utility>
 #include <vector>
 
 MONAD_NAMESPACE_BEGIN
+
+constexpr trace_flow_id make_txn_flow_id(uint64_t block_num, uint64_t txn_num)
+{
+    return static_cast<trace_flow_id>((block_num << 24) | txn_num);
+}
 
 // EIP-4895
 constexpr void process_withdrawal(
@@ -101,8 +107,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)
 {
-    MONAD_EVENT(MONAD_EVENT_BLOCK_START, 0);
-    TRACE_BLOCK_EVENT(StartBlock);
+    MONAD_EVENT_EXPR(MONAD_EVENT_BLOCK_START, 0, block.header.number);
 
     if constexpr (rev >= EVMC_CANCUN) {
         set_beacon_root(block_state, block);
@@ -134,23 +139,48 @@ Result<std::vector<ExecutionResult>> execute_block(
     // txn 0 can always commit immediately, so its semaphore is born holding an
     // immediate wakeup token
     monad_fiber_semaphore_init(&txn_sync_semaphores[0]);
+    MONAD_TRACE_EXPR(
+        MONAD_EVENT_SEMAPHORE_META,
+        0,
+        static_cast<monad_fiber_trace_info const &>(monad_fiber_trace_info{
+            &txn_sync_semaphores[0], MONAD_FIBER_TRACE_TXN_CAN_MERGE_SYNC, 0}));
     monad_fiber_semaphore_release(&txn_sync_semaphores[0], 1);
 
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         monad_fiber_semaphore_init(&sender_semaphores[i]);
         monad_fiber_semaphore_init(&txn_sync_semaphores[i + 1]);
+
+        MONAD_TRACE_EXPR(
+            MONAD_EVENT_SEMAPHORE_META,
+            0,
+            static_cast<monad_fiber_trace_info const &>(monad_fiber_trace_info{
+                &sender_semaphores[i],
+                MONAD_FIBER_TRACE_TXN_RECOVERY_SYNC,
+                i}));
+        MONAD_TRACE_EXPR(
+            MONAD_EVENT_SEMAPHORE_META,
+            0,
+            static_cast<monad_fiber_trace_info const &>(monad_fiber_trace_info{
+                &txn_sync_semaphores[i + 1],
+                MONAD_FIBER_TRACE_TXN_CAN_MERGE_SYNC,
+                i + 1}));
+
         priority_pool.submit(
             MONAD_FIBER_PRIO_HIGHEST + 2 * i,
-            [i = i,
+            [block_num = block.header.number,
+             i = i,
              senders = senders,
              sender_semaphores = sender_semaphores,
              &transaction = block.transactions[i]] {
+                TraceScopeRAII<MONAD_EVENT_TXN_RECOVER> const _{
+                    make_txn_flow_id(block_num, i)};
                 senders[i] = recover_sender(transaction);
                 monad_fiber_semaphore_release(&sender_semaphores[i], 1);
             });
         priority_pool.submit(
             MONAD_FIBER_PRIO_HIGHEST + 2 * (i + 1),
             [&chain = chain,
+             block_num = block.header.number,
              i = i,
              results = results,
              sender_semaphores = sender_semaphores,
@@ -160,6 +190,8 @@ Result<std::vector<ExecutionResult>> execute_block(
              &header = block.header,
              &block_hash_buffer = block_hash_buffer,
              &block_state] {
+                auto const &flow_id = make_txn_flow_id(block_num, i);
+                MONAD_EVENT_EXPR(MONAD_EVENT_TXN_EXEC_START, 0, flow_id);
                 results[i] = execute<rev>(
                     chain,
                     i,
@@ -174,6 +206,12 @@ Result<std::vector<ExecutionResult>> execute_block(
                 // merge; if we're the last transaction, this wakes up the
                 // thread that is running `execute_block`
                 monad_fiber_semaphore_release(&txn_sync_semaphores[i + 1], 1);
+                uint64_t const gas_used =
+                    MONAD_LIKELY(results[i] && results[i]->has_value())
+                        ? results[i]->value().receipt.gas_used
+                        : 0;
+                MONAD_EVENT_EXPR(
+                    MONAD_EVENT_TXN_EXEC_END, MONAD_EVENT_POP_SCOPE, gas_used);
             });
     }
 
@@ -217,7 +255,7 @@ Result<std::vector<ExecutionResult>> execute_block(
 
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
-
+    MONAD_EVENT(MONAD_EVENT_BLOCK_END, MONAD_EVENT_POP_SCOPE);
     return retvals;
 }
 

@@ -11,6 +11,7 @@
 #include <monad/db/db_cache.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/db/util.hpp>
+#include <monad/event/event.h>
 #include <monad/event/event_recorder.h>
 #include <monad/event/event_server.h>
 #include <monad/execution/block_hash_buffer.hpp>
@@ -26,29 +27,35 @@
 #include <monad/statesync/statesync_server.h>
 #include <monad/statesync/statesync_server_context.hpp>
 #include <monad/statesync/statesync_server_network.hpp>
+#include <monad/trace/trace.h>
 
 #include <CLI/CLI.hpp>
 
 #include <quill/LogLevel.h>
 #include <quill/Quill.h>
 #include <quill/detail/LogMacros.h>
-#include <quill/handlers/FileHandler.h>
 
 #include <boost/outcome/try.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include <err.h>
+#include <fcntl.h>
 #include <sys/sysinfo.h>
+#include <sysexits.h>
+#include <unistd.h>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -261,6 +268,37 @@ static std::jthread init_event_server(
     return std::jthread{event_server_thread_main, *event_server};
 }
 
+void init_event_tracer(fs::path const &trace_file_path)
+{
+    if (trace_file_path.empty()) {
+        return; // No specified file disables the tracer
+    }
+
+    // The reason for O_RDWR instead of O_WRONLY is that the trace
+    // infrastructure will mmap(2) parts of the file, which requires read
+    // permission
+    constexpr int trace_file_open_flags = O_CREAT | O_RDWR | O_TRUNC;
+    constexpr mode_t trace_file_open_mode =
+        S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+    int const fd = open(
+        trace_file_path.c_str(),
+        trace_file_open_flags,
+        trace_file_open_mode);
+    if (fd == -1) {
+        err(EX_OSERR, "unable to open trace file `%s`",
+            trace_file_path.c_str());
+    }
+    if (int const rc = monad_trace_init(trace_file_path.c_str(), fd,
+        MONAD_EVENT_RECORDER_DEFAULT_RING_SHIFT, nullptr, nullptr, nullptr)) {
+        errno = rc;
+        err(EX_SOFTWARE, "monad_trace_init_failed: %s",
+        monad_trace_get_last_error());
+    }
+    (void)close(fd); // Tracing infrastructure dup(2)'s this fd
+
+    monad_trace_set_domain_mask(MONAD_EVENT_DOMAIN_ENABLE_ALL);
+}
+
 int main(int const argc, char const *argv[])
 {
 
@@ -272,6 +310,7 @@ int main(int const argc, char const *argv[])
     unsigned nthreads = 4;
     unsigned nfibers = 256;
     bool no_compaction = false;
+    bool no_events = false;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
     std::vector<fs::path> dbname_paths;
@@ -346,10 +385,9 @@ int main(int const argc, char const *argv[])
     group->add_option(
         "--statesync", statesync, "socket for statesync communication");
     group->require_option(1);
-#ifdef ENABLE_EVENT_TRACING
-    fs::path trace_log = fs::absolute("trace");
-    cli.add_option("--trace_log", trace_log, "path to output trace file");
-#endif
+    fs::path trace_file_path;
+    cli.add_flag("--no-events", no_events, "disable the event recorder");
+    cli.add_option("--trace", trace_file_path, "path to output trace file");
 
     try {
         cli.parse(argc, argv);
@@ -375,24 +413,24 @@ int main(int const argc, char const *argv[])
     LOG_INFO("running with commit '{}'", GIT_COMMIT_HASH);
 
     /*
-     * Event recorder
+     * Event recorder and tracer
      */
 
     // Allow recording of all event domains
-    monad_event_recorder_set_domain_mask(MONAD_EVENT_DOMAIN_ENABLE_ALL);
+    monad_event_recorder_set_domain_mask(no_events
+        ? MONAD_EVENT_DOMAIN_ENABLE_NONE
+        : MONAD_EVENT_DOMAIN_ENABLE_ALL);
 
-    // Host an event server on a separate thread, so external clients can
-    // connect
     monad_event_server *event_server;
-    std::jthread event_server_thread =
-        init_event_server(event_socket_path, &event_server);
+    std::jthread event_server_thread;
+    if (!no_events) {
+        // Host an event server on a separate thread, so external clients can
+        // connect
+        event_server_thread = init_event_server(event_socket_path, &event_server);
 
-#ifdef ENABLE_EVENT_TRACING
-    quill::FileHandlerConfig handler_cfg;
-    handler_cfg.set_pattern("%(message)", "");
-    event_tracer = quill::create_logger(
-        "event_trace", quill::file_handler(trace_log, handler_cfg));
-#endif
+        // Initialize the tracer, which is a consumer of the general event system
+        init_event_tracer(trace_file_path);
+    }
 
     auto const load_start_time = std::chrono::steady_clock::now();
 
@@ -605,6 +643,7 @@ int main(int const argc, char const *argv[])
         write_to_file(ro_db.to_json(), dump_snapshot, block_num);
     }
 
+    priority_pool.write_statistics_events();
     if (event_server != nullptr) {
         event_server_thread.request_stop();
         event_server_thread.join();

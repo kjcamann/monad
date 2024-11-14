@@ -249,7 +249,7 @@ inline void _monad_event_set_metadata_descriptor_payload(
         &metadata_page->page_header.page_generation, memory_order_relaxed);
 }
 
-inline void _monad_event_recorder_queue_write(
+static inline void _monad_event_recorder_queue_write(
     struct monad_event_recorder_queue *rq, struct monad_event_descriptor *event)
 {
     // Write an event descriptor to the multi-producer, single-consume queue.

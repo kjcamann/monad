@@ -16,8 +16,11 @@
 
 #include <monad/core/tl_tid.h>
 #include <monad/core/unordered_map.hpp>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_semaphore.h>
+#include <monad/fiber/fiber_trace.h>
 
 #include <cstdint>
 #include <functional>
@@ -1028,6 +1031,11 @@ public:
     void reset()
     {
         monad_fiber_semaphore_init(&sem_);
+        MONAD_TRACE_EXPR(
+            MONAD_EVENT_SEMAPHORE_META,
+            0,
+            static_cast<monad_fiber_trace_info const &>(
+                monad_fiber_trace_info{&sem_, MONAD_FIBER_TRACE_DB_WAIT, 0}));
     }
 
 private:

@@ -17,6 +17,8 @@
 #include <monad/core/likely.h>
 #include <monad/core/spinlock.h>
 #include <monad/core/srcloc.h>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/fiber/fiber.h>
 
 #ifdef __cplusplus
@@ -91,7 +93,8 @@ inline void monad_fiber_channel_push(
     // Insert the message into the ready queue; if a fiber is ready to wake up,
     // it will pull it from here upon wakeup
     TAILQ_INSERT_TAIL(&channel->ready_msgs, m, link);
-    if (TAILQ_EMPTY(&channel->fiber_queue)) {
+    waiter = TAILQ_FIRST(&channel->fiber_queue);
+    if (waiter == nullptr) {
         // There are no fibers ready to wake up; we're done
         MONAD_SPINLOCK_UNLOCK(&channel->lock);
         return;
@@ -99,7 +102,6 @@ inline void monad_fiber_channel_push(
 
     // There is at least one fiber waiting for a value; try forever to wake it
     // up
-    waiter = TAILQ_FIRST(&channel->fiber_queue);
     TAILQ_REMOVE(&channel->fiber_queue, waiter, wait_link);
     MONAD_SPINLOCK_UNLOCK(&channel->lock);
     while (!_monad_fiber_try_wakeup(waiter));
@@ -126,7 +128,8 @@ inline monad_fiber_msghdr_t *monad_fiber_channel_pop(
 
 TryAgain:
     MONAD_SPINLOCK_LOCK(&channel->lock);
-    if (MONAD_UNLIKELY(TAILQ_EMPTY(&channel->ready_msgs))) {
+    msghdr = TAILQ_FIRST(&channel->ready_msgs);
+    if (MONAD_UNLIKELY(msghdr == nullptr)) {
         // No value is ready; sleep on this channel and suspend our fiber.
         // We'll be resumed later when someone else calls the push routine,
         // which will reschedule us to become runnable again
@@ -142,6 +145,7 @@ TryAgain:
             // it's OK: no one else should touch the stats cache line while
             // the state is MF_STATE_WAIT_QUEUE
             ++self->stats.total_spurious_wakeups;
+            MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_SPURIOUS_WAKEUP, 0, channel);
         }
         TAILQ_INSERT_TAIL(&channel->fiber_queue, self, wait_link);
         MONAD_SPINLOCK_UNLOCK(&channel->lock);
@@ -150,8 +154,8 @@ TryAgain:
     }
 
     // A message is ready immediately; hand it back
-    msghdr = TAILQ_FIRST(&channel->ready_msgs);
     TAILQ_REMOVE(&channel->ready_msgs, msghdr, link);
+    MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_ACQUIRE, 0, channel);
     MONAD_SPINLOCK_UNLOCK(&channel->lock);
     return msghdr;
 }

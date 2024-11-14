@@ -3,9 +3,12 @@
 #include <monad/core/assert.h>
 #include <monad/core/spinlock.h>
 #include <monad/core/spinloop.h>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 #include <monad/fiber/config.hpp>
 #include <monad/fiber/fiber.h>
 #include <monad/fiber/fiber_channel.h>
+#include <monad/fiber/fiber_trace.h>
 #include <monad/fiber/run_queue.h>
 
 #include <atomic>
@@ -36,7 +39,8 @@ namespace
     [[noreturn]] monad_c_result fiber_worker_main(monad_fiber_args_t mfa)
     {
         using monad::fiber::TaskChannelMsg;
-        auto *const task_channel = std::bit_cast<monad_fiber_channel_t *>(mfa.arg[0]);
+        auto *const task_channel =
+            std::bit_cast<monad_fiber_channel_t *>(mfa.arg[0]);
         while (true) {
             // Pop a message header from the fiber channel. This describes a
             // a TaskChannelMsg::Payload object
@@ -72,6 +76,11 @@ PriorityPool::PriorityPool(unsigned const n_threads, unsigned const n_fibers)
             rc, std::generic_category(), "monad_run_queue_create failed"};
     }
     monad_fiber_channel_init(&task_channel_);
+    MONAD_TRACE_EXPR(
+        MONAD_EVENT_CHANNEL_META,
+        0,
+        static_cast<monad_fiber_trace_info const &>(monad_fiber_trace_info{
+            &task_channel_, MONAD_FIBER_TRACE_PRIORITY_POOL, 0}));
     monad_spinlock_init(&channel_msgs_lock_);
 
     // Initialize our pool of fibers: set them to run the work-stealing
@@ -127,6 +136,7 @@ PriorityPool::~PriorityPool()
         thread.join();
         threads_.pop_back();
     }
+    write_statistics_events();
     monad_run_queue_destroy(run_queue_);
     for (monad_fiber_t *fiber : fibers_) {
         monad_fiber_destroy(fiber);
@@ -147,5 +157,14 @@ void PriorityPool::submit(
         &channel_msg.hdr, sizeof channel_msg.payload);
     monad_fiber_channel_push(&task_channel_, &channel_msg.hdr);
 }
+
+void PriorityPool::write_statistics_events()
+{
+    for (monad_fiber_t *fiber : fibers_) {
+        MONAD_EVENT_EXPR(MONAD_EVENT_FIBER_STATS, 0, fiber->stats);
+    }
+    MONAD_EVENT_EXPR(MONAD_EVENT_RUN_QUEUE_STATS, 0, run_queue_->stats);
+}
+
 
 MONAD_FIBER_NAMESPACE_END

@@ -11,13 +11,14 @@
 #endif
 
 #include <errno.h>
-#include <stdatomic.h>
 #include <stdint.h>
-#include <sys/queue.h>
 #include <threads.h>
 
 #include <monad/core/assert.h>
-#include <monad/core/tl_tid.h>
+#include <monad/core/likely.h>
+#include <monad/core/spinlock.h>
+#include <monad/event/event.h>
+#include <monad/event/event_recorder.h>
 
 #include <monad-boost/context/fcontext.h>
 
@@ -129,12 +130,19 @@ _monad_finish_switch_to_fiber(struct monad_transfer_t xfer_from)
     ++fiber->stats.total_run;
 
     MONAD_SPINLOCK_UNLOCK(&fiber->lock);
+    // Pop the scope pushed inside of `monad_fiber_run`
+    MONAD_TRACE(MONAD_EVENT_FIBER_SWITCH, MONAD_EVENT_POP_SCOPE);
 }
 
 static inline void _monad_suspend_fiber(
     monad_fiber_t *self, enum monad_fiber_state suspend_state,
     enum monad_fiber_suspend_type suspend_type, monad_c_result eval)
 {
+    // In the trace file, switching to fiber "0" means we're returning to
+    // the original context of monad_fiber_run
+    unsigned const zero = 0;
+    MONAD_TRACE_EXPR(MONAD_EVENT_FIBER_SWITCH, 0, zero);
+
     // Our suspension and scheduling model is that, upon suspension, we jump
     // back to the context that originally jumped to us. That context is
     // typically running a lightweight scheduler, which decides which fiber to
@@ -209,6 +217,7 @@ inline int monad_fiber_run(
         return err;
     }
 
+    MONAD_TRACE_EXPR(MONAD_EVENT_FIBER_SWITCH, 0, next_fiber->fiber_id);
     thr_exec->cur_fiber = next_fiber;
     MONAD_FIBER_ASAN_START_SWITCH(
         &thr_exec->fake_stack_save, next_fiber->stack);
@@ -247,6 +256,9 @@ inline int monad_fiber_run(
         MONAD_SPINLOCK_UNLOCK(&next_fiber->lock);
     }
     thr_exec->cur_fiber = nullptr;
+
+    // Pop the scope that was pushed by the suspension
+    MONAD_TRACE(MONAD_EVENT_FIBER_SWITCH, MONAD_EVENT_POP_SCOPE);
     return 0;
 }
 
@@ -262,12 +274,20 @@ static inline void _monad_fiber_sleep(
     monad_fiber_t *fiber, monad_fiber_prio_t wakeup_prio, void *wait_object)
 {
     MONAD_SPINLOCK_LOCK(&fiber->lock);
+    if (MONAD_UNLIKELY(fiber->state == MF_STATE_WAKE_READY)) {
+        // This is the sleep call half of a "skipped sleep"
+        MONAD_SPINLOCK_UNLOCK(&fiber->lock);
+        return;
+    }
     if (wakeup_prio != MONAD_FIBER_PRIO_NO_CHANGE) {
         fiber->priority = wakeup_prio;
     }
     fiber->wait_object = wait_object;
     ++fiber->stats.total_sleep;
+
+    MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_FIBER_SLEEP, 0, wait_object);
     _monad_suspend_fiber(fiber, MF_STATE_WAIT_QUEUE, MF_SUSPEND_SLEEP, (monad_c_result){});
+    MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_FIBER_WAKEUP, 0, wait_object);
 }
 
 static inline bool _monad_fiber_try_wakeup(monad_fiber_t *fiber)
@@ -275,15 +295,31 @@ static inline bool _monad_fiber_try_wakeup(monad_fiber_t *fiber)
     int rc;
 
     MONAD_SPINLOCK_LOCK(&fiber->lock);
-    fiber->state = MF_STATE_CAN_RUN;
+    if (MONAD_UNLIKELY(fiber->state != MF_STATE_WAIT_QUEUE)) {
+        fiber->state = MF_STATE_WAKE_READY;
+        ++fiber->stats.total_skipped_sleeps;
+        MONAD_SPINLOCK_UNLOCK(&fiber->lock);
+        return true;
+    }
     if (MONAD_UNLIKELY(fiber->run_queue == nullptr)) {
         // XXX: only for the test suite?
         MONAD_SPINLOCK_UNLOCK(&fiber->lock);
         return true;
     }
+
+    MONAD_TRACE_EXPR(MONAD_EVENT_SYNC_SCHED_WAKEUP, 0, fiber->wait_object);
+    if (MONAD_UNLIKELY(fiber->wait_object == nullptr)) {
+        extern int dprintf(int, char const *, ...);
+        extern void monad_trace_shutdown();
+        extern unsigned sleep(unsigned);
+        sleep(1U);
+        monad_trace_shutdown();
+        dprintf(2, "the strange error occurred: %u %u\n", fiber->state, fiber->fiber_id);
+        abort();
+    }
+
     rc = _monad_run_queue_try_push_global(fiber->run_queue, fiber);
     if (MONAD_LIKELY(rc == 0)) {
-        fiber->wait_object = nullptr;
         return true;
     }
     // We are only permitted to report failure if trying again might succeed,

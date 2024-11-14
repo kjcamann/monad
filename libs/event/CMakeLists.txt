@@ -2,13 +2,15 @@ project(monad_event)
 
 # These header files are shared by both the consumer library and the
 # event producer in libs/core
-add_library(monad_event_core INTERFACE
+add_library(monad_event_core STATIC
     "src/monad/event/event.h"
+    "src/monad/event/event_metadata.c"
+    "src/monad/event/event_metadata.h"
     "src/monad/event/event_protocol.h"
     "src/monad/event/event_shmem.h")
 
-target_include_directories(monad_event_core INTERFACE "src")
-target_compile_features(monad_event_core INTERFACE c_std_23)
+target_include_directories(monad_event_core PUBLIC "src")
+target_compile_features(monad_event_core PUBLIC c_std_23)
 
 # This is the consumer library for the event system; it is meant to be
 # shared with external clients, and should not link (or otherwise depend on)

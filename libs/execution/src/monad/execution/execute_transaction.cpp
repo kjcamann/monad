@@ -8,6 +8,7 @@
 #include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
 #include <monad/core/transaction.hpp>
+#include <monad/event/event.h>
 #include <monad/execution/evmc_host.hpp>
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/explicit_evmc_revision.hpp>
@@ -19,6 +20,7 @@
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/fiber/fiber_semaphore.h>
 #include <monad/state3/state.hpp>
+#include <monad/trace/trace.hpp>
 
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
@@ -207,7 +209,7 @@ Result<ExecutionResult> execute_impl(
         tx, hdr.base_fee_per_gas, chain.get_chain_id()));
 
     {
-        TRACE_TXN_EVENT(StartExecution);
+        TraceScopeRAII<MONAD_EVENT_TXN_CORE> const _{};
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
         state.set_original_nonce(sender, tx.nonce);
@@ -222,7 +224,7 @@ Result<ExecutionResult> execute_impl(
             call_tracer, chain, tx, sender, hdr, block_hash_buffer, state);
 
         {
-            TRACE_TXN_EVENT(StartStall);
+            TraceScopeRAII<MONAD_EVENT_TXN_MERGE_WAIT> const _{};
             // Ensure previous transaction is fully merged first
             monad_fiber_semaphore_acquire(
                 txn_sync_semaphore, MONAD_FIBER_PRIO_NO_CHANGE);
@@ -249,7 +251,7 @@ Result<ExecutionResult> execute_impl(
         }
     }
     {
-        TRACE_TXN_EVENT(StartRetry);
+        TraceScopeRAII<MONAD_EVENT_TXN_RETRY> const _{};
 
         State state{block_state, Incarnation{hdr.number, i + 1}};
 
@@ -292,8 +294,6 @@ Result<ExecutionResult> execute(
     monad_fiber_semaphore_t *sender_semaphore,
     monad_fiber_semaphore_t *txn_sync_semaphore)
 {
-    TRACE_TXN_EVENT(StartTxn);
-
     // Wait for the sender to materialize
     monad_fiber_semaphore_acquire(sender_semaphore, MONAD_FIBER_PRIO_NO_CHANGE);
     if (MONAD_UNLIKELY(!sender.has_value())) {
