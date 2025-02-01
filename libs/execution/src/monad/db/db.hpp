@@ -3,22 +3,24 @@
 #include <monad/config.hpp>
 #include <monad/core/account.hpp>
 #include <monad/core/address.hpp>
-#include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/bytes.hpp>
-#include <monad/core/monad_block.hpp>
-#include <monad/core/receipt.hpp>
-#include <monad/core/transaction.hpp>
 #include <monad/core/withdrawal.hpp>
 #include <monad/execution/code_analysis.hpp>
-#include <monad/execution/trace/call_frame.hpp>
 #include <monad/state2/state_deltas.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 
 MONAD_NAMESPACE_BEGIN
+
+struct BlockHeader;
+struct MonadConsensusBlockHeader;
+struct Transaction;
+struct TxnExecOutput;
+struct Withdrawal;
 
 struct Db
 {
@@ -43,12 +45,9 @@ struct Db
 
     virtual void commit(
         StateDeltas const &, Code const &, MonadConsensusBlockHeader const &,
-        std::vector<Receipt> const & = {},
-        std::vector<std::vector<CallFrame>> const & = {},
-        std::vector<Address> const & = {},
-        std::vector<Transaction> const & = {},
-        std::vector<BlockHeader> const &ommers = {},
-        std::optional<std::vector<Withdrawal>> const & = std::nullopt) = 0;
+        std::span<Transaction const> = {}, std::span<TxnExecOutput const> = {},
+        std::span<BlockHeader const> ommers = {},
+        std::optional<std::span<Withdrawal const>> = std::nullopt) = 0;
 
     virtual std::string print_stats()
     {

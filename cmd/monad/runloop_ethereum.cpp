@@ -13,6 +13,7 @@
 #include <monad/execution/block_hash_buffer.hpp>
 #include <monad/execution/execute_block.hpp>
 #include <monad/execution/execute_transaction.hpp>
+#include <monad/execution/txn_exec_output.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
@@ -21,6 +22,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <span>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -68,7 +70,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 : std::make_optional(block.header.number - 1));
         BlockState block_state(db);
         BOOST_OUTCOME_TRY(
-            auto const results,
+            auto const txn_exec_outputs,
             execute_block(
                 chain,
                 rev,
@@ -77,23 +79,11 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 block_hash_buffer,
                 priority_pool));
 
-        std::vector<Receipt> receipts(results.size());
-        std::vector<std::vector<CallFrame>> call_frames(results.size());
-        std::vector<Address> senders(results.size());
-        for (unsigned i = 0; i < results.size(); ++i) {
-            auto &result = results[i];
-            receipts[i] = std::move(result.receipt);
-            call_frames[i] = (std::move(result.call_frames));
-            senders[i] = result.sender;
-        }
-
         block_state.log_debug();
         block_state.commit(
             MonadConsensusBlockHeader::from_eth_header(block.header),
-            receipts,
-            call_frames,
-            senders,
             block.transactions,
+            txn_exec_outputs,
             block.ommers,
             block.withdrawals);
         auto const output_header = db.read_eth_header();

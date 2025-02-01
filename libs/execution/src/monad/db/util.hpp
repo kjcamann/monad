@@ -16,6 +16,8 @@
 MONAD_NAMESPACE_BEGIN
 
 struct BlockHeader;
+struct Receipt;
+struct Transaction;
 
 struct MachineBase : public mpt::StateMachine
 {

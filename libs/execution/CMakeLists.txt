@@ -117,6 +117,7 @@ add_library(
   "src/monad/execution/transaction_gas.hpp"
   "src/monad/execution/tx_context.cpp"
   "src/monad/execution/tx_context.hpp"
+  "src/monad/execution/txn_exec_output.hpp"
   "src/monad/execution/validate_block.cpp"
   "src/monad/execution/validate_block.hpp"
   "src/monad/execution/validate_transaction.cpp"

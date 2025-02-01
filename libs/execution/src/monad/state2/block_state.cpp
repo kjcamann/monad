@@ -193,21 +193,17 @@ void BlockState::merge(State const &state)
 
 void BlockState::commit(
     MonadConsensusBlockHeader const &consensus_header,
-    std::vector<Receipt> const &receipts,
-    std::vector<std::vector<CallFrame>> const &call_frames,
-    std::vector<Address> const &senders,
-    std::vector<Transaction> const &transactions,
-    std::vector<BlockHeader> const &ommers,
-    std::optional<std::vector<Withdrawal>> const &withdrawals)
+    std::span<Transaction const> transactions,
+    std::span<TxnExecOutput const> txn_exec_outputs,
+    std::span<BlockHeader const> ommers,
+    std::optional<std::span<Withdrawal const>> withdrawals)
 {
     db_.commit(
         state_,
         code_,
         consensus_header,
-        receipts,
-        call_frames,
-        senders,
         transactions,
+        txn_exec_outputs,
         ommers,
         withdrawals);
 }

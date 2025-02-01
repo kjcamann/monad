@@ -17,7 +17,7 @@
 #endif
 
 #include <initializer_list>
-#include <vector>
+#include <span>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -45,9 +45,9 @@ enum class BlockError
 struct Block;
 struct BlockHeader;
 
-Receipt::Bloom compute_bloom(std::vector<Receipt> const &);
+Receipt::Bloom &bloom_combine(Receipt::Bloom &, Receipt::Bloom const &);
 
-bytes32_t compute_ommers_hash(std::vector<BlockHeader> const &);
+bytes32_t compute_ommers_hash(std::span<BlockHeader const>);
 
 template <evmc_revision rev>
 Result<void> static_validate_header(BlockHeader const &);

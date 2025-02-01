@@ -1,9 +1,11 @@
 #include <monad/config.hpp>
 #include <monad/core/assert.h>
 #include <monad/core/basic_formatter.hpp>
+#include <monad/core/block.hpp>
 #include <monad/core/byte_string.hpp>
 #include <monad/core/fmt/address_fmt.hpp>
 #include <monad/core/fmt/bytes_fmt.hpp>
+#include <monad/core/monad_block.hpp>
 #include <monad/core/rlp/bytes_rlp.hpp>
 #include <monad/db/trie_db.hpp>
 #include <monad/mpt/db.hpp>
@@ -174,12 +176,10 @@ void monad_statesync_server_context::update_verified_block(
 void monad_statesync_server_context::commit(
     StateDeltas const &state_deltas, Code const &code,
     MonadConsensusBlockHeader const &consensus_header,
-    std::vector<Receipt> const &receipts,
-    std::vector<std::vector<CallFrame>> const &call_frames,
-    std::vector<Address> const &senders,
-    std::vector<Transaction> const &transactions,
-    std::vector<BlockHeader> const &ommers,
-    std::optional<std::vector<Withdrawal>> const &withdrawals)
+    std::span<Transaction const> transactions,
+    std::span<TxnExecOutput const> txn_exec_outputs,
+    std::span<BlockHeader const> ommers,
+    std::optional<std::span<Withdrawal const>> withdrawals)
 {
     auto &header = consensus_header.execution_inputs;
 
@@ -188,10 +188,8 @@ void monad_statesync_server_context::commit(
         state_deltas,
         code,
         consensus_header,
-        receipts,
-        call_frames,
-        senders,
         transactions,
+        txn_exec_outputs,
         ommers,
         withdrawals);
 }

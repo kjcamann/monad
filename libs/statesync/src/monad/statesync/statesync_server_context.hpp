@@ -8,6 +8,8 @@
 #include <array>
 #include <deque>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <vector>
 
 MONAD_NAMESPACE_BEGIN
@@ -90,11 +92,9 @@ struct monad_statesync_server_context final : public monad::Db
     virtual void commit(
         monad::StateDeltas const &state_deltas, monad::Code const &code,
         monad::MonadConsensusBlockHeader const &,
-        std::vector<monad::Receipt> const &receipts = {},
-        std::vector<std::vector<monad::CallFrame>> const & = {},
-        std::vector<monad::Address> const & = {},
-        std::vector<monad::Transaction> const &transactions = {},
-        std::vector<monad::BlockHeader> const &ommers = {},
-        std::optional<std::vector<monad::Withdrawal>> const & =
+        std::span<monad::Transaction const> = {},
+        std::span<monad::TxnExecOutput const> = {},
+        std::span<monad::BlockHeader const> ommers = {},
+        std::optional<std::span<monad::Withdrawal const>> =
             std::nullopt) override;
 };

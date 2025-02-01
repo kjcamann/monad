@@ -21,6 +21,7 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
+#include <monad/execution/txn_exec_output.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -58,7 +59,7 @@
 MONAD_TEST_NAMESPACE_BEGIN
 
 template <evmc_revision rev>
-Result<std::vector<Receipt>> BlockchainTest::execute(
+Result<std::vector<TxnExecOutput>> BlockchainTest::execute(
     Block &block, test::db_t &db, BlockHashBuffer const &block_hash_buffer)
 {
     using namespace monad::test;
@@ -68,25 +69,15 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BlockState block_state(db);
     EthereumMainnet const chain;
     BOOST_OUTCOME_TRY(
-        auto const results,
+        auto txn_exec_outputs,
         execute_block<rev>(
             chain, block, block_state, block_hash_buffer, *pool_));
-    std::vector<Receipt> receipts(results.size());
-    std::vector<std::vector<CallFrame>> call_frames(results.size());
-    std::vector<Address> senders(results.size());
-    for (unsigned i = 0; i < results.size(); ++i) {
-        receipts[i] = std::move(results[i].receipt);
-        call_frames[i] = std::move(results[i].call_frames);
-        senders[i] = results[i].sender;
-    }
 
     block_state.log_debug();
     block_state.commit(
         MonadConsensusBlockHeader::from_eth_header(block.header),
-        receipts,
-        call_frames,
-        senders,
         block.transactions,
+        txn_exec_outputs,
         block.ommers,
         block.withdrawals);
     db.finalize(block.header.number, block.header.number);
@@ -95,10 +86,10 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BOOST_OUTCOME_TRY(
         chain.validate_output_header(block.header, output_header));
 
-    return receipts;
+    return txn_exec_outputs;
 }
 
-Result<std::vector<Receipt>> BlockchainTest::execute_dispatch(
+Result<std::vector<TxnExecOutput>> BlockchainTest::execute_dispatch(
     evmc_revision const rev, Block &block, test::db_t &db,
     BlockHashBuffer const &block_hash_buffer)
 {
@@ -234,10 +225,8 @@ void BlockchainTest::TestBody()
             bs.merge(state);
             bs.commit(
                 MonadConsensusBlockHeader::from_eth_header(header),
-                {} /* receipts */,
-                {} /* call frames */,
-                {} /* senders */,
                 {} /* transactions */,
+                {} /* txn_exec_outputs */,
                 {} /* ommers */,
                 withdrawals);
             tdb.finalize(0, 0);

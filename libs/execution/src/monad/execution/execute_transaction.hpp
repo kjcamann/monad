@@ -3,9 +3,7 @@
 #include <monad/config.hpp>
 #include <monad/core/address.hpp>
 #include <monad/core/int.hpp>
-#include <monad/core/receipt.hpp>
 #include <monad/core/result.hpp>
-#include <monad/execution/trace/call_frame.hpp>
 
 #include <evmc/evmc.h>
 
@@ -19,19 +17,12 @@ class BlockHashBuffer;
 struct BlockHeader;
 class BlockState;
 struct Chain;
-struct Receipt;
 class State;
 struct Transaction;
+struct TxnExecOutput;
 
 template <evmc_revision rev>
 struct EvmcHost;
-
-struct ExecutionResult
-{
-    Receipt receipt;
-    Address sender;
-    std::vector<CallFrame> call_frames;
-};
 
 template <evmc_revision rev>
 evmc::Result execute_impl_no_validation(
@@ -40,13 +31,13 @@ evmc::Result execute_impl_no_validation(
     Address const &beneficiary);
 
 template <evmc_revision rev>
-Result<ExecutionResult> execute_impl(
+Result<TxnExecOutput> execute_impl(
     Chain const &, uint64_t i, Transaction const &, Address const &sender,
     BlockHeader const &, BlockHashBuffer const &, BlockState &,
     boost::fibers::promise<void> &prev);
 
 template <evmc_revision rev>
-Result<ExecutionResult> execute(
+Result<TxnExecOutput> execute(
     Chain const &, uint64_t i, Transaction const &,
     std::optional<Address> const &, BlockHeader const &,
     BlockHashBuffer const &, BlockState &, boost::fibers::promise<void> &prev);

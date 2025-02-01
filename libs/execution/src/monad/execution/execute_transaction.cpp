@@ -16,6 +16,7 @@
 #include <monad/execution/trace/event_trace.hpp>
 #include <monad/execution/transaction_gas.hpp>
 #include <monad/execution/tx_context.hpp>
+#include <monad/execution/txn_exec_output.hpp>
 #include <monad/execution/validate_transaction.hpp>
 #include <monad/state3/state.hpp>
 
@@ -197,7 +198,7 @@ Result<evmc::Result> execute_impl2(
 }
 
 template <evmc_revision rev>
-Result<ExecutionResult> execute_impl(
+Result<TxnExecOutput> execute_impl(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     Address const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,
@@ -241,7 +242,7 @@ Result<ExecutionResult> execute_impl(
             block_state.merge(state);
 
             auto const frames = call_tracer.get_frames();
-            return ExecutionResult{
+            return TxnExecOutput{
                 .receipt = receipt,
                 .sender = sender,
                 .call_frames = {frames.begin(), frames.end()}};
@@ -276,7 +277,7 @@ Result<ExecutionResult> execute_impl(
         block_state.merge(state);
 
         auto const frames = call_tracer.get_frames();
-        return ExecutionResult{
+        return TxnExecOutput{
             .receipt = receipt,
             .sender = sender,
             .call_frames = {frames.begin(), frames.end()}};
@@ -286,7 +287,7 @@ Result<ExecutionResult> execute_impl(
 EXPLICIT_EVMC_REVISION(execute_impl);
 
 template <evmc_revision rev>
-Result<ExecutionResult> execute(
+Result<TxnExecOutput> execute(
     Chain const &chain, uint64_t const i, Transaction const &tx,
     std::optional<Address> const &sender, BlockHeader const &hdr,
     BlockHashBuffer const &block_hash_buffer, BlockState &block_state,

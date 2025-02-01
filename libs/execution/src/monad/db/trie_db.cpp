@@ -23,6 +23,7 @@
 #include <monad/execution/code_analysis.hpp>
 #include <monad/execution/trace/call_tracer.hpp>
 #include <monad/execution/trace/rlp/call_frame_rlp.hpp>
+#include <monad/execution/txn_exec_output.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/mpt/db.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -169,12 +170,10 @@ std::shared_ptr<CodeAnalysis> TrieDb::read_code(bytes32_t const &code_hash)
 void TrieDb::commit(
     StateDeltas const &state_deltas, Code const &code,
     MonadConsensusBlockHeader const &consensus_header,
-    std::vector<Receipt> const &receipts,
-    std::vector<std::vector<CallFrame>> const &call_frames,
-    std::vector<Address> const &senders,
-    std::vector<Transaction> const &transactions,
-    std::vector<BlockHeader> const &ommers,
-    std::optional<std::vector<Withdrawal>> const &withdrawals)
+    std::span<Transaction const> transactions,
+    std::span<TxnExecOutput const> txn_exec_outputs,
+    std::span<BlockHeader const> ommers,
+    std::optional<std::span<Withdrawal const>> withdrawals)
 {
     auto const &header = consensus_header.execution_inputs;
     MONAD_ASSERT(header.number <= std::numeric_limits<int64_t>::max());
@@ -261,20 +260,18 @@ void TrieDb::commit(
     UpdateList transaction_updates;
     UpdateList tx_hash_updates;
     UpdateList call_frame_updates;
-    MONAD_ASSERT(receipts.size() == transactions.size());
-    MONAD_ASSERT(transactions.size() == senders.size());
-    MONAD_ASSERT(receipts.size() == call_frames.size());
+    MONAD_ASSERT(txn_exec_outputs.size() == transactions.size());
     auto const &encoded_block_number =
         bytes_alloc_.emplace_back(rlp::encode_unsigned(header.number));
     std::vector<byte_string> index_alloc;
     index_alloc.reserve(std::max(
-        receipts.size(),
-        withdrawals.transform(&std::vector<Withdrawal>::size).value_or(0)));
+        txn_exec_outputs.size(),
+        withdrawals.transform(&std::span<Withdrawal const>::size).value_or(0)));
     size_t log_index_begin = 0;
-    for (size_t i = 0; i < receipts.size(); ++i) {
+    for (size_t i = 0; i < txn_exec_outputs.size(); ++i) {
         auto const &rlp_index =
             index_alloc.emplace_back(rlp::encode_unsigned(i));
-        auto const &receipt = receipts[i];
+        auto const &receipt = txn_exec_outputs[i].receipt;
         auto const &encoded_receipt = bytes_alloc_.emplace_back(
             encode_receipt_db(receipt, log_index_begin));
         log_index_begin += receipt.logs.size();
@@ -289,7 +286,7 @@ void TrieDb::commit(
         transaction_updates.push_front(update_alloc_.emplace_back(Update{
             .key = NibblesView{rlp_index},
             .value = bytes_alloc_.emplace_back(
-                encode_transaction_db(encoded_tx, senders[i])),
+                encode_transaction_db(encoded_tx, txn_exec_outputs[i].sender)),
             .incarnation = false,
             .next = UpdateList{},
             .version = static_cast<int64_t>(block_number_)}));
@@ -301,7 +298,7 @@ void TrieDb::commit(
             .next = UpdateList{},
             .version = static_cast<int64_t>(block_number_)}));
 
-        std::span<CallFrame const> frames{call_frames[i]};
+        std::span<CallFrame const> frames{txn_exec_outputs[i].call_frames};
         // TODO: a better way to ensure node size is <= 256 MB
         if (frames.size() > 100) {
             frames = frames.first(100);
@@ -421,9 +418,14 @@ void TrieDb::commit(
     complete_header.withdrawals_root = withdrawals_root();
     complete_header.transactions_root = transactions_root();
     complete_header.parent_hash = parent_hash;
-    complete_header.gas_used = receipts.empty() ? 0 : receipts.back().gas_used;
-    complete_header.logs_bloom = compute_bloom(receipts);
+    complete_header.gas_used =
+        txn_exec_outputs.empty() ? 0 : txn_exec_outputs.back().receipt.gas_used;
     complete_header.ommers_hash = compute_ommers_hash(ommers);
+
+    complete_header.logs_bloom = Receipt::Bloom{};
+    for (TxnExecOutput const &o : txn_exec_outputs) {
+        bloom_combine(complete_header.logs_bloom, o.receipt.bloom);
+    }
 
     auto const eth_header_rlp = rlp::encode_block_header(complete_header);
 

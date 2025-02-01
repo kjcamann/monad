@@ -10,8 +10,12 @@
 #include <evmc/evmc.h>
 
 #include <filesystem>
+#include <optional>
+#include <span>
 
 MONAD_NAMESPACE_BEGIN
+
+struct TxnExecOutput;
 
 namespace test_resource
 {
@@ -89,12 +93,10 @@ inline auto const H_CODE_ANALYSIS =
 
 inline void commit_sequential(
     Db &db, StateDeltas const &deltas, Code const &code,
-    BlockHeader const &eth_header, std::vector<Receipt> const &receipts = {},
-    std::vector<std::vector<CallFrame>> const &call_frames = {},
-    std::vector<Address> const &senders = {},
-    std::vector<Transaction> const &txns = {},
-    std::vector<BlockHeader> const &ommers = {},
-    std::optional<std::vector<Withdrawal>> const &withdrawals = std::nullopt)
+    BlockHeader const &eth_header, std::span<Transaction const> txns = {},
+    std::span<TxnExecOutput const> txn_exec_outputs = {},
+    std::span<BlockHeader const> ommers = {},
+    std::optional<std::span<Withdrawal const>> withdrawals = std::nullopt)
 {
     auto const consensus_header =
         MonadConsensusBlockHeader::from_eth_header(eth_header);
@@ -102,10 +104,8 @@ inline void commit_sequential(
         deltas,
         code,
         consensus_header,
-        receipts,
-        call_frames,
-        senders,
         txns,
+        txn_exec_outputs,
         ommers,
         withdrawals);
     db.finalize(eth_header.number, consensus_header.round);

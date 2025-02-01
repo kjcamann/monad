@@ -71,7 +71,7 @@ byte_string encode_block_header(BlockHeader const &block_header)
     return encode_list2(encoded_block_header);
 }
 
-byte_string encode_ommers(std::vector<BlockHeader> const &ommers)
+byte_string encode_ommers(std::span<BlockHeader const> ommers)
 {
     byte_string encoded;
     for (auto const &ommer : ommers) {

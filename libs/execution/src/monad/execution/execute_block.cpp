@@ -16,6 +16,7 @@
 #include <monad/execution/explicit_evmc_revision.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
 #include <monad/execution/trace/event_trace.hpp>
+#include <monad/execution/txn_exec_output.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/state2/block_state.hpp>
@@ -91,7 +92,7 @@ inline void set_beacon_root(BlockState &block_state, Block &block)
 }
 
 template <evmc_revision rev>
-Result<std::vector<ExecutionResult>> execute_block(
+Result<std::vector<TxnExecOutput>> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)
@@ -131,8 +132,8 @@ Result<std::vector<ExecutionResult>> execute_block(
         promises[i].get_future().wait();
     }
 
-    std::shared_ptr<std::optional<Result<ExecutionResult>>[]> const results{
-        new std::optional<Result<ExecutionResult>>[block.transactions.size()]};
+    std::shared_ptr<std::optional<Result<TxnExecOutput>>[]> const results{
+        new std::optional<Result<TxnExecOutput>>[block.transactions.size()]};
 
     promises.reset(
         new boost::fibers::promise<void>[block.transactions.size() + 1]);
@@ -166,7 +167,7 @@ Result<std::vector<ExecutionResult>> execute_block(
     auto const last = static_cast<std::ptrdiff_t>(block.transactions.size());
     promises[last].get_future().wait();
 
-    std::vector<ExecutionResult> retvals;
+    std::vector<TxnExecOutput> txn_exec_outputs;
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
         MONAD_ASSERT(results[i].has_value());
         if (MONAD_UNLIKELY(results[i].value().has_error())) {
@@ -177,12 +178,12 @@ Result<std::vector<ExecutionResult>> execute_block(
                 results[i].value().assume_error().message().c_str());
         }
         BOOST_OUTCOME_TRY(auto retval, std::move(results[i].value()));
-        retvals.push_back(std::move(retval));
+        txn_exec_outputs.push_back(std::move(retval));
     }
 
     // YP eq. 22
     uint64_t cumulative_gas_used = 0;
-    for (auto &[receipt, _, call_frame] : retvals) {
+    for (auto &[receipt, _, call_frame] : txn_exec_outputs) {
         cumulative_gas_used += receipt.gas_used;
         receipt.gas_used = cumulative_gas_used;
     }
@@ -203,12 +204,12 @@ Result<std::vector<ExecutionResult>> execute_block(
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
 
-    return retvals;
+    return txn_exec_outputs;
 }
 
 EXPLICIT_EVMC_REVISION(execute_block);
 
-Result<std::vector<ExecutionResult>> execute_block(
+Result<std::vector<TxnExecOutput>> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)
