@@ -29,6 +29,7 @@
 #include <CLI/CLI.hpp>
 
 #include <monad/core/assert.h>
+#include <monad/core/exec_event_ctypes.h>
 #include <monad/event/event_iterator.h>
 #include <monad/event/event_metadata.h>
 #include <monad/event/event_ring.h>
@@ -52,6 +53,9 @@ struct MetadataTableEntry
             &g_monad_test_event_metadata_hash,
             std::span{g_monad_test_event_metadata},
         },
+    [MONAD_EVENT_RING_TYPE_EXEC] =
+        {&g_monad_exec_event_metadata_hash,
+         std::span{g_monad_exec_event_metadata}},
 };
 
 struct EventRingNameToDefaultPathEntry
@@ -64,9 +68,12 @@ struct EventRingNameToDefaultPathEntry
             g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_NONE],
             {},
         },
-    [MONAD_EVENT_RING_TYPE_TEST] = {
-        .name = g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_TEST],
-        .default_path = MONAD_EVENT_DEFAULT_TEST_RING_PATH}};
+    [MONAD_EVENT_RING_TYPE_TEST] =
+        {.name = g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_TEST],
+         .default_path = MONAD_EVENT_DEFAULT_TEST_RING_PATH},
+    [MONAD_EVENT_RING_TYPE_EXEC] = {
+        .name = g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_EXEC],
+        .default_path = MONAD_EVENT_DEFAULT_EXEC_RING_PATH}};
 
 static char const *get_default_path_for_event_ring_name(std::string_view name)
 {
@@ -86,6 +93,7 @@ struct mapped_event_ring
     monad_event_ring event_ring;
     std::span<monad_event_metadata const> metadata_entries;
     std::optional<uint64_t> start_seqno;
+    monad_exec_block_header const *blocks;
 };
 
 static bool event_ring_is_abandoned(int ring_fd)
@@ -179,8 +187,8 @@ static void hexdump_event_payload(
 
 static void print_event(
     monad_event_iterator *iter, monad_event_descriptor const *event,
-    std::span<monad_event_metadata const> metadata_entries, bool dump_payload,
-    std::FILE *out)
+    std::span<monad_event_metadata const> metadata_entries,
+    monad_exec_block_header const *blocks, bool dump_payload, std::FILE *out)
 {
     using std::chrono::seconds, std::chrono::nanoseconds;
     static std::chrono::sys_time<seconds> last_second{};
@@ -221,6 +229,17 @@ static void print_event(
         event->seqno,
         event->payload_size,
         event->payload_buf_offset);
+    if (blocks != nullptr) {
+        auto exec_flow_info =
+            std::bit_cast<monad_exec_flow_info>(event->user[0]);
+        if (uint16_t const block_flow_id = exec_flow_info.block_flow_id) {
+            monad_exec_block_header const &b = blocks[block_flow_id];
+            o = std::format_to(o, " BLK: {}", b.exec_input.number);
+        }
+        if (uint32_t const id = exec_flow_info.txn_id) {
+            o = std::format_to(o, " TXN: {}", id - 1);
+        }
+    }
     *o++ = '\n';
     std::fwrite(event_buf, static_cast<size_t>(o - event_buf), 1, out);
 
@@ -277,7 +296,8 @@ static void follow_thread_main(
                 not_ready_count = 0;
                 break; // Handled in the main loop body
             }
-            print_event(&iter, &event, event_metadata, dump_payload, out);
+            print_event(
+                &iter, &event, event_metadata, mr.blocks, dump_payload, out);
         }
     }
 }
@@ -305,7 +325,7 @@ int main(int argc, char **argv)
            event_ring_paths,
            "path to an event ring shared memory file")
         ->default_val(
-            g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_TEST]);
+            g_monad_event_ring_type_names[MONAD_EVENT_RING_TYPE_EXEC]);
 
     try {
         cli.parse(argc, argv);
@@ -395,6 +415,10 @@ int main(int argc, char **argv)
         //   way of specifying to set this on the right one. In practice it's
         //   only used for debugging tasks starting from zero.
         mr.start_seqno = start_seqno;
+        mr.blocks = ring_type == MONAD_EVENT_RING_TYPE_EXEC
+                        ? static_cast<monad_exec_block_header const *>(
+                              mr.event_ring.context_area)
+                        : nullptr;
         if (print_header) {
             print_event_ring_header(
                 mr.origin_path.c_str(), mr.event_ring.header, stdout);

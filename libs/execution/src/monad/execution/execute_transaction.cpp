@@ -254,6 +254,7 @@ Result<ExecutionResult> execute_impl(
 
             auto const frames = call_tracer.get_frames();
             return ExecutionResult{
+                .state = std::move(state),
                 .receipt = receipt,
                 .sender = sender,
                 .call_frames = {frames.begin(), frames.end()}};
@@ -291,6 +292,7 @@ Result<ExecutionResult> execute_impl(
 
         auto const frames = call_tracer.get_frames();
         return ExecutionResult{
+            .state = std::move(state),
             .receipt = receipt,
             .sender = sender,
             .call_frames = {frames.begin(), frames.end()}};
