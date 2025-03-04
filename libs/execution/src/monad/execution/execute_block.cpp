@@ -88,7 +88,7 @@ inline void set_beacon_root(State &prologue_state, Block &block)
 }
 
 template <evmc_revision rev>
-Result<std::vector<ExecutionResult>> execute_block(
+Result<BlockResult> execute_block(
     Chain const &chain, Block &block, BlockState &block_state,
     BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)
@@ -231,12 +231,15 @@ Result<std::vector<ExecutionResult>> execute_block(
     record_account_access_events(
         MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, epilogue_state);
 
-    return retvals;
+    return {
+        std::move(prologue_state),
+        std::move(epilogue_state),
+        std::move(retvals)};
 }
 
 EXPLICIT_EVMC_REVISION(execute_block);
 
-Result<std::vector<ExecutionResult>> execute_block(
+Result<BlockResult> execute_block(
     Chain const &chain, evmc_revision const rev, Block &block,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
     fiber::PriorityPool &priority_pool)

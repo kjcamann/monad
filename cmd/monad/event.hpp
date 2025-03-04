@@ -19,6 +19,11 @@
 
 MONAD_NAMESPACE_BEGIN
 
+namespace event_cross_validation_test
+{
+    class ExpectedDataRecorder;
+}
+
 // clang-format off
 
 struct EventRingConfig {
@@ -51,10 +56,11 @@ struct MonadConsensusBlockHeader;
 void record_block_exec_start(
     bytes32_t const &bft_block_id, uint256_t const &chain_id,
     MonadConsensusBlockHeader const &, bytes32_t const &eth_parent_hash,
-    size_t txn_count);
+    size_t txn_count, event_cross_validation_test::ExpectedDataRecorder *);
 
 void record_block_finalized(
-    bytes32_t const &bft_block_id, MonadConsensusBlockHeader const &);
+    bytes32_t const &bft_block_id, MonadConsensusBlockHeader const &,
+    event_cross_validation_test::ExpectedDataRecorder *);
 
 struct BlockExecOutput
 {

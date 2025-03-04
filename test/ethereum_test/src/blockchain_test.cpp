@@ -21,6 +21,7 @@
 #include <monad/execution/execute_transaction.hpp>
 #include <monad/execution/genesis.hpp>
 #include <monad/execution/switch_evmc_revision.hpp>
+#include <monad/execution/trace/call_frame.hpp>
 #include <monad/execution/validate_block.hpp>
 #include <monad/fiber/priority_pool.hpp>
 #include <monad/mpt/nibbles_view.hpp>
@@ -88,16 +89,17 @@ Result<std::vector<Receipt>> BlockchainTest::execute(
     BlockState block_state(db);
     EthereumMainnetRev const chain{rev};
     BOOST_OUTCOME_TRY(
-        auto const results,
+        auto block_result,
         execute_block<rev>(
             chain, block, block_state, block_hash_buffer, *pool_));
-    std::vector<Receipt> receipts(results.size());
-    std::vector<std::vector<CallFrame>> call_frames(results.size());
-    std::vector<Address> senders(results.size());
-    for (unsigned i = 0; i < results.size(); ++i) {
-        receipts[i] = std::move(results[i].receipt);
-        call_frames[i] = std::move(results[i].call_frames);
-        senders[i] = results[i].sender;
+    std::vector<ExecutionResult> &txn_results = block_result.txn_results;
+    std::vector<Receipt> receipts(txn_results.size());
+    std::vector<std::vector<CallFrame>> call_frames(txn_results.size());
+    std::vector<Address> senders(txn_results.size());
+    for (unsigned i = 0; i < txn_results.size(); ++i) {
+        receipts[i] = std::move(txn_results[i].receipt);
+        call_frames[i] = std::move(txn_results[i].call_frames);
+        senders[i] = txn_results[i].sender;
     }
 
     block_state.log_debug();

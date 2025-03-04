@@ -4,11 +4,13 @@
  * Execution event capture utility
  */
 
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <iterator>
 #include <memory>
@@ -25,11 +27,20 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
 #include <sysexits.h>
+#include <unistd.h>
 
 #include <CLI/CLI.hpp>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/types.h>
+#include <zstd.h>
 
 #include <monad/core/assert.h>
+#include <monad/core/bit_util.h>
 #include <monad/core/exec_event_ctypes.h>
 #include <monad/core/fmt/exec_event_ctypes_fmt.hpp>
 #include <monad/event/event_iterator.h>
@@ -98,6 +109,15 @@ struct mapped_event_ring
     monad_exec_block_header const *blocks;
 };
 
+constexpr size_t PAGE_2MB = 1UL << 21;
+
+// TODO(ken): supposed to come from mem/align.h but the PR hasn't landed yet
+[[gnu::always_inline]] static inline size_t
+monad_round_size_to_align(size_t size, size_t align)
+{
+    return bit_round_up(size, static_cast<size_t>(std::countr_zero(align)));
+}
+
 static bool event_ring_is_abandoned(int ring_fd)
 {
     pid_t writer_pids[32];
@@ -109,6 +129,143 @@ static bool event_ring_is_abandoned(int ring_fd)
             monad_event_ring_get_last_error());
     }
     return n_pids == 0;
+}
+
+static bool all_writers_have_exited(std::span<int> pidfds)
+{
+    auto *const pollfds =
+        std::bit_cast<pollfd *>(alloca(sizeof(pollfd) * size(pidfds)));
+    for (size_t i = 0; int pidfd : pidfds) {
+        pollfds[i++] = pollfd{.fd = pidfd, .events = POLLIN, .revents = 0};
+    }
+    int const n_ready = poll(pollfds, size(pidfds), 0);
+    return n_ready == -1 || static_cast<size_t>(n_ready) == size(pidfds);
+}
+
+// Helper function which can open regular or zstd-compressed event ring files;
+// the process will exit if the open fails
+static int open_event_ring_file_or_exit(char const *path)
+{
+    static_assert(
+        sizeof MONAD_EVENT_RING_HEADER_VERSION >= sizeof ZSTD_MAGICNUMBER);
+    char magic[sizeof MONAD_EVENT_RING_HEADER_VERSION];
+
+    int ring_fd = open(path, O_RDONLY);
+    if (ring_fd == -1) {
+        err(EX_CONFIG, "could not open event ring file `%s`", path);
+    }
+
+    // Read the first few bytes so we can figure out if this is a regular event
+    // ring file, a compressed one, or neither
+    if (ssize_t const nr = read(ring_fd, &magic, sizeof magic); nr == -1) {
+        err(EX_CONFIG,
+            "could not read magic number from event ring file `%s`",
+            path);
+    }
+    else if (static_cast<size_t>(nr) < sizeof magic) {
+        errx(
+            EX_CONFIG,
+            "file `%s` does not appear to be an event ring file or snapshot",
+            path);
+    }
+
+    if (*std::bit_cast<unsigned const *>(&magic) == ZSTD_MAGICNUMBER) {
+        // This is a zstd-compressed file; mmap it into place for decompression,
+        // then create a memfd and load the contents into it
+        struct stat zstd_file_stat;
+        if (fstat(ring_fd, &zstd_file_stat) == -1) {
+            err(EX_OSERR, "unable to stat zstd file `%s`", path);
+        }
+        size_t const compressed_size =
+            static_cast<size_t>(zstd_file_stat.st_size);
+        void *const compressed_base = mmap(
+            nullptr,
+            static_cast<size_t>(zstd_file_stat.st_size),
+            PROT_READ,
+            MAP_SHARED,
+            ring_fd,
+            0);
+        if (compressed_base == MAP_FAILED) {
+            err(EX_OSERR, "mmap of zstd file `%s` contents failed", path);
+        }
+
+        size_t const decompressed_bound =
+            ZSTD_decompressBound(compressed_base, compressed_size);
+        if (decompressed_bound == ZSTD_CONTENTSIZE_ERROR) {
+            errx(EX_SOFTWARE, "ZSTD_decompressBound error for `%s`", path);
+        }
+        size_t const memfd_size =
+            monad_round_size_to_align(decompressed_bound, PAGE_2MB);
+
+        std::string const memfd_name = std::format("memfd-unzstd:{}", path);
+        int memfd = memfd_create(memfd_name.c_str(), MFD_CLOEXEC | MFD_HUGETLB);
+        if (memfd == -1) {
+            err(EX_OSERR, "unable to open memfd file `%s`", memfd_name.c_str());
+        }
+        if (ftruncate(memfd, static_cast<off_t>(memfd_size)) == -1) {
+            err(EX_OSERR,
+                "ftruncate of memfd file `%s` failed",
+                memfd_name.c_str());
+        }
+        void *const decompressed_base = mmap(
+            nullptr,
+            memfd_size,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED | MAP_HUGETLB,
+            memfd,
+            0);
+        if (decompressed_base == MAP_FAILED) {
+            err(EX_OSERR, "mmap of memfd file `%s` failed", memfd_name.c_str());
+        }
+        size_t const decompressed_size = ZSTD_decompress(
+            decompressed_base, memfd_size, compressed_base, compressed_size);
+        if (ZSTD_isError(decompressed_size)) {
+            errx(
+                EX_SOFTWARE,
+                "zstd error decompressing `%s`: %s",
+                path,
+                ZSTD_getErrorName(decompressed_size));
+        }
+        if (decompressed_size < sizeof magic) {
+            errx(
+                EX_CONFIG,
+                "zstd file `%s` does not contain an event ring",
+                path);
+        }
+
+        // Remove the compressed mapping, and copy the decompressed magic bytes
+        // into `magic` as if we read them ring_fd, then remove the decompressed
+        // mapping and proceed as if memfd had actually been opened as ring_fd
+        munmap(compressed_base, compressed_size);
+        std::memcpy(magic, decompressed_base, sizeof magic);
+        munmap(decompressed_base, memfd_size);
+        std::swap(ring_fd, memfd);
+        (void)close(memfd);
+    }
+
+    if (std::memcmp(magic, MONAD_EVENT_RING_HEADER_VERSION, sizeof magic) !=
+        0) {
+        // Not a snapshot, but also not a regular event ring file; if it starts
+        // with RING this is a different version, otherwise it's just completely
+        // wrong
+        if (std::memcmp(magic, "RING", 4) == 0) {
+            std::string_view const file_magic{magic, sizeof magic};
+            std::string_view const library_magic{
+                std::bit_cast<char *>(&MONAD_EVENT_RING_HEADER_VERSION),
+                sizeof magic};
+            std::string const error = std::format(
+                "event ring library is version {}, file version  is {}",
+                library_magic,
+                file_magic);
+            errx(EX_CONFIG, "version mismatch: %s", error.c_str());
+        }
+        errx(
+            EX_CONFIG,
+            "file `%s` does not appear to be an event ring file",
+            path);
+    }
+
+    return ring_fd;
 }
 
 static void print_event_ring_header(
@@ -331,15 +488,135 @@ static void follow_thread_main(
     }
 }
 
+static void kill_thread_main(
+    mapped_event_ring const &mr, uint64_t kill_seqno, std::vector<int> pidfds)
+{
+    monad_event_descriptor event;
+    monad_event_iterator iter;
+    size_t not_ready_count = 0;
+
+    monad_event_ring_init_iterator(&mr.event_ring, &iter);
+    while (g_should_exit == 0 && iter.read_last_seqno < kill_seqno) {
+        switch (monad_event_iterator_try_next(&iter, &event)) {
+        case MONAD_EVENT_NOT_READY:
+            if ((not_ready_count++ & ((1U << 20) - 1)) == 0) {
+                if (all_writers_have_exited(pidfds)) {
+                    g_should_exit = 1;
+                }
+            }
+            break;
+
+        case MONAD_EVENT_GAP:
+            std::fprintf(
+                stderr,
+                "ERROR: event gap from %lu -> %lu, resetting\n",
+                iter.read_last_seqno,
+                __atomic_load_n(&iter.control->last_seqno, __ATOMIC_ACQUIRE));
+            monad_event_iterator_reset(&iter);
+            not_ready_count = 0;
+            break;
+
+        case MONAD_EVENT_SUCCESS:
+            not_ready_count = 0;
+            break;
+        }
+    }
+    for (int fd : pidfds) {
+        long const rc = syscall(SYS_pidfd_send_signal, fd, SIGINT, nullptr, 0);
+        if (rc == -1) {
+            warnx("pidfd_send_signal failed for %d", fd);
+        }
+    }
+    if (iter.read_last_seqno == kill_seqno) {
+        std::fprintf(
+            stderr,
+            "saw seqno: %lu, sent signal %d to %lu pids\n",
+            iter.read_last_seqno,
+            SIGINT,
+            size(pidfds));
+    }
+    else {
+        errx(
+            EX_SOFTWARE,
+            "signaled to exit before seeing seqno %lu",
+            kill_seqno);
+    }
+
+    // Now that the event ring is not being written to, traverse it again,
+    // computing the SHA256 hash of all the events until the kill sequence
+    // number
+    iter.read_last_seqno = 0;
+    EVP_MD_CTX *const hash_ctx = EVP_MD_CTX_create();
+    if (hash_ctx == nullptr) {
+        ERR_print_errors_fp(stderr);
+        errx(EX_SOFTWARE, "EVP_MD_CTX_create failed");
+    }
+    EVP_MD const *const sha256_md = EVP_sha256();
+    if (EVP_DigestInit_ex(hash_ctx, sha256_md, nullptr) != 1) {
+        ERR_print_errors_fp(stderr);
+        errx(EX_SOFTWARE, "EVP_DigestInit_ex failed");
+    }
+    while (iter.read_last_seqno < kill_seqno) {
+        auto const nr = monad_event_iterator_try_next(&iter, &event);
+        MONAD_ASSERT(nr == MONAD_EVENT_SUCCESS);
+        EVP_DigestUpdate(hash_ctx, &event, sizeof event);
+        EVP_DigestUpdate(
+            hash_ctx,
+            monad_event_payload_peek(&iter, &event),
+            event.payload_size);
+    }
+    uint8_t event_digest[32];
+    EVP_DigestFinal_ex(hash_ctx, event_digest, nullptr);
+    EVP_MD_CTX_destroy(hash_ctx);
+
+    // It can take a long time for the daemon to finish running its graceful
+    // cleanup routines upon receiving SIGINT. During this time, it can still
+    // be record some final events; wait until the daemon is completely dead
+    // before we write out the event ring file
+    while (!all_writers_have_exited(pidfds))
+        /* empty */;
+
+    // mmap(2) the event ring file as a contiguous mapping, for write(2); we
+    // do this because splice(2) and sendfile(2), don't appear to accept a
+    // ring_fd backed by huge pages
+    size_t const map_len =
+        monad_event_ring_calc_storage(&mr.event_ring.header->size);
+    auto *const map_base = std::bit_cast<std::byte const *>(
+        mmap(nullptr, map_len, PROT_READ, MAP_SHARED, mr.ring_fd, 0));
+    auto *const map_end = map_base + map_len;
+    if (map_base == MAP_FAILED) {
+        err(EX_OSERR, "mmap failed");
+    }
+    ssize_t n_write;
+    auto *map_next = map_base;
+    do {
+        n_write = write(
+            STDOUT_FILENO, map_next, static_cast<size_t>(map_end - map_next));
+        if (n_write > 0) {
+            map_next += n_write;
+        }
+    }
+    while (n_write > 0 && map_next != map_end);
+    if (n_write == -1) {
+        err(EX_OSERR, "dump of event ring file to STDOUT failed");
+    }
+    fmt::println(stderr, "{} bytes transferred", map_len);
+    fmt::println(
+        stderr, "SHA256 message digest: {:02x}", fmt::join(event_digest, ""));
+    munmap(const_cast<std::byte *>(map_base), map_len);
+}
+
 int main(int argc, char **argv)
 {
     std::thread follow_thread;
+    std::thread kill_thread;
     bool print_header = false;
     bool follow = false;
     bool hexdump = false;
     bool decode = false;
     std::vector<std::string> event_ring_paths;
     std::optional<uint64_t> start_seqno;
+    std::optional<uint64_t> kill_seqno;
 
     CLI::App cli{"monad event capture tool"};
     cli.add_flag("--header", print_header, "print event ring file header");
@@ -351,6 +628,11 @@ int main(int argc, char **argv)
         "--start-seqno",
         start_seqno,
         "force the starting sequence number to a particular value (for debug)");
+    cli.add_option(
+        "-k,--kill",
+        kill_seqno,
+        "kill the writing process after this sequence number, and dump ring "
+        "file contents to stdout");
     cli.add_option(
            "event-ring-path",
            event_ring_paths,
@@ -380,12 +662,7 @@ int main(int argc, char **argv)
         else {
             mr.origin_path = path;
         }
-        mr.ring_fd = open(mr.origin_path.c_str(), O_RDONLY);
-        if (mr.ring_fd == -1) {
-            err(EX_CONFIG,
-                "could not open event ring file `%s`",
-                mr.origin_path.c_str());
-        }
+        mr.ring_fd = open_event_ring_file_or_exit(mr.origin_path.c_str());
 
         bool fs_supports_hugetlb;
         if (monad_check_path_supports_map_hugetlb(
@@ -456,6 +733,43 @@ int main(int argc, char **argv)
         }
     }
 
+    // -k <seqno> will send SIGINT to all writer processes as soon as the given
+    // sequence number is encountered, then dump the event ring file to stdout;
+    // stdout is typically a pipe connected to zstd for compression. This is
+    // used for creating event ring test case files, e.g.:
+    //
+    //    eventcap -k 10000 | zstd -19 > /tmp/ring_test_case.zst
+    if (kill_seqno) {
+        if (isatty(STDOUT_FILENO)) {
+            errx(EX_USAGE, "--kill specified but stdout is a terminal");
+        }
+        if (size(mapped_event_rings) > 1) {
+            errx(EX_USAGE, "--kill specified with multiple event ring inputs");
+        }
+        pid_t writer_pids[32];
+        size_t n_pids = std::size(writer_pids);
+        mapped_event_ring const &mr = mapped_event_rings[0];
+        if (monad_event_ring_find_writer_pids(
+                mr.ring_fd, writer_pids, &n_pids) != 0) {
+            errx(
+                EX_SOFTWARE,
+                "event library error -- %s",
+                monad_event_ring_get_last_error());
+        }
+        if (n_pids == 0) {
+            errx(EX_SOFTWARE, "--kill specified but no attached processes");
+        }
+        std::vector<int> pidfds;
+        for (pid_t p : std::span{writer_pids, n_pids}) {
+            long const fd = syscall(SYS_pidfd_open, p, 0);
+            if (fd == -1) {
+                errx(EX_OSERR, "pidfd_open failed for pid %d", p);
+            }
+            pidfds.push_back(static_cast<int>(fd));
+        }
+        kill_thread = std::thread{kill_thread_main, mr, *kill_seqno, pidfds};
+    }
+
     if (follow) {
         follow_thread = std::thread{
             follow_thread_main,
@@ -465,6 +779,9 @@ int main(int argc, char **argv)
             stdout};
     }
 
+    if (kill_thread.joinable()) {
+        kill_thread.join();
+    }
     if (follow_thread.joinable()) {
         follow_thread.join();
     }

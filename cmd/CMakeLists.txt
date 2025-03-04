@@ -6,6 +6,8 @@ add_executable(
   monad
   monad/event.cpp
   monad/event.hpp
+  monad/event_cvt.cpp
+  monad/event_cvt.hpp
   monad/main.cpp
   monad/runloop_ethereum.cpp
   monad/runloop_ethereum.hpp
@@ -36,6 +38,7 @@ target_compile_definitions(monad_cli PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}
 
 add_executable(eventcap eventcap.cpp)
 monad_compile_options(eventcap)
+target_compile_definitions(eventcap PRIVATE ZSTD_STATIC_LINKING_ONLY)
 target_compile_options(eventcap PRIVATE -Wno-c99-designator)
-target_link_libraries(eventcap PRIVATE monad_execution monad_core CLI11::CLI11)
+target_link_libraries(eventcap PRIVATE monad_execution monad_core CLI11::CLI11 -lzstd -lcrypto)
 target_compile_options(eventcap PRIVATE -Wno-missing-field-initializers)

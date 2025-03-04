@@ -1,5 +1,6 @@
 #include "runloop_monad.hpp"
 #include "event.hpp"
+#include "event_cvt.hpp"
 
 #include <monad/chain/chain.hpp>
 #include <monad/config.hpp>
@@ -31,9 +32,14 @@
 #include <chrono>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <thread>
 #include <vector>
+
+namespace fs = std::filesystem;
+
+extern fs::path event_cvt_export_path;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -82,7 +88,9 @@ bft_id_for_finalized_block(mpt::Db const &db, uint64_t const block_id)
 Result<BlockExecOutput> on_proposal_event(
     MonadConsensusBlockHeader const &consensus_header, Block block,
     BlockHashBuffer const &block_hash_buffer, Chain const &chain, Db &db,
-    fiber::PriorityPool &priority_pool, bool const is_first_block)
+    fiber::PriorityPool &priority_pool, bool const is_first_block,
+    bytes32_t const &bft_block_id,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
@@ -99,15 +107,18 @@ Result<BlockExecOutput> on_proposal_event(
     BlockState block_state(db);
     BlockExecOutput exec_output;
     BOOST_OUTCOME_TRY(
-        auto results,
+        auto block_result,
         execute_block(
             chain, rev, block, block_state, block_hash_buffer, priority_pool));
 
-    std::vector<Receipt> receipts(results.size());
-    std::vector<std::vector<CallFrame>> call_frames(results.size());
-    std::vector<Address> senders(results.size());
-    for (unsigned i = 0; i < results.size(); ++i) {
-        auto &result = results[i];
+    auto &txn_results = block_result.txn_results;
+    std::vector<State> txn_states;
+    std::vector<Receipt> receipts(txn_results.size());
+    std::vector<std::vector<CallFrame>> call_frames(txn_results.size());
+    std::vector<Address> senders(txn_results.size());
+    for (unsigned i = 0; i < txn_results.size(); ++i) {
+        auto &result = txn_results[i];
+        txn_states.emplace_back(std::move(result.state));
         receipts[i] = std::move(result.receipt);
         call_frames[i] = (std::move(result.call_frames));
         senders[i] = result.sender;
@@ -128,6 +139,22 @@ Result<BlockExecOutput> on_proposal_event(
 
     exec_output.eth_block_hash =
         to_bytes(keccak256(rlp::encode_block_header(exec_output.eth_header)));
+
+    if (cvt_recorder != nullptr) {
+        cvt_recorder->record_execution(
+            bft_block_id,
+            chain.get_chain_id(),
+            exec_output.eth_block_hash,
+            consensus_header,
+            exec_output.eth_header,
+            block.transactions,
+            receipts,
+            senders,
+            call_frames,
+            txn_states,
+            block_result.prologue_state,
+            block_result.epilogue_state);
+    }
 
     return exec_output;
 }
@@ -173,7 +200,14 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
     fiber::PriorityPool &priority_pool, uint64_t &finalized_block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
 {
+    using event_cross_validation_test::ExpectedDataRecorder;
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
+
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder =
+            std::make_unique<ExpectedDataRecorder>(event_cvt_export_path);
+    }
 
     WalReader reader(ledger_dir);
     if (finalized_block_num > 1) { // no wal entry for genesis
@@ -217,7 +251,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 chain_id,
                 consensus_header,
                 block_hash_buffer.get(consensus_header.seqno - 1),
-                size(consensus_body.transactions));
+                size(consensus_body.transactions),
+                cvt_recorder.get());
 
             BOOST_OUTCOME_TRY(
                 BlockExecOutput const exec_output,
@@ -232,7 +267,9 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                     chain,
                     db,
                     priority_pool,
-                    block_number == start_block_num)));
+                    block_number == start_block_num,
+                    bft_block_id,
+                    cvt_recorder.get())));
             block_hash_chain.propose(
                 exec_output.eth_block_hash,
                 consensus_header.round,
@@ -263,7 +300,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
                 db.update_verified_block(verified_blocks.back().number);
             }
             finalized_block_num = block_number;
-            record_block_finalized(bft_block_id, consensus_header);
+            record_block_finalized(
+                bft_block_id, consensus_header, cvt_recorder.get());
         }
         else {
             MONAD_ABORT_PRINTF(

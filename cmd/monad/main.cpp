@@ -92,6 +92,8 @@ MONAD_ANONYMOUS_NAMESPACE_END
 using namespace monad;
 namespace fs = std::filesystem;
 
+fs::path event_cvt_export_path;
+
 int main(int const argc, char const *argv[])
 {
     cxx_runtime_terminate_handler = std::get_terminate();
@@ -152,6 +154,10 @@ int main(int const argc, char const *argv[])
         "--dump_snapshot",
         dump_snapshot,
         "directory to dump state to at the end of run");
+    cli.add_option(
+        "--event-cvt-export-path",
+        event_cvt_export_path,
+        "path to the event cross-validation test export file path");
     auto *const group =
         cli.add_option_group("load", "methods to initialize the db");
     group->add_option("--genesis", genesis, "genesis file")

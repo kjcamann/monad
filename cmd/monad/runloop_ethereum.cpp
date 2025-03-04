@@ -1,5 +1,6 @@
 #include "runloop_ethereum.hpp"
 #include "event.hpp"
+#include "event_cvt.hpp"
 
 #include <monad/chain/chain.hpp>
 #include <monad/core/assert.h>
@@ -27,6 +28,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
+#include <iterator>
+#include <memory>
+
+#include <signal.h>
+
+namespace fs = std::filesystem;
+
+extern fs::path event_cvt_export_path;
 
 MONAD_NAMESPACE_BEGIN
 
@@ -78,7 +88,9 @@ static Result<BlockExecOutput> process_ethereum_block(
     Chain const &chain, Db &db, BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool,
     MonadConsensusBlockHeader const &consensus_header, Block &block,
-    std::optional<uint64_t> round_number)
+    std::optional<uint64_t> round_number, sig_atomic_t const volatile &stop,
+    bytes32_t const &bft_block_id,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     BOOST_OUTCOME_TRY(chain.static_validate_header(block.header));
 
@@ -94,15 +106,18 @@ static Result<BlockExecOutput> process_ethereum_block(
     BlockExecOutput exec_output;
     BlockState block_state(db);
     BOOST_OUTCOME_TRY(
-        auto results,
+        auto block_result,
         execute_block(
             chain, rev, block, block_state, block_hash_buffer, priority_pool));
 
-    std::vector<Receipt> receipts(results.size());
-    std::vector<std::vector<CallFrame>> call_frames(results.size());
-    std::vector<Address> senders(results.size());
-    for (unsigned i = 0; i < results.size(); ++i) {
-        auto &result = results[i];
+    auto &txn_results = block_result.txn_results;
+    std::vector<State> txn_states;
+    std::vector<Receipt> receipts(txn_results.size());
+    std::vector<std::vector<CallFrame>> call_frames(txn_results.size());
+    std::vector<Address> senders(txn_results.size());
+    for (unsigned i = 0; i < txn_results.size(); ++i) {
+        auto &result = txn_results[i];
+        txn_states.emplace_back(std::move(result.state));
         receipts[i] = std::move(result.receipt);
         call_frames[i] = (std::move(result.call_frames));
         senders[i] = result.sender;
@@ -128,6 +143,22 @@ static Result<BlockExecOutput> process_ethereum_block(
         to_bytes(keccak256(rlp::encode_block_header(exec_output.eth_header)));
     block_hash_buffer.set(
         exec_output.eth_header.number, exec_output.eth_block_hash);
+
+    if (cvt_recorder != nullptr && stop == 0) {
+        cvt_recorder->record_execution(
+            bft_block_id,
+            chain.get_chain_id(),
+            exec_output.eth_block_hash,
+            consensus_header,
+            exec_output.eth_header,
+            block.transactions,
+            receipts,
+            senders,
+            call_frames,
+            txn_states,
+            block_result.prologue_state,
+            block_result.epilogue_state);
+    }
 
     return exec_output;
 }
@@ -176,6 +207,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     fiber::PriorityPool &priority_pool, uint64_t &block_num,
     uint64_t const end_block_num, sig_atomic_t const volatile &stop)
 {
+    using event_cross_validation_test::ExpectedDataRecorder;
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
     uint64_t const batch_size =
         end_block_num == std::numeric_limits<uint64_t>::max() ? 1 : 1000;
     uint64_t batch_num_blocks = 0;
@@ -230,6 +263,11 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
         consensus_block_history.set_next(to_bytes(blake3(r)), consensus_header);
     }
 
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder =
+            std::make_unique<ExpectedDataRecorder>(event_cvt_export_path);
+    }
+
     while (block_num <= end_block_num && stop == 0) {
         Block block;
         MONAD_ASSERT_PRINTF(
@@ -257,7 +295,7 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
         if (block_num > 1) {
             auto const &[id, h] = consensus_block_history.lookback(2);
             if (id != bytes32_t{} && !h.delayed_execution_results.empty()) {
-                record_block_finalized(id, h);
+                record_block_finalized(id, h, cvt_recorder.get());
             }
         }
 
@@ -268,7 +306,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
             chain_id,
             consensus_header,
             consensus_header.execution_inputs.parent_hash,
-            size(block.transactions));
+            size(block.transactions),
+            cvt_recorder.get());
 
         // Call the main block execution subroutine and record the results
         BOOST_OUTCOME_TRY(
@@ -280,7 +319,10 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 priority_pool,
                 consensus_header,
                 block,
-                round_number)));
+                round_number,
+                stop,
+                bft_block_id,
+                cvt_recorder.get())));
 
         // Update history for the next round
         consensus_block_history.set_next(

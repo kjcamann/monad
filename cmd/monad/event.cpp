@@ -15,6 +15,7 @@
 #include <concepts>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -39,6 +40,7 @@
 #include <quill/Quill.h>
 
 #include "event.hpp"
+#include "event_cvt.hpp"
 
 template <std::integral I>
 static std::string try_parse_int_token(std::string_view s, I *i)
@@ -59,6 +61,8 @@ static std::string try_parse_int_token(std::string_view s, I *i)
 }
 
 MONAD_NAMESPACE_BEGIN
+
+using event_cross_validation_test::ExpectedDataRecorder;
 
 extern std::unique_ptr<ExecutionEventRecorder> g_exec_event_recorder;
 
@@ -205,7 +209,8 @@ int init_execution_event_recorder(EventRingConfig const &ring_config)
 void record_block_exec_start(
     bytes32_t const &bft_block_id, uint256_t const &chain_id,
     MonadConsensusBlockHeader const &consensus_header,
-    bytes32_t const &eth_parent_hash, size_t txn_count)
+    bytes32_t const &eth_parent_hash, size_t txn_count,
+    ExpectedDataRecorder *cvt_recorder)
 {
     ExecutionEventRecorder *const r = g_exec_event_recorder.get();
     if (!r) {
@@ -224,6 +229,9 @@ void record_block_exec_start(
         .parent_id = vote.parent_id};
     if (vote.round > 0) {
         record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_QC, round_qc);
+        if (cvt_recorder) {
+            cvt_recorder->record_vote(round_qc);
+        }
     }
 
     monad_exec_block_header *exec_header;
@@ -265,7 +273,8 @@ void record_block_exec_start(
 
 void record_block_finalized(
     bytes32_t const &bft_block_id,
-    MonadConsensusBlockHeader const &consensus_header)
+    MonadConsensusBlockHeader const &consensus_header,
+    ExpectedDataRecorder *cvt_recorder)
 {
     for (BlockHeader const &h : consensus_header.delayed_execution_results) {
         if (h.number == 0) {
@@ -275,6 +284,9 @@ void record_block_finalized(
             .block_number = h.number};
         record_exec_event(
             std::nullopt, MONAD_EXEC_BLOCK_VERIFIED, verified_info);
+        if (cvt_recorder) {
+            cvt_recorder->record_verification(h.number);
+        }
     }
     monad_exec_block_finalized const finalized_info = {
         .round = consensus_header.round,
@@ -284,6 +296,9 @@ void record_block_finalized(
         .parent_round = consensus_header.parent_round(),
         .parent_id = consensus_header.parent_id()};
     record_exec_event(std::nullopt, MONAD_EXEC_BLOCK_FINALIZED, finalized_info);
+    if (cvt_recorder) {
+        cvt_recorder->record_finalization(bft_block_id, consensus_header.seqno);
+    }
 }
 
 static monad_exec_block_result *init_block_exec_result(

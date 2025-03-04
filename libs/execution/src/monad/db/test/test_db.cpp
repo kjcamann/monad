@@ -914,16 +914,18 @@ TYPED_TEST(DBTest, call_frames_stress_test)
 
     fiber::PriorityPool pool{1, 1};
 
-    auto const results = execute_block<EVMC_SHANGHAI>(
+    auto block_result = execute_block<EVMC_SHANGHAI>(
         EthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
 
-    ASSERT_TRUE(!results.has_error());
+    ASSERT_TRUE(!block_result.has_error());
 
     bs.log_debug();
 
+    std::vector<ExecutionResult> &txn_results =
+        block_result.value().txn_results;
     std::vector<Receipt> receipts;
     std::vector<std::vector<CallFrame>> call_frames;
-    for (auto &result : results.value()) {
+    for (auto &result : txn_results) {
         receipts.emplace_back(std::move(result.receipt));
         call_frames.emplace_back(std::move(result.call_frames));
     }
@@ -1011,16 +1013,18 @@ TYPED_TEST(DBTest, call_frames_refund)
 
     fiber::PriorityPool pool{1, 1};
 
-    auto const results = execute_block<EVMC_SHANGHAI>(
+    auto block_result = execute_block<EVMC_SHANGHAI>(
         ShanghaiEthereumMainnet{}, block.value(), bs, block_hash_buffer, pool);
 
-    ASSERT_TRUE(!results.has_error());
+    ASSERT_TRUE(!block_result.has_error());
 
     bs.log_debug();
 
+    std::vector<ExecutionResult> &txn_results =
+        block_result.value().txn_results;
     std::vector<Receipt> receipts;
     std::vector<std::vector<CallFrame>> call_frames;
-    for (auto &result : results.value()) {
+    for (auto &result : txn_results) {
         receipts.emplace_back(std::move(result.receipt));
         call_frames.emplace_back(std::move(result.call_frames));
     }
