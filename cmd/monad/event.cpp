@@ -108,6 +108,7 @@ int init_execution_event_recorder(EventRingConfig const &ring_config)
 
     MONAD_ASSERT(!g_exec_event_recorder, "recorder initialized again?");
     char const *ring_path = ring_config.event_ring_path.c_str();
+
     // Open the file and acquire a BSD-style exclusive lock on it
     int const ring_fd = open(ring_path, O_RDWR | O_CREAT, mode);
     if (ring_fd == -1) {
@@ -149,12 +150,30 @@ int init_execution_event_recorder(EventRingConfig const &ring_config)
         return rc;
     }
 
+    // Check if the underlying filesystem supports MAP_HUGETLB
+    bool fs_supports_hugetlb;
+    if (int const rc = monad_check_path_supports_map_hugetlb(
+            ring_path, &fs_supports_hugetlb)) {
+        LOG_ERROR(
+            "event library error -- {}", monad_event_ring_get_last_error());
+        (void)close(ring_fd);
+        return rc;
+    }
+    if (!fs_supports_hugetlb) {
+        LOG_WARNING(
+            "file system hosting event ring file `{}` does not support "
+            "MAP_HUGETLB!",
+            ring_path);
+    }
+    int const mmap_extra_flags =
+        fs_supports_hugetlb ? MAP_POPULATE | MAP_HUGETLB : MAP_POPULATE;
+
     // mmap the event ring into this process' address space
     monad_event_ring exec_ring;
     if (int const rc = monad_event_ring_mmap(
             &exec_ring,
             PROT_READ | PROT_WRITE,
-            MAP_POPULATE | MAP_HUGETLB,
+            mmap_extra_flags,
             ring_fd,
             0,
             ring_path)) {
