@@ -44,6 +44,8 @@ add_library(
   "src/monad/core/fmt/address_fmt.hpp"
   "src/monad/core/fmt/block_fmt.hpp"
   "src/monad/core/fmt/bytes_fmt.hpp"
+  "src/monad/core/fmt/eth_ctypes_fmt.hpp"
+  "src/monad/core/fmt/exec_event_ctypes_fmt.hpp"
   "src/monad/core/fmt/int_fmt.hpp"
   "src/monad/core/fmt/receipt_fmt.hpp"
   "src/monad/core/fmt/signature_fmt.hpp"

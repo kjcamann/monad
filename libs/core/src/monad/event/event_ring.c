@@ -12,8 +12,13 @@
 
 #include <monad/core/format_err.h>
 #include <monad/event/event_iterator.h>
-#include <monad/event/event_recorder.h>
 #include <monad/event/event_ring.h>
+
+// The recorder is not part of the reader SDK
+#if __has_include(<monad/event/event_recorder.h>)
+    #define HAS_EVENT_RECORDER 1
+    #include <monad/event/event_recorder.h>
+#endif
 
 thread_local char _g_monad_event_ring_error_buf[1024];
 static size_t const PAGE_2MB = 1UL << 21, HEADER_SIZE = PAGE_2MB;
@@ -377,6 +382,7 @@ int monad_event_ring_init_recorder(
     struct monad_event_ring const *event_ring,
     struct monad_event_recorder *recorder)
 {
+#if HAS_EVENT_RECORDER
     memset(recorder, 0, sizeof *recorder);
     struct monad_event_ring_header *header = event_ring->header;
     if (header == nullptr) {
@@ -391,6 +397,10 @@ int monad_event_ring_init_recorder(
     recorder->desc_capacity_mask = header->size.descriptor_capacity - 1;
     recorder->payload_buf_mask = header->size.payload_buf_size - 1;
     return 0;
+#else
+    (void)event_ring, (void)recorder;
+    return ENOSYS;
+#endif
 }
 
 char const *monad_event_ring_get_last_error()

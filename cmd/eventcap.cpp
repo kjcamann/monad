@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
@@ -30,6 +31,7 @@
 
 #include <monad/core/assert.h>
 #include <monad/core/exec_event_ctypes.h>
+#include <monad/core/fmt/exec_event_ctypes_fmt.hpp>
 #include <monad/event/event_iterator.h>
 #include <monad/event/event_metadata.h>
 #include <monad/event/event_ring.h>
@@ -100,10 +102,13 @@ static bool event_ring_is_abandoned(int ring_fd)
 {
     pid_t writer_pids[32];
     size_t n_pids = std::size(writer_pids);
-    int const rc =
-        monad_event_ring_find_writer_pids(ring_fd, writer_pids, &n_pids);
-    MONAD_ASSERT(rc == ENOSYS, "not implemented yet, always claim it's alive");
-    return false;
+    if (monad_event_ring_find_writer_pids(ring_fd, writer_pids, &n_pids) != 0) {
+        errx(
+            EX_SOFTWARE,
+            "event library error -- %s",
+            monad_event_ring_get_last_error());
+    }
+    return n_pids == 0;
 }
 
 static void print_event_ring_header(
@@ -188,7 +193,8 @@ static void hexdump_event_payload(
 static void print_event(
     monad_event_iterator *iter, monad_event_descriptor const *event,
     std::span<monad_event_metadata const> metadata_entries,
-    monad_exec_block_header const *blocks, bool dump_payload, std::FILE *out)
+    monad_exec_block_header const *blocks, bool hexdump_payload,
+    bool decode_payload, std::FILE *out)
 {
     using std::chrono::seconds, std::chrono::nanoseconds;
     static std::chrono::sys_time<seconds> last_second{};
@@ -243,16 +249,33 @@ static void print_event(
     *o++ = '\n';
     std::fwrite(event_buf, static_cast<size_t>(o - event_buf), 1, out);
 
-    if (dump_payload) {
+    if (hexdump_payload) {
         hexdump_event_payload(iter, event, out);
+    }
+    if (decode_payload && blocks != nullptr) {
+        fmt::memory_buffer mb;
+        std::back_insert_iterator o{mb};
+
+        auto const *const payload_base = monad_event_payload_peek(iter, event);
+        auto const event_type =
+            static_cast<monad_exec_event_type>(event->event_type);
+        o = monad::format_as(o, payload_base, event_type);
+        if (monad_event_payload_check(iter, event)) {
+            *o++ = '\n';
+            std::fwrite(data(mb), size(mb), 1, out);
+        }
+        else {
+            std::fprintf(
+                stderr, "ERROR: event %lu payload lost!\n", event->seqno);
+        }
     }
 }
 
 // The "follow thread" behaves like `tail -f`: it pulls events from the ring
 // and writes them to a std::FILE* as fast as possible
 static void follow_thread_main(
-    std::span<mapped_event_ring const> mapped_event_rings, bool dump_payload,
-    std::FILE *out)
+    std::span<mapped_event_ring const> mapped_event_rings, bool hexdump_payload,
+    bool decode_payload, std::FILE *out)
 {
     monad_event_descriptor event;
     monad_event_iterator *iter_bufs = static_cast<monad_event_iterator *>(
@@ -297,7 +320,13 @@ static void follow_thread_main(
                 break; // Handled in the main loop body
             }
             print_event(
-                &iter, &event, event_metadata, mr.blocks, dump_payload, out);
+                &iter,
+                &event,
+                event_metadata,
+                mr.blocks,
+                hexdump_payload,
+                decode_payload,
+                out);
         }
     }
 }
@@ -308,6 +337,7 @@ int main(int argc, char **argv)
     bool print_header = false;
     bool follow = false;
     bool hexdump = false;
+    bool decode = false;
     std::vector<std::string> event_ring_paths;
     std::optional<uint64_t> start_seqno;
 
@@ -316,6 +346,7 @@ int main(int argc, char **argv)
     cli.add_flag(
         "-f,--follow", follow, "stream events to stdout, as in tail -f");
     cli.add_flag("-H,--hex", hexdump, "hexdump event payloads in follow mode");
+    cli.add_flag("-d,--decode", decode, "decode event payloads in follow mode");
     cli.add_option(
         "--start-seqno",
         start_seqno,
@@ -427,7 +458,11 @@ int main(int argc, char **argv)
 
     if (follow) {
         follow_thread = std::thread{
-            follow_thread_main, std::span{mapped_event_rings}, hexdump, stdout};
+            follow_thread_main,
+            std::span{mapped_event_rings},
+            hexdump,
+            decode,
+            stdout};
     }
 
     if (follow_thread.joinable()) {
