@@ -12,8 +12,7 @@ There are two parts to the event system:
 
 1. The `monad` execution daemon is the *writer* of all events
 2. An external application can become a *reader* of events using the C
-   library `libmonad_event`, whose implementation is in the same directory
-   as this file
+   library `libmonad_event`
 
 This documentation file provides a general overview of the event system,
 and describes how to use `libmonad_event` as a reader.
@@ -81,7 +80,7 @@ A few properties about the style of communication chosen:
   iterate through events quickly, or they will be lost: descriptor and payload
   memory can be overwritten by later events. Conceptually the event series
   is a *queue* (it has FIFO semantics) but is usually called a *ring* to
-  emphasize these overwrite-upon-overflow semantics
+  emphasize its overwrite-upon-overflow semantics
 
 - A sequence number is included in the event descriptor to detect gaps
   (missing events due to slow readers), and a similar strategy is used to
@@ -89,17 +88,13 @@ A few properties about the style of communication chosen:
 
 #### An example event and payload
 
-Each kind of event is identified by a C enumeration constant in the
-`enum monad_event_type` type, in `event_types.h`.
-
-One particularly important event is `MONAD_EVENT_TXN_START`, which is written
-by `monad` as soon as a new transaction begins executing within the EVM. It
-contains the transaction information (encoded as a C structure) as its event
-payload. This structure is also defined in `event_types.h` and its definition
-appears below:
+One particularly important event is the "start of transaction" event, which
+is written by `monad` as soon as a new transaction begins executing within
+the EVM. It contains the transaction information (encoded as a C structure)
+as its event payload. This structure is defined in `exec_event_types.h` as
+follows:
 
 ```c
-/// Event payload for MONAD_EVENT_TXN_START
 struct monad_event_txn_header
 {
     monad_event_bytes32 tx_hash;
@@ -128,13 +123,26 @@ Because of their importance in the monad blockchain protocol, transaction
 numbers are encoded directly in the event descriptor (this is described
 later in the documentation).
 
-All the C enumeration constants start with a `MONAD_EVENT_` prefix, but
-typically the documentation refers to event types without the prefix, i.e.,
-`TXN_START` instead of `MONAD_EVENT_TXN_START`. In other language bindings
-these may be named using the languages scoping rules instead, e.g., in Rust
-this event is `monad_event_type::TXN_START`.
+The above structure is only the event payload; some properties of the event
+are recorded in the event descriptor instead. One particularly important
+event descriptor field, called `event_type`, is used to identify an event
+as a "start of transaction" event in the first place.
 
-#### Ring database (or "ring db")
+For a "start of transaction" event, the descriptor's `event_type` field
+is set to the value of the C enumeration constant `MONAD_EXEC_TXN_START`,
+defined in `enum monad_exec_event_type`. This tells the user that it is
+appropriate to cast the `uint8_t const*` pointing to the start of the
+payload to a `struct monad_event_txn_header const *`.
+
+All the C enumeration constants start with a `MONAD_EXEC_` prefix, but
+typically the documentation refers to event types without the prefix, e.g.,
+`TXN_START`. In other language bindings these may be named using the
+language scoping rules instead, e.g., in Rust this event is called
+`monad_exec_event_type::TXN_START`.
+
+#### Event ring files and types
+
+XXX
 
 There is more than one kind of event ring: the standard execution events
 are recorded to one event ring, and the performance tracer (which has more
@@ -170,19 +178,15 @@ daemon.
 
 ### Core concepts
 
-The three central objects in the API, which are generally used in the order
-they are listed, are:
+The two objects in the reader API, which are used in the order they are listed,
+are:
 
-1. __monad_event_ring_db__ - represents an open handle to the ring db owned by
-   a running `monad` execution process; the primary thing the user does with
-   this object is import event rings from it, using the
-   `monad_event_ring_db_import` function
-2. __monad_event_ring__ - represents an event ring whose shared memory
+1. __monad_event_ring__ - represents an event ring whose shared memory
    segments have been mapped into the address space of the current process;
    the primary thing the client does with this object is use it to initialize
    iterators that point into the event ring, using the
-   `monad_event_iterator_init` function
-3. __monad_event_iterator__ - the star of the show: this iterator object is
+   `monad_event_ring_init_iterator` function
+2. __monad_event_iterator__ - the star of the show: this iterator object is
    used to actually read events. It offers both zero-copy and memcpy style
    APIs (zero copy APIs are explained in detail later in the documentation)
 
@@ -193,86 +197,45 @@ read the code.
 
 ### Using the API in your project
 
-Because it is designed for third party integration, `libmonad_event` does
-not depend on anything else in the `monad` git repository and this entire
-directory's contents may be copied into your own codebase. A Rust client
-library is also available, in another repository.
+`libmonad_event` is designed for third party integration, so it does not
+have any dependencies. This also means no dependency on the rest of the monad
+repository or on its build system: the sole requirement is a C compiler
+supporting C23, and a relatively recent version of glibc.
+
+The CMakeLists.txt file in the `libs/event` directory can be used as a
+top-level CMake project to build only `libmonad_event.a`. Alternatively, the
+source files that make up the library target can be copied into your own
+codebase. A Rust client library is also available, in another repository.
 
 Both libraries include a mechanism for detecting if your local copy becomes
 out-of-date vs. the running execution daemon. For example, suppose you
 upgrade the execution daemon to a new version, and in this new version the
 definition of the `TXN_START` payload has changed. Further suppose that you
-forget to copy the new `event_types.h` and recompile your program. In this
-case, the API call which opens the ring db will fail gracefully with the
+forget to copy the new `exec_event_types.h` and recompile your program. In
+this case, the API call which opens the ring db will fail gracefully with the
 `EPROTO` errno code ("Protocol error").
 
-### Ring DB APIs
+### Event ring APIs
 
 API | Purpose
 --- | -------
-`monad_event_ring_db_open` | Open a handle to the shared memory file describing which event rings are available
-`monad_event_ring_db_close` | Close an open ring db handle obtained from `monad_event_ring_db_open`
-`monad_event_ring_db_is_alive` | Return true if the execution daemon associated with the ring db is still alive
-`monad_event_ring_db_import` | Import an `monad_event_ring` into the current process, using metadata from the ring db
-`monad_event_ring_db_get_last_error` | Return a human-readable string describing the last error that occured on this thread
+`monad_event_ring_mmap`           | Open a handle to the shared memory file describing which event rings are available
+`monad_event_ring_init_iterator`  | Import an `monad_event_ring` into the current process, using metadata from the ring db
+`monad_event_ring_get_last_error` | Return a human-readable string describing the last error that occured on this thread
 
 All functions which fail return an `errno(3)` domain error code diagnosing
-the reason for failure. The function `monad_event_ring_db_get_last_error` is
-used to provide a human-readable string explanation of what failed.
+the reason for failure. The function `monad_event_ring_get_last_error` can
+be called to provide a human-readable string explanation of what failed.
 
-### Event Iterator APIs
+### Event iterator and payload APIs
 
 API | Purpose
 --- | -------
 `monad_event_iterator_try_next` | If the next event descriptor if is available, copy it and advance the iterator
-`monad_event_iterator_try_copy_all` | Copy both the event descriptor and payload as one atomic operation; easiest API to use, but see the zero copy API section
-`monad_event_iterator_reset` | Reset the iterator to point to the most recently produced event descriptor; used for gap recovery
-
-### Event Payload APIs
-
-API | Purpose
---- |--------
-`monad_event_payload_peek` | Get a zero-copy pointer to an event payload
-`monad_event_payload_check` | Check if an event payload refered to by a zero-copy pointer has been overwritten
-`monad_event_payload_memcpy` | `memcpy` the event payload to a buffer, succeeding only if the payload copy is valid
-
-The simplest API is `monad_event_iterator_try_copy_all`, which copies both
-the descriptor and payload, performs all validity checking, and advances the
-iterator if successful. However, the user must take care to provide a large
-enough buffer to hold any possible payload or the copied payload may be
-truncated. For example, here is some code which will not work because the
-buffer is too small:
-
-```c
-void read_events(struct monad_iterator_reader *iter) {
-    struct monad_event_descriptor event;
-    uint8_t tiny_buf[64]; // This payload buffer is too small for most events
-
-    switch (monad_event_iterator_try_copy_all(iter, &event, tiny_buf, sizeof tiny_buf)) {
-    case MONAD_EVENT_SUCCESS:
-        if (event.length > sizeof tiny_buf) {
-            // Event payload has more data than could fit in our buffer, so we're
-            // missing part of it. A size of 64 is far too small for many event
-            // payloads (e.g., BLOCK_START) so this is guaranteed to happen almost
-            // immediately.
-            fprintf(stderr, "truncated event! saw large event with size: %u\n",
-                    event.length);
-            abort();
-        } else {
-            do_something_with_event(&event, tiny_buf);
-        }
-        break;
-
-    case MONAD_EVENT_PAYLOAD_EXPIRED:
-        [[fallthrough]];
-    case MONAD_EVENT_GAP:
-        /* ... gap or expired payload, handle it */
-
-    case MONAD_EVENT_NOT_READY:
-        break; // Nothing ready, we're done
-    }
-}
-```
+`monad_event_iterator_reset`    | Reset the iterator to point to the most recently produced event descriptor; used for gap recovery
+`monad_event_payload_peek`      | Get a zero-copy pointer to an event payload
+`monad_event_payload_check`     | Check if an event payload refered to by a zero-copy pointer has been overwritten
+`monad_event_payload_memcpy`    | `memcpy` the event payload to a buffer, succeeding only if the payload copy is valid
 
 ### Library organization
 
@@ -293,8 +256,6 @@ Some other files in this same directory are:
 
 File | Contents
 ---- | --------
-`event_test_util.h` | Utility that can load a ring db and a fixed set of events from a snapshot that has been persisted to disk; for testing, not part of the main library
-`event_test_util.c` | Implementation of `event_test_util.h`
 `example/eventwatch.c` | A sample program that shows how to use the API
 
 ## Event lifetimes, gap detection, and zero copy APIs
