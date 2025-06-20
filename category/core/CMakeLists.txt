@@ -110,6 +110,13 @@ add_library(
   "mem/batch_mem_pool.hpp"
   "synchronization/spin_lock.hpp"
   # event
+  "event/evcap_file.h"
+  "event/evcap_reader.c"
+  "event/evcap_reader.h"
+  "event/evcap_reader_inline.h"
+  "event/evcap_writer.c"
+  "event/evcap_writer.h"
+  "event/evcap_writer_inline.h"
   "event/event_def.h"
   "event/event_metadata.h"
   "event/event_recorder.h"
