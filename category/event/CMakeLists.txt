@@ -32,6 +32,10 @@ option(MONAD_EVENT_USE_LIBHUGETLBFS
   "Build with libhugetlbfs support (enables the `monad_event_open_hugetlbfs_dir_fd` API function)"
   ${MONAD_EVENT_HUGETLBFS_DEFAULT})
 
+# This requires more advanced compiler support than the rest of the SDK does;
+# don't build by default
+option(MONAD_EVENT_BUILD_CLI "Build the monad-event-cli utility" OFF)
+
 find_library(libzstd_file zstd REQUIRED)
 
 # libgmp is not required, but if it is available, it can be used by the C++20
@@ -172,6 +176,10 @@ if (MONAD_EVENT_BUILD_EXAMPLE)
   add_executable(eventwatch "example/eventwatch.c")
   target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
+endif()
+
+if(MONAD_EVENT_BUILD_CLI)
+  add_subdirectory(tools/event-cli)
 endif()
 
 if(TARGET monad_event_os_compat)
