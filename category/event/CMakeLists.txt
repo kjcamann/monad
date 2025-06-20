@@ -41,6 +41,9 @@ add_library(
   "../core/event/event_ring_util.c"
   "../core/event/test_event_ctypes_metadata.c"
   "../core/mem/virtual_buf.c"
+  "../execution/ethereum/event/blockcap_builder.c"
+  "../execution/ethereum/event/blockcap_finalize_tracker.c"
+  "../execution/ethereum/event/blockcap_writer.c"
   "../execution/ethereum/event/exec_event_ctypes_metadata.c")
 
 target_sources(monad_event PUBLIC
@@ -73,6 +76,7 @@ target_sources(monad_event PUBLIC
   "../execution/ethereum/core/eth_ctypes.h"
   "../execution/ethereum/core/fmt/base_ctypes_fmt.hpp"
   "../execution/ethereum/core/fmt/eth_ctypes_fmt.hpp"
+  "../execution/ethereum/event/blockcap.h"
   "../execution/ethereum/event/exec_event_ctypes.h"
   "../execution/ethereum/event/exec_event_ctypes_fmt.hpp"
   "../execution/ethereum/event/exec_iter_help.h"
