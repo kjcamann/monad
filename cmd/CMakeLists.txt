@@ -62,3 +62,15 @@ endif()
 if(MONAD_COMPILER_TESTING)
   add_subdirectory(vm/type-check)
 endif()
+
+#
+# eventcap build
+#
+
+# This requires more advanced compiler support than the execution daemon does;
+# for now the execution build system won't build it
+option(MONAD_BUILD_EVENTCAP "Build the eventcap utility" OFF)
+
+if(MONAD_BUILD_EVENTCAP)
+  add_subdirectory(eventcap)
+endif()
