@@ -178,6 +178,8 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
             "mem/huge_mem.cpp"
             "mem/hugetlb_path.c"
             "mem/hugetlb_path.h"
+            "mem/virtual_buf.c"
+            "mem/virtual_buf.h"
             # procfs
             "procfs/statm.c"
             "procfs/statm.h")
