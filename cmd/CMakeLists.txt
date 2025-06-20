@@ -51,12 +51,6 @@ target_compile_definitions(monad PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
 target_compile_definitions(monad_cli
                            PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
 
-add_executable(eventcap eventcap.cpp)
-monad_compile_options(eventcap)
-target_compile_options(eventcap PRIVATE -Wno-c99-designator)
-target_link_libraries(eventcap PRIVATE monad_core CLI11::CLI11)
-target_compile_options(eventcap PRIVATE -Wno-missing-field-initializers)
-
 add_subdirectory(vm/parser)
 
 if(MONAD_COMPILER_BENCHMARKS)
@@ -65,4 +59,16 @@ endif()
 
 if(MONAD_COMPILER_TESTING)
   add_subdirectory(vm/type-check)
+endif()
+
+#
+# eventcap build
+#
+
+# This requires more advanced compiler support than the execution daemon does;
+# for now the execution build system won't build it
+option(MONAD_BUILD_EVENTCAP "Build the eventcap utility" OFF)
+
+if(MONAD_BUILD_EVENTCAP)
+  add_subdirectory(eventcap)
 endif()
