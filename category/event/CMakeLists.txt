@@ -35,9 +35,12 @@ add_library(
   "../core/assert.c"
   "../core/cleanup.c"
   "../core/format_err.c"
+  "../core/event/evcap_reader.c"
+  "../core/event/evcap_writer.c"
   "../core/event/event_ring.c"
   "../core/event/event_ring_util.c"
   "../core/event/test_event_ctypes_metadata.c"
+  "../core/mem/virtual_buf.c"
   "../execution/ethereum/event/exec_event_ctypes_metadata.c")
 
 target_sources(monad_event PUBLIC
@@ -51,6 +54,10 @@ target_sources(monad_event PUBLIC
   "../core/hex.hpp"
   "../core/likely.h"
   "../core/srcloc.h"
+  "../core/event/evcap_file.h"
+  "../core/event/evcap_reader.h"
+  "../core/event/evcap_reader_inline.h"
+  "../core/event/evcap_writer.h"
   "../core/event/event_iterator.h"
   "../core/event/event_iterator_inline.h"
   "../core/event/event_metadata.h"
@@ -61,6 +68,7 @@ target_sources(monad_event PUBLIC
   "../core/event/event_ring_util.h"
   "../core/event/test_event_ctypes.h"
   "../core/mem/align.h"
+  "../core/mem/virtual_buf.h"
   "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
   "../execution/ethereum/core/fmt/base_ctypes_fmt.hpp"
