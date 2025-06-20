@@ -1,0 +1,100 @@
+// Copyright (C) 2025 Category Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#pragma once
+
+/**
+ * @file
+ *
+ * This file defines the interface for writing event capture files
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <sys/types.h>
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+struct monad_evcap_dynamic_section;
+struct monad_evcap_section_desc;
+struct monad_evcap_writer;
+
+struct monad_event_descriptor;
+struct monad_event_metadata;
+
+struct monad_vbuf_chain;
+struct monad_vbuf_segment;
+struct monad_vbuf_writer;
+
+enum monad_evcap_section_type : uint16_t;
+enum monad_event_content_type : uint16_t;
+
+typedef struct ZSTD_CCtx_s ZSTD_CCtx;
+
+int monad_evcap_writer_create(
+    struct monad_evcap_writer **, int fd, bool append);
+
+void monad_evcap_writer_destroy(struct monad_evcap_writer *);
+
+int monad_evcap_writer_get_fd(struct monad_evcap_writer const *);
+
+int monad_evcap_writer_alloc_empty_section(
+    struct monad_evcap_writer *, size_t *size,
+    struct monad_evcap_section_desc **);
+
+ssize_t monad_evcap_writer_new_section(
+    struct monad_evcap_writer *, void const *buf, size_t nbyte,
+    struct monad_evcap_section_desc **);
+
+int monad_evcap_writer_add_schema_section(
+    struct monad_evcap_writer *, enum monad_event_content_type,
+    uint8_t const *schema_hash, struct monad_evcap_section_desc const **);
+
+int monad_evcap_writer_dynsec_open(
+    struct monad_evcap_writer *, struct monad_evcap_dynamic_section **,
+    struct monad_evcap_section_desc **);
+
+ssize_t monad_evcap_writer_dynsec_write(
+    struct monad_evcap_writer *, struct monad_evcap_dynamic_section *,
+    void const *buf, size_t size);
+
+ssize_t monad_evcap_writer_dynsec_sendfile(
+    struct monad_evcap_writer *, struct monad_evcap_dynamic_section *,
+    int in_fd, off_t offset, size_t size);
+
+ssize_t monad_evcap_writer_dynsec_sync_vbuf_chain(
+    struct monad_evcap_writer *, struct monad_evcap_dynamic_section *,
+    struct monad_vbuf_chain const *, ZSTD_CCtx *);
+
+int monad_evcap_writer_dynsec_close(
+    struct monad_evcap_writer *, struct monad_evcap_dynamic_section *);
+
+static int monad_evcap_vbuf_append_event(
+    struct monad_vbuf_writer *, struct monad_event_descriptor const *,
+    void const *payload, struct monad_vbuf_chain *);
+
+char const *monad_evcap_writer_get_last_error();
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
+
+#define MONAD_EVCAP_WRITER_INTERNAL
+#include "evcap_writer_inline.h"
+#undef MONAD_EVCAP_WRITER_INTERNAL
