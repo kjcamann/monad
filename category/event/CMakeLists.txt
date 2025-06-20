@@ -48,6 +48,7 @@ add_library(
   "../core/event/event_ring.c"
   "../core/event/event_ring_util.c"
   "../core/event/test_event_ctypes_metadata.c"
+  "../core/mem/virtual_buf.c"
   "../execution/ethereum/event/exec_event_ctypes_metadata.c")
 
 target_sources(monad_event PUBLIC
@@ -73,6 +74,8 @@ target_sources(monad_event PUBLIC
   "../core/event/event_ring_util.h"
   "../core/event/test_event_ctypes.h"
   "../core/mem/align.h"
+  "../core/mem/virtual_buf.h"
+  "../core/mem/virtual_buf_inline.h"
   "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
   "../execution/ethereum/core/fmt/base_ctypes_fmt.hpp"
