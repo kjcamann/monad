@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+
+"""This program generates source code in various programming languages for
+types that use simple, C-compatible data layouts.
+
+C-like records (structures), enumerations, and type aliases are defined in
+TOML files. The files are loaded into an intermediate Python representation
+(`class TypeInfo`), which is then passed to various code generators (defined
+in the `backends` subdirectory).
+"""
+
+import argparse
+import importlib.util
+import pathlib
+import sys
+
+parser = argparse.ArgumentParser(description='monad ctypes code generator')
+
+parser.add_argument('-v', '--verbose', action='count', default=0,
+    help='be more verbose, may be repeated')
+
+parser.add_argument('-m', '--module', action='append', default=list(),
+    metavar='<module-name>', help='only process this module; can be repeated')
+
+parser.add_argument('-s', '--source', action='append', type=pathlib.Path,
+    default=list(), metavar='<source>', help='directory containing TOML files to translate')
+
+def register_backends(p: argparse.ArgumentParser):
+  # The immediate subcommand is the name of the language backend
+  subparsers = p.add_subparsers(title='backends')
+
+  # Glob all the '.py' files in the 'backends' directory, load each as a module
+  # and call its `register_backend` function; this allows each file to register
+  # a subparser for its backend options and to register its 'backend_main'
+  # function with that subparser
+  backend_dir = pathlib.Path(__file__).parent / 'backends'
+  py_files = sorted(backend_dir.glob('**/*.py'), key=lambda f: str(f.stem))
+  for py_file in py_files:
+    spec = importlib.util.spec_from_file_location(f'backends.{py_file.stem}', py_file)
+    backend_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(backend_module)
+    if hasattr(backend_module, 'register_backend'):
+      backend_module.register_backend(subparsers)
+
+def main(args: argparse.Namespace) -> int:
+  from typeinfo import load_type_modules
+  module_map = load_type_modules(args.source)
+  if args.verbose > 1:
+    print(f'dump of {len(module_map)} type modules:', file=sys.stderr)
+    for k, v in module_map.items():
+      print(f'{k}: {v}\n', file=sys.stderr)
+
+  # Module filtering
+  args.module = set(args.module)
+  if args.module:
+    defined_modules = set(name for name in module_map.keys())
+    if not args.module <= defined_modules:
+      raise ValueError(f'-m|--module emit module subset contains modules that '
+                       f'were not defined: {args.module - defined_modules}')
+  return args.backend_main(args, module_map) if hasattr(args, 'backend_main') else 0
+
+if __name__ == '__main__':
+  register_backends(parser)
+  sys.exit(main(parser.parse_args()))
