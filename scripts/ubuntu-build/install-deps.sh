@@ -7,6 +7,7 @@ packages=(
   libgmock-dev
   libgtest-dev
   libhugetlbfs-dev
+  libssl-dev
   libtbb-dev
   liburing-dev
 )
