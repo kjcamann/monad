@@ -55,6 +55,8 @@ static uint8_t PERF_ITER_SHIFT = 20;
 // any potential synchronization effects of a reader.
 constexpr bool BULK_TEST_ENABLE_READER = true;
 
+constexpr bool BULK_TEST_DISPLAY_HISTOGRAMS = false;
+
 constexpr uint8_t DEFAULT_DESCRIPTORS_SHIFT = 20;
 constexpr uint8_t DEFAULT_PAYLOAD_BUF_SHIFT = 28;
 
@@ -198,14 +200,22 @@ static void writer_main(
     monad_event_ring const *event_ring, std::latch *latch,
     uint8_t writer_thread_count, uint32_t expected_len)
 {
+    constexpr size_t EventDelayHistogramSize = 30;
+    constexpr size_t EventsAvailableHistogramSize = 20;
+    constexpr unsigned HistogramShift = 10;
+    constexpr uint64_t HistogramSampleMask = (1UL << HistogramShift) - 1;
+
     uint64_t const max_writer_iteration =
         (1UL << PERF_ITER_SHIFT) / writer_thread_count;
     alignas(64) monad_event_iterator iter;
     std::vector<uint64_t> expected_counters;
     expected_counters.resize(writer_thread_count, 0);
     ASSERT_EQ(0, monad_event_ring_init_iterator(event_ring, &iter));
+    uint64_t delay_histogram[EventDelayHistogramSize] = {};
+    uint64_t available_histogram[EventsAvailableHistogramSize] = {};
 
     latch->arrive_and_wait();
+    std::atomic_ref const write_last_seqno{iter.control->last_seqno};
     // Regardless of where the most recent event is, start from zero
     uint64_t last_seqno = iter.read_last_seqno = 0;
     while (last_seqno < max_writer_iteration) {
@@ -217,6 +227,27 @@ static void writer_main(
             continue;
         }
         ASSERT_EQ(MONAD_EVENT_SUCCESS, ir);
+
+        // Compute histograms
+        if (MONAD_UNLIKELY((last_seqno + 1) & HistogramSampleMask) == 0) {
+            uint64_t const available_events =
+                write_last_seqno.load(std::memory_order::acquire) - event.seqno;
+            unsigned avail_bucket =
+                static_cast<unsigned>(std::bit_width(available_events));
+            if (avail_bucket >= std::size(available_histogram)) {
+                avail_bucket = std::size(available_histogram) - 1;
+            }
+            ++available_histogram[avail_bucket];
+
+            auto const delay =
+                monad_event_get_epoch_nanos() - event.record_epoch_nanos;
+            unsigned delay_bucket =
+                static_cast<unsigned>(std::bit_width(delay));
+            if (delay_bucket >= std::size(delay_histogram)) {
+                delay_bucket = std::size(delay_histogram) - 1;
+            }
+            ++delay_histogram[delay_bucket];
+        }
         EXPECT_EQ(last_seqno + 1, event.seqno);
         last_seqno = event.seqno;
 
@@ -230,6 +261,24 @@ static void writer_main(
         EXPECT_EQ(
             expected_counters[test_counter.writer_id], test_counter.counter);
         expected_counters[test_counter.writer_id] = test_counter.counter + 1;
+    }
+
+    if constexpr (BULK_TEST_DISPLAY_HISTOGRAMS) {
+        fprintf(stdout, "backpressure histogram (# waiting items):\n");
+        for (size_t b = 0;
+             uint64_t const v : std::span{available_histogram}.subspan(1)) {
+            fprintf(
+                stdout, "%7lu - %7lu %lu\n", 1UL << b, (1UL << (b + 1)) - 1, v);
+            ++b;
+        }
+
+        fprintf(stdout, "delay histogram (nanoseconds):\n");
+        for (size_t b = 0;
+             uint64_t const v : std::span{delay_histogram}.subspan(1)) {
+            fprintf(
+                stdout, "%7lu - %7lu %lu\n", 1UL << b, (1UL << (b + 1)) - 1, v);
+            ++b;
+        }
     }
 }
 
