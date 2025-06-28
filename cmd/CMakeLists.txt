@@ -29,7 +29,9 @@ add_executable(
   monad/runloop_monad.cpp
   monad/runloop_monad.hpp
   monad/runloop_monad_ethblocks.cpp
-  monad/runloop_monad_ethblocks.hpp)
+  monad/runloop_monad_ethblocks.hpp
+  monad/wal.cpp
+  monad/wal.hpp)
 
 monad_compile_options(monad)
 
