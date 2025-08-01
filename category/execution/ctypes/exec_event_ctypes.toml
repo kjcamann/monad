@@ -1,0 +1,238 @@
+[settings]
+doc = "Definitions of event payloads used with the EXEC event ring"
+depends = ["eth_ctypes"]
+lang.c.header_output_dir = "category/execution/ethereum/event"
+lang.cxx_format.header_output_dir = "category/execution/ethereum/event"
+
+[settings.event]
+event_ring_type = "exec"
+
+[flow_type]
+doc = "Stored in event descriptor's `user` array to tag the block & transaction context of event"
+underlying_type = "u8"
+lang.c.prefix = "MONAD_FLOW"
+event_name = ""
+
+[flow_type.values]
+block_seqno = 0
+txn_id = 1
+account_index = 2
+
+[block_tag]
+doc = """Identifies a unique block that has been proposed by the consensus
+algorithm; used to refer to a block before it is finalized.
+
+The information in this "tag" object is used to track a block as it is
+operated on by the consensus algorithm. The (not yet unique) `block_number`
+is the number the block _will_ have, if it eventually gets finalized. The
+`id` field uniquely identifies the block contents, vs. all the other
+proposals of different blocks to become the same `block_number`. `id` can
+be used to track this specific block before finalization.
+
+For more information on this, see
+[here](https://docs.monad.xyz/monad-arch/realtime-data/spec-realtime)
+for details
+"""
+event_name = ""
+
+[block_tag.fields]
+id = {type = "hash32", doc = "Monad consensus unique ID for block"}
+block_number = {type = "u64", doc = "Proposal is to become this block"}
+
+#
+# Block event payloads
+#
+
+[block_start]
+doc = "Event recorded at the start of block execution"
+
+[block_start.fields]
+block_tag = {type = "block_tag", doc = "Execution is for this block"}
+round = {type = "u64", doc = "Round when block was proposed"}
+epoch = {type = "u64", doc = "Epoch when block was proposed"}
+parent_eth_hash = {type = "hash32", doc = "Hash of Ethereum parent block"}
+chain_id = {type = "u256", doc = "Block chain we're associated with"}
+exec_input = {type = "eth_block_exec_input", doc = "Ethereum execution inputs"}
+
+[block_reject]
+doc = """Event recorded when a block is rejected (i.e., is invalid)
+
+This corresponds to a value in the `BlockError` enumeration in `validate_block.hpp`, in the execution repo source code.
+"""
+alias = {underlying_type = "u32", strong = false}
+
+[block_perf_evm_enter]
+doc = "Performance marker event recorded at the start of core EVM execution (after validation and sender recovery)"
+empty_marker = true
+
+[block_perf_evm_exit]
+doc = "Performance marker event recorded when all transaction execution is finished"
+empty_marker = true
+
+[block_end]
+doc = "Event recorded upon successful block execution"
+
+[block_end.fields]
+eth_block_hash = {type = "hash32", doc = "Hash of Ethereum block"}
+exec_output = {type = "eth_block_exec_output", doc = "Ethereum execution outputs"}
+
+[block_qc]
+doc = "Event recorded when a proposed block obtains a quorum certificate"
+
+[block_qc.fields]
+block_tag = {type = "block_tag", doc = "QC for proposal with this block"}
+round = {type = "u64", doc = "Round of proposal vote"}
+epoch = {type = "u64", doc = "Epoch of proposal vote"}
+
+[block_finalized]
+doc = "Event recorded when consensus finalizes a block"
+alias = {underlying_type = "block_tag", strong = false}
+
+[block_verified]
+doc = "Event recorded when consensus verifies the state root of a finalized block"
+
+[block_verified.fields]
+block_number = {type = "u64", doc = "Number of verified block"}
+
+#
+# Transaction events
+#
+
+[txn_start]
+doc = "Event recorded when transaction processing starts"
+
+[txn_start.fields]
+ingest_epoch_nanos = {type = "u64", doc = "Epoch nanos before sender recovery"}
+txn_hash = {type = "hash32", doc = "Keccak hash of transaction RLP"}
+sender = {type = "address", doc = "Recovered sender address"}
+txn_header = {type = "eth_txn_header", doc = "Transaction header"}
+
+[txn_reject]
+doc = """Event recorded when a transaction is rejected (i.e., is invalid)
+
+This corresponds to a value in the `TransactionError` enumeration in `validate_transaction.hpp`, in the execution repo source code.
+"""
+alias = {underlying_type = "u32", strong = false}
+
+[txn_perf_evm_enter]
+doc = "Performance marker event recorded at the start of EVM execution (after sender recovery)"
+empty_marker = true
+
+[txn_perf_evm_exit]
+doc = "Performance marker event recorded at the end of EVM execution"
+empty_marker = true
+
+[txn_evm_output]
+doc = """Event recorded when transaction execution halts.
+
+This is a "header" event: it appears before all other transaction output events,
+namely all the TXN_LOG and TXN_CALL_FRAME events associated with this
+transaction. It is emitted first, to announces the total number of log and call
+frame events that the reader should expect. After all transaction are emitted,
+an ACCOUNT_ACCESS_LIST_HEADER event with transaction scope will be emitted,
+announcing all state change accesses in the scope of this transaction.
+
+Once all execution outputs have been emitted for a particular transaction
+number, a TXN_END event will be emitted to mark the end of all that
+transaction's events.
+"""
+
+[txn_evm_output.fields]
+receipt = {type = "eth_txn_receipt", doc = "Incremental Ethereum receipt"}
+call_frame_count = {type = "u32", doc = "Number of call frames"}
+
+[txn_log]
+doc = "Event recorded when a transaction emits a LOG"
+alias = {underlying_type = "eth_txn_log", strong = false}
+
+[txn_call_frame]
+doc = """Event recorded when a call frame is emitted.
+
+Trace information about an execution context that was created during an
+EVM contract invocation ("call"), or contract creation.
+
+Formally, the EVM operates through concepts called 'message calls' and
+'contract creations'. Each of these defines an execution environment, which
+contains data such as the account causing the code to execute. A formal list
+of all the items in the environment is part of the official specification.
+
+Each call (and contract creation) gets its own environment. The environments
+are set up in different ways, depending on how the call occurs (e.g., a CALL vs.
+DELEGATECALL opcode). A call frame is a summary of the inputs and outputs to
+an execution environment, whether the halting was normal or exceptional, and
+other information useful for tracing the call tree.
+"""
+
+[txn_call_frame.fields]
+index = {type = "u32", doc = "Array index of call frame"}
+caller = {type = "address", doc = "Address initiating call"}
+call_target = {type = "address", doc = "Address receiving call (or deployment addr)" }
+opcode = {type = "u8", doc = "EVM opcode that creates frame"}
+value = {type = "u256", doc = "I_v: value passed to account during execution"}
+gas = {type = "u64", doc = "g: gas available for message execution"}
+gas_used = {type = "u64", doc = "Gas used by call"}
+evmc_status = {type = "i32", doc = "evmc_status_code of call"}
+depth = {type = "u64", doc = "I_e: depth of call context stack"}
+input_length = {type = "u64", doc = "Length of trailing call input", trailing_array_element_type = "u8"}
+return_length = {type = "u64", doc = "Length of trailing return data", trailing_array_element_type = "u8"}
+
+[txn_end]
+doc = "Event recorded to mark the end of events for this transaction"
+empty_marker = true
+
+[account_access_context]
+doc = "Context in which EVM accessed / modified an account"
+underlying_type = "u8"
+lang.c.prefix = "MONAD_ACCT_ACCESS"
+event_name = ""
+
+[account_access_context.values]
+block_prologue = 0
+transaction = 1
+block_epilogue = 2
+
+[account_access_list_header]
+doc = "Header event that precedes a variably-sized list of account_access objects"
+
+[account_access_list_header.fields]
+entry_count = {type = "u32", doc = "Number of account_access_entry events"}
+access_context = {type = "account_access_context", doc = "Context of account accesses"}
+
+[account_access]
+doc = "Event emitted when an account is read or written"
+
+[account_access.fields]
+index = {type = "u32", doc = "Index in accessed account list"}
+address = {type = "address", doc = "Address of account"}
+access_context = {type = "account_access_context", doc = "Context of account access"}
+is_balance_modified = {type = "bool", doc = "True -> modified_balance meaningful"}
+is_nonce_modified = {type = "bool", doc = "True -> modified_nonce meaningful"}
+prestate = {type ="eth_account_state", doc = "Read (or original) balance"}
+modified_balance = {type = "u256", doc = "New balance, if modified"}
+modified_nonce = {type = "u64", doc = "New nonce, if modified"}
+storage_key_count = {type = "u32", doc = "Number of trailing storage_access events"}
+transient_count = {type = "u32", doc = "As above, but for transient storage"}
+
+[storage_access]
+doc = "Event emitted for each account storage key that is accessed"
+
+[storage_access.fields]
+address = {type = "address", doc = "Address of storage account"}
+index = {type = "u32", doc = "Index of storage records in this context"}
+access_context = {type = "account_access_context", doc = "Context of account access"}
+modified = {type = "bool", doc = "True -> new_value meaningful"}
+transient = {type = "bool", doc = "True -> is transient storage"}
+key = {type = "hash32", doc = "Storage key accessed / modified"}
+start_value = {type = "hash32", doc = "Read (or original) value"}
+end_value = {type = "hash32", doc = "New value, if modified"}
+
+#
+# Other events
+#
+
+[evm_error]
+doc = "Error occurred in execution process (not a validation error)"
+
+[evm_error.fields]
+domain_id = {type = "u64", doc="Boost.Outcome domain id of error"}
+status_code = {type = "i64", doc="Boost.Outcome status code of error"}

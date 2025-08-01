@@ -1,0 +1,137 @@
+[settings]
+doc = "C layout-compatible types describing Ethereum blocks and transactions"
+depends = ["base_ctypes"]
+lang.c.header_output_dir = "category/execution/ethereum/core"
+lang.c.extra_includes = ["#include <category/execution/ethereum/core/base_ctypes.h>"]
+lang.cxx_format.header_output_dir = "category/execution/ethereum/core/fmt"
+lang.cxx_format.extra_includes = [
+  "#include <category/execution/ethereum/core/fmt/address_fmt.hpp>",
+  "#include <category/execution/ethereum/core/fmt/bytes_fmt.hpp>",
+  "#include <category/execution/ethereum/core/fmt/int_fmt.hpp>"
+]
+
+#
+# Types for ethereum transactions
+#
+
+[transaction_type]
+doc = "EIP-2718 code determining the transaction type"
+underlying_type = "u8"
+lang.c.prefix = "MONAD_TXN"
+
+[transaction_type.values]
+legacy = 0
+eip2930 = 1
+eip1559 = 2
+
+[access_list_entry]
+doc = "Entry in a EIP-2930 storage access warmup list"
+
+[access_list_entry.fields]
+address = {type = "address", doc = "E_a: addr of account whose storage to warm"}
+storage_key_count = {type = "u32", doc = "Size of trailing E_s storage key array", trailing_array_element_type = "hash32" }
+
+[eth_txn_header]
+doc = """Fields of an Ethereum transaction that are recognized by the monad EVM implementation.
+
+This type contains the fixed-size fields present in any supported transaction
+type. If a transaction type does not support a particular field, it will be
+zero-initialized."""
+
+# The two normative references we use (the `ethereum-specs` repo and the Yellow
+# Paper) don't describe transactions as having a "header". Instead they define
+# a "transaction" object which contains one or more variably sized field (at
+# least always including `data`, renamed to `init` for contract definitions in
+# YP). We define the fixed-size fields to be the transaction's "header,"
+# containing enough information to parse the trailing `data` field and any
+# any subsequent values that make up the variable data.
+
+[eth_txn_header.fields]
+txn_type = {type = "transaction_type", doc = "EIP-2718 transaction type"}
+chain_id = {type = "u256", doc = "T_c: EIP-155 blockchain identifier"}
+nonce = {type = "u64", doc = "T_n: num txns sent by this sender"}
+gas_limit = {type = "u64", doc = "T_g: max usable gas (upfront xfer)"}
+max_fee_per_gas = {type = "u256", doc = "T_m in EIP-1559 txns or T_p (gasPrice)"}
+max_priority_fee_per_gas = {type = "u256", doc = "T_f in EIP-1559 txns, 0 otherwise"}
+value = {type = "u256", doc = "T_v: wei xfered or contract endowment"}
+to = {type = "address", doc = "T_t: recipient"}
+is_contract_creation = {type = "bool", doc = "True -> interpret T_t == 0 as null"}
+r = {type = "u256", doc = "T_r: r value of ECDSA signature"}
+s = {type = "u256", doc = "T_s: s value of ECDSA signature"}
+y_parity = {type = "bool", doc = "Signature Y parity (see YP App. F)"}
+data_length = {type = "u32", doc = "Length of trailing `data` array", trailing_array_element_type = "u8"}
+access_list_count = {type = "u32", doc = "# of EIP-2930 AccessList entries"}
+
+[eth_txn_receipt]
+doc = """Result of executing a valid transaction
+
+This type is designed for incremental, out-of-order reporting of transaction results, so it differs
+from the formal definition of an Ethereum receipt (e.g., gas used is not cumulative)"""
+
+[eth_txn_receipt.fields]
+status = {type = "bool", doc = "EIP-658 status code"}
+log_count = {type = "u32", doc = "Number of log entries"}
+gas_used = {type = "u64", doc = "Gas used by this txn only (not R_u)"}
+
+[eth_txn_log]
+doc = "Data record produced during the execution of a transaction"
+
+[eth_txn_log.fields]
+index = {type = "u32", doc = "Index of log in series"}
+address = {type = "address", doc = "Address of contract generating log"}
+topic_count = {type = "u8", doc = "Size of hash32 topic array after header", trailing_array_element_type = "hash32"}
+data_length = {type = "u32", doc = "Length of log data placed after header", trailing_array_element_type = "u8"}
+
+[eth_account_state]
+doc = "Account state sigma[a] (except for storage root hash, sigma[a]_s)"
+
+[eth_account_state.fields]
+nonce = {type = "u64", doc = "sigma[a]_n: num tx sent from address"}
+balance = {type = "u256", doc = "sigma[a]_b: wei owned by address"}
+code_hash = {type = "hash32", doc = "sigma[a]_c: EVM code hash"}
+
+#
+# Types for Ethereum block input / output
+#
+
+[eth_block_exec_input]
+doc = "Fields of an Ethereum block header which are known at the start of execution"
+
+# A peculiarity of our "Ethereum block execution input" structure is that it
+# is missing the parentHash (H_p) field. This is because the Monad consensus
+# algorithm can propose blocks to the execution daemon without knowing their
+# parent hash. While consensus _does_ know the parent block's contents, it
+# doesn't know the hash: the block hash includes the execution output fields,
+# e.g., the state root. Consensus is permitted to run ahead of knowing the
+# final execution result: a valid block will produce a valid state even though
+# the value isn't known yet.
+#
+# This is also true for the ommers hash, yet the ommers hash _is_ included in
+# this structure. This is because modern Ethereum no longer uses this field:
+# its only current use is for historical replay of Ethereum, which does not
+# require consensus at all.
+
+[eth_block_exec_input.fields]
+ommers_hash = {type = "hash32", doc = "H_o: hash of ommer blocks"}
+beneficiary = {type = "address", doc = "H_c: recipient addr of prio gas fees"}
+transactions_root = {type = "hash32", doc = "H_t: hash of block txn list"}
+difficulty = {type = "u64", doc = "H_d: PoW difficulty scaling param"}
+number = {type = "u64", doc = "H_i: # of ancestor blocks (\"height\")"}
+gas_limit = {type = "u64", doc = "H_l: max gas expenditure we're allowed"}
+timestamp = {type = "u64", doc = "H_s: UNIX epoch timestamp of block inception"}
+extra_data = {type = "b256", doc = "H_x: extra metadata about this block"}
+extra_data_length = {type = "u64", doc = "Number of bytes used in H_x"}
+prev_randao = {type = "hash32", doc = "H_a: source of randomness"}
+nonce = {type = "b64", doc = "H_n: PoW puzzle solution; now zero"}
+base_fee_per_gas = {type = "u256", doc = "H_f: wei burned per unit gas"}
+withdrawals_root = {type = "hash32", doc = "H_w: consensus-initiated withdrawals"}
+txn_count = {type = "u64", doc = "Number of transactions in block"}
+
+[eth_block_exec_output]
+doc = "Fields of an Ethereum block header which are produced as a result of execution"
+
+[eth_block_exec_output.fields]
+state_root = {type = "hash32", doc = "H_r: MPT root hash of state trie"}
+receipts_root = {type = "hash32", doc = "H_e: MPT root hash of receipt trie"}
+logs_bloom = {type = "bloom256", doc = "H_b: bloom filter of transaction logs"}
+gas_used = {type = "u64", doc = "H_g: gas used by all txns in block"}
