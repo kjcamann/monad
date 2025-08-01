@@ -27,6 +27,18 @@ project(monad_execution)
 # libs
 # ##############################################################################
 
+add_custom_command(
+  OUTPUT "ethereum/core/eth_ctypes.h"
+         "ethereum/event/exec_event_ctypes.h"
+         "ethereum/event/exec_event_ctypes_metadata.c"
+  WORKING_DIRECTORY "${CATEGORY_MAIN_DIR}/util/ctypes/codegen"
+  COMMAND "${CATEGORY_MAIN_DIR}/util/ctypes/codegen/cg-ctypes"
+  ARGS -s ${CMAKE_CURRENT_SOURCE_DIR}/ctypes c -fclang-format-19 -p ${CMAKE_BINARY_DIR}
+  DEPENDS "ctypes/base_ctypes.toml"
+          "ctypes/eth_ctypes.toml"
+          "ctypes/exec_event_ctypes.toml"
+  COMMENT "Running cg-ctypes")
+
 add_library(
   monad_execution_ethereum OBJECT
   # ethereum/chain
@@ -255,6 +267,7 @@ add_library(
 target_include_directories(
   monad_execution_ethereum
   PUBLIC ${CATEGORY_MAIN_DIR}
+  PUBLIC ${CMAKE_BINARY_DIR} # For files generated in the build tree
   PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/test
   PRIVATE ${Boost_INCLUDE_DIRS}
   PUBLIC ${cthash_SOURCE_DIR}/include
