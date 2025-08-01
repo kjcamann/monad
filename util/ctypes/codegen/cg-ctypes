@@ -25,6 +25,9 @@ parser.add_argument('-m', '--module', action='append', default=list(),
 parser.add_argument('-s', '--source', action='append', type=pathlib.Path,
     default=list(), metavar='<source>', help='directory containing TOML files to translate')
 
+parser.add_argument('--print-schema-hash', action='store_true',
+    help='print the schema hashes of the loaded type modules to stdout')
+
 def register_backends(p: argparse.ArgumentParser):
   # The immediate subcommand is the name of the language backend
   subparsers = p.add_subparsers(title='backends')
@@ -49,6 +52,12 @@ def main(args: argparse.Namespace) -> int:
     print(f'dump of {len(module_map)} type modules:', file=sys.stderr)
     for k, v in module_map.items():
       print(f'{k}: {v}\n', file=sys.stderr)
+
+  if args.print_schema_hash:
+    print('schema hashes:', file=sys.stdout)
+    max_identifier = max(len(k) for k in module_map.keys()) + 1
+    for k, v in module_map.items():
+      print(f'{k:{max_identifier}}: {v.compute_hash().hex()}', file=sys.stdout)
 
   # Module filtering
   args.module = set(args.module)
