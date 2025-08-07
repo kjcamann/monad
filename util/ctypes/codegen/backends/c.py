@@ -39,6 +39,8 @@ def emit_module_header_prologue(emit_warning: bool, module: ModuleInfo, out: Tex
     module_include_lines.append('#include <category/core/event/event_metadata.h>')
   if module_include_lines:
     module_include_lines += ['']
+  print(GPL_V3_LICENSE_COMMENT, file=out)
+  print(file=out) # Skip a line
   print('#pragma once', file=out)
   if emit_warning:
     print(file=out)
@@ -201,6 +203,8 @@ METADATA_EPILOGUE = \
 #endif"""
 
 def emit_metadata_prologue(emit_warning: bool, module: ModuleInfo, out: TextIO):
+  print(GPL_V3_LICENSE_COMMENT, file=out)
+  print(file=out) # Skip a line
   if emit_warning:
     print(C_CODEGEN_WARNING_FORMAT.format(create_command_comment()), file=out)
     print(file=out)

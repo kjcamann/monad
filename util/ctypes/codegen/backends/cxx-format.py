@@ -42,6 +42,8 @@ def emit_formatter_header_prologue(module: ModuleInfo, emit_warning: bool,
   include_lines.insert(0, f'#include <{get_module_header_path(module)}>')
   if include_lines:
     include_lines += ['']
+  print(GPL_V3_LICENSE_COMMENT, file=out)
+  print(file=out) # Skip a line
   print('#pragma once', file=out)
   if emit_warning:
     print(file=out)
