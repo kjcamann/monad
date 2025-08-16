@@ -64,5 +64,6 @@ option(MONAD_EVENT_BUILD_EXAMPLE
 
 if (MONAD_EVENT_BUILD_EXAMPLE)
     add_executable(eventwatch "example/eventwatch.c")
+    target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
     target_link_libraries(eventwatch PRIVATE monad_event)
 endif()
