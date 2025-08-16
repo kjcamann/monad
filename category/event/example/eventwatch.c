@@ -34,10 +34,13 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/mman.h>
-#include <syscall.h>
 #include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
+
+#if defined(__linux__)
+#include <syscall.h>
+#endif
 
 #include <category/core/event/event_iterator.h>
 #include <category/core/event/event_metadata.h>
@@ -105,6 +108,10 @@ void handle_signal(int)
 
 static bool process_has_exited(int pidfd)
 {
+    if (pidfd == -1) {
+        // pidfd being -1 means "disable the detection feature"
+        return false;
+    }
     struct pollfd pfd = {.fd = pidfd, .events = POLLIN};
     return poll(&pfd, 1, 0) == -1 || (pfd.revents & POLLIN) == POLLIN;
 }
@@ -162,7 +169,7 @@ static void print_event(
 
     // An optimization to only do the string formatting of the %H:%M:%S part
     // of the time each second when it changes, because strftime(3) is slow
-    time_parts = ldiv(event->record_epoch_nanos, 1'000'000'000L);
+    time_parts = ldiv((long)event->record_epoch_nanos, 1'000'000'000L);
     if (time_parts.quot != last_second) {
         // A new second has ticked. Reformat the per-second time buffer.
         struct tm;
@@ -173,7 +180,8 @@ static void print_event(
 
     // Print a summary line of this event
     // <HH:MM::SS.nanos> <event-c-name> [<event-type> <event-type-hex>]
-    //     SEQ: <sequence-no> LEN: <payload-length>
+    //     SEQ: <sequence-number> LEN: <payload-size>
+    //     BUF_OFF: <payload-buffer-offset>
     o += sprintf(
         event_buf,
         "%s.%09ld: %s [%hu 0x%hx] SEQ: %lu LEN: %u BUF_OFF: %lu",
@@ -190,24 +198,23 @@ static void print_event(
         // is set to the sequence number of the MONAD_EXEC_BLOCK_START event
         // that started the block that this event is part of. This code tries
         // to read the payload of that event, to print the block number.
-        struct monad_event_descriptor start_block_event;
-        struct monad_exec_block_start const *block_start = nullptr;
-        if (monad_event_ring_try_copy(
-                event_ring,
-                event->content_ext[MONAD_FLOW_BLOCK_SEQNO],
-                &start_block_event)) {
-            block_start =
-                monad_event_ring_payload_peek(event_ring, &start_block_event);
+        //
+        // The reason we checked that the sequence number was not zero first
+        // (rather than just printing whenever is returned, when this function
+        // returns true) is that the function `monad_exec_ring_get_block_number`
+        // returns "the block number associated with an event." The consensus
+        // events, for example, are "associated with" a proposed block having
+        // that block number (and that is what the function returns) even
+        // though those events themselves are not members of a block. This is
+        // potentially confusing in the output; we want the consensus events
+        // to print nothing.
+        uint64_t block_number;
+        if (monad_exec_ring_get_block_number(
+                event_ring, event, &block_number)) {
+            o += sprintf(o, " BLK: %lu", block_number);
         }
-        if (block_start) {
-            uint64_t const block_number = block_start->eth_block_input.number;
-            if (monad_event_ring_payload_check(
-                    event_ring, &start_block_event)) {
-                o += sprintf(o, " BLK: %lu", block_number);
-            }
-            else {
-                o += sprintf(o, " BLK: <LOST>");
-            }
+        else {
+            o += sprintf(o, " BLK: <LOST>");
         }
     }
     if (event->content_ext[MONAD_FLOW_TXN_ID] != 0) {
@@ -217,17 +224,24 @@ static void print_event(
     fwrite(event_buf, (size_t)(o - event_buf), 1, out);
 
     // Dump the event payload as a hexdump to simplify the example. If you
-    // want the real event payloads, they can be type cast into the appropriate
-    // payload data type from `event_types.h`, e.g.:
+    // wanted specific data about event payloads, they can be type cast into
+    // the appropriate payload data type from `exec_event_ctypes.h`, e.g.:
     //
-    //    switch (event->type) {
-    //    case MONAD_EVENT_TXN_START:
+    //    switch (event->event_type) {
+    //    case MONAD_EXEC_TXN_HEADER_START:
     //        act_on_start_transaction(
-    //            (struct monad_event_txn_header const *)payload, ...);
+    //            (struct monad_exec_txn_header_start const *)payload, ...);
     //        break;
     //
     //    // ... switch cases for other event types
     //    };
+    //
+    // To keep the example simple, this program chooses to hexdump rather than
+    // implement "pretty printing" functions for all the various payload types,
+    // but a more sophisticated program in the SDK (the C++ `eventcap` utility)
+    // has C++20 std::formatter specializations that can format the fields of
+    // payload types. The Rust `eventwatch` example program can also do this,
+    // by virtue of the #[derive(Debug)] attribute.
     hexdump_event_payload(event_ring, event, out);
 }
 
@@ -243,6 +257,9 @@ static void event_loop(
         switch (monad_event_iterator_try_next(iter, &event)) {
         case MONAD_EVENT_NOT_READY:
             if ((not_ready_count++ & ((1U << 25) - 1)) == 0) {
+                // The above guard prevents us from calling process_has_exited
+                // too often, as it is orders of magnitude slower than the cost
+                // of an event ring poll
                 fflush(out);
                 if (process_has_exited(pidfd)) {
                     g_should_stop = 1;
@@ -253,23 +270,21 @@ static void event_loop(
         case MONAD_EVENT_GAP:
             fprintf(
                 stderr,
-                "ERROR: event gap from %lu -> %lu, resetting\n",
+                "ERROR: event gap from %lu -> %lu, resetting iterator\n",
                 iter->read_last_seqno,
                 __atomic_load_n(&iter->control->last_seqno, __ATOMIC_ACQUIRE));
             monad_event_iterator_reset(iter);
-            not_ready_count = 0;
-            continue;
+            break;
 
         case MONAD_EVENT_SUCCESS:
-            not_ready_count = 0;
-            break; // Handled in the main loop body
+            print_event(event_ring, &event, out);
+            break;
         }
-        print_event(event_ring, &event, out);
+        not_ready_count = 0;
     }
 }
 
 static void find_initial_iteration_point(
-    struct monad_event_ring const *event_ring,
     struct monad_event_iterator *iter)
 {
     // This function is not strictly necessary, but it is probably useful for
@@ -341,7 +356,7 @@ int main(int argc, char **argv)
 
     signal(SIGINT, handle_signal);
 
-    // The first step is to oepn and event ring file and mmap its shared memory
+    // The first step is to open and event ring file and mmap its shared memory
     // segments into our process' address space. If this is successful, we'll
     // be able to create one or more iterators over that ring's events.
     struct monad_event_ring exec_ring;
@@ -372,6 +387,7 @@ int main(int argc, char **argv)
     // expect there will only be one writer (the execution daemon). We'll use
     // this to open a pidfd_open(2) descriptor referring to the execution
     // process to detect when it dies.
+#if defined(__linux__)
     pid_t writer_pid;
     size_t n_pids = 1;
     if (monad_event_ring_find_writer_pids(ring_fd, &writer_pid, &n_pids) != 0) {
@@ -385,7 +401,12 @@ int main(int argc, char **argv)
     }
     int pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
     if (pidfd == -1) {
+        err(EX_OSERR, "pidfd_open of writer pid %d failed", writer_pid);
     }
+#else
+    int pidfd = -1;
+#endif
+
     // We no longer need the event ring file descriptor
     (void)close(ring_fd);
 
@@ -396,7 +417,7 @@ int main(int argc, char **argv)
     }
 
     // Move the iterator to the start of the most recently produced block
-    find_initial_iteration_point(&exec_ring, &iter);
+    find_initial_iteration_point(&iter);
 
     // Read events from the ring until SIGINT or the monad process exits
     event_loop(&exec_ring, &iter, pidfd, stdout);
