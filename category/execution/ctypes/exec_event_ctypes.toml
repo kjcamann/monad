@@ -98,14 +98,31 @@ block_number = {type = "u64", doc = "Number of verified block"}
 # Transaction events
 #
 
-[txn_start]
-doc = "Event recorded when transaction processing starts"
+[txn_header_start]
+doc = "First event recorded when transaction processing starts"
 
-[txn_start.fields]
-ingest_epoch_nanos = {type = "u64", doc = "Epoch nanos before sender recovery"}
+[txn_header_start.fields]
 txn_hash = {type = "hash32", doc = "Keccak hash of transaction RLP"}
 sender = {type = "address", doc = "Recovered sender address"}
 txn_header = {type = "eth_txn_header", doc = "Transaction header"}
+
+[txn_access_list_entry]
+doc = "Entry in an EIP-2930 storage access warmup list"
+
+[txn_access_list_entry.fields]
+index = {type = "u32", doc = "Array index of access list entry"}
+entry = {type = "access_list_entry", doc = "Entry for a single account"}
+
+[txn_authorization_list_entry]
+doc = "Entry in an EIP-7702 authorization list"
+
+[txn_authorization_list_entry.fields]
+index = {type = "u32", doc = "Array index of authorization list entry"}
+entry = {type = "authorization_list_entry", doc = "Entry for a single authorization"}
+
+[txn_header_end]
+doc = "Marker event recorded after all transaction header events are emitted"
+empty_marker = true
 
 [txn_reject]
 doc = """Event recorded when a transaction is rejected (i.e., is invalid)

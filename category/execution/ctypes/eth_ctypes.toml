@@ -23,6 +23,8 @@ lang.c.prefix = "MONAD_TXN"
 legacy = 0
 eip2930 = 1
 eip1559 = 2
+eip4844 = 3
+eip7702 = 4
 
 [access_list_entry]
 doc = "Entry in a EIP-2930 storage access warmup list"
@@ -30,6 +32,17 @@ doc = "Entry in a EIP-2930 storage access warmup list"
 [access_list_entry.fields]
 address = {type = "address", doc = "E_a: addr of account whose storage to warm"}
 storage_key_count = {type = "u32", doc = "Size of trailing E_s storage key array", trailing_array_element_type = "hash32" }
+
+[authorization_list_entry]
+doc = "Entry in an EIP-7702 authorization_list"
+
+[authorization_list_entry.fields]
+chain_id = {type = "u256", doc = "Chain where authorization is valid"}
+address = {type = "address", doc = "Delegation contract address"}
+nonce = {type = "u64", doc = "Nonce of signing authority"}
+y_parity = {type = "bool", doc = "y parity of authority ECDSA signature"}
+r = {type = "u256", doc = "r of authority ECDSA signature"}
+s = {type = "u256", doc = "s of authority ECDSA signature"}
 
 [eth_txn_header]
 doc = """Fields of an Ethereum transaction that are recognized by the monad EVM implementation.
@@ -59,8 +72,11 @@ is_contract_creation = {type = "bool", doc = "True -> interpret T_t == 0 as null
 r = {type = "u256", doc = "T_r: r value of ECDSA signature"}
 s = {type = "u256", doc = "T_s: s value of ECDSA signature"}
 y_parity = {type = "bool", doc = "Signature Y parity (see YP App. F)"}
+max_fee_per_blob_gas = {type = "u256", doc = "EIP-4844 contribution to max fee"}
 data_length = {type = "u32", doc = "Length of trailing `data` array", trailing_array_element_type = "u8"}
+blob_versioned_hash_length = {type = "u32", doc = "Length of trailing `blob_versioned_hashes` array", trailing_array_element_type = "hash32"}
 access_list_count = {type = "u32", doc = "# of EIP-2930 AccessList entries"}
+authorization_list_count = {type = "u32", doc = "# of EIP-7702 AuthorizationList entries"}
 
 [eth_txn_receipt]
 doc = """Result of executing a valid transaction
