@@ -232,10 +232,10 @@ int monad_event_ring_init_simple(
         return rc;
     }
     size_t const ring_bytes = monad_event_ring_calc_storage(&ring_size);
-    if (fallocate(ring_fd, 0, ring_offset, (off_t)ring_bytes) == -1) {
+    if (posix_fallocate(ring_fd, ring_offset, (off_t)ring_bytes) == -1) {
         return FORMAT_ERRC(
             errno,
-            "fallocate failed for event ring file `%s`, size %lu",
+            "posix_fallocate failed for event ring file `%s`, size %lu",
             error_name,
             ring_bytes);
     }
