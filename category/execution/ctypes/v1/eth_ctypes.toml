@@ -33,10 +33,10 @@ doc = "Entry in a EIP-2930 storage access warmup list"
 address = {type = "address", doc = "E_a: addr of account whose storage to warm"}
 storage_key_count = {type = "u32", doc = "Size of trailing E_s storage key array", trailing_array_element_type = "hash32" }
 
-[authorization_list_entry]
+[auth_list_entry]
 doc = "Entry in an EIP-7702 authorization_list"
 
-[authorization_list_entry.fields]
+[auth_list_entry.fields]
 chain_id = {type = "u256", doc = "Chain where authorization is valid"}
 address = {type = "address", doc = "Delegation contract address"}
 nonce = {type = "u64", doc = "Nonce of signing authority"}
@@ -76,7 +76,7 @@ max_fee_per_blob_gas = {type = "u256", doc = "EIP-4844 contribution to max fee"}
 data_length = {type = "u32", doc = "Length of trailing `data` array", trailing_array_element_type = "u8"}
 blob_versioned_hash_length = {type = "u32", doc = "Length of trailing `blob_versioned_hashes` array", trailing_array_element_type = "hash32"}
 access_list_count = {type = "u32", doc = "# of EIP-2930 AccessList entries"}
-authorization_list_count = {type = "u32", doc = "# of EIP-7702 AuthorizationList entries"}
+auth_list_count = {type = "u32", doc = "# of EIP-7702 AuthorizationList entries"}
 
 [eth_txn_receipt]
 doc = """Result of executing a valid transaction
@@ -110,24 +110,25 @@ code_hash = {type = "hash32", doc = "sigma[a]_c: EVM code hash"}
 # Types for Ethereum block input / output
 #
 
-[eth_block_exec_input]
+[eth_block_input]
 doc = "Fields of an Ethereum block header which are known at the start of execution"
 
-# A peculiarity of our "Ethereum block execution input" structure is that it
-# is missing the parentHash (H_p) field. This is because the Monad consensus
-# algorithm can propose blocks to the execution daemon without knowing their
-# parent hash. While consensus _does_ know the parent block's contents, it
-# doesn't know the hash: the block hash includes the execution output fields,
-# e.g., the state root. Consensus is permitted to run ahead of knowing the
-# final execution result: a valid block will produce a valid state even though
-# the value isn't known yet.
+# A peculiarity of our "Ethereum block input" structure is that it is missing
+# the parentHash (H_p) field. This is because the Monad consensus algorithm
+# can propose blocks to the execution daemon without knowing their parent hash.
+# While consensus _does_ know the parent block's contents, it doesn't know the
+# hash: the block hash includes the execution output fields, e.g., the state
+# root.
+#
+# Consensus is permitted to run ahead of knowing the final execution result: a
+# valid block will produce a valid state even though the value isn't known yet.
 #
 # This is also true for the ommers hash, yet the ommers hash _is_ included in
 # this structure. This is because modern Ethereum no longer uses this field:
 # its only current use is for historical replay of Ethereum, which does not
 # require consensus at all.
 
-[eth_block_exec_input.fields]
+[eth_block_input.fields]
 ommers_hash = {type = "hash32", doc = "H_o: hash of ommer blocks"}
 beneficiary = {type = "address", doc = "H_c: recipient addr of prio gas fees"}
 transactions_root = {type = "hash32", doc = "H_t: hash of block txn list"}
@@ -151,3 +152,15 @@ state_root = {type = "hash32", doc = "H_r: MPT root hash of state trie"}
 receipts_root = {type = "hash32", doc = "H_e: MPT root hash of receipt trie"}
 logs_bloom = {type = "bloom256", doc = "H_b: bloom filter of transaction logs"}
 gas_used = {type = "u64", doc = "H_g: gas used by all txns in block"}
+
+[secp256k1_pubkey]
+doc = "Compressed ECDSA public key using secp256k1 curve [SEC1v2: 2.3.3]"
+
+# Usually numerical values are translated to native endian format, but a public
+# key is almost certainly going to be given to secp256k1_ec_pubkey_parse or
+# some FFI wrapper of it, which is expecting the big endian format that is used
+# everywhere in SEC1v2
+
+[secp256k1_pubkey.fields]
+y_parity = {type = "u8", doc = "Parity of compressed y coordinate"}
+x = {type = "b256", doc = "x coordinate of public key (big endian)"}
