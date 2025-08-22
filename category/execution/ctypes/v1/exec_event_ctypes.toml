@@ -1,14 +1,17 @@
 [settings]
 doc = "Definitions of event payloads used with the EXEC event ring"
-depends = ["eth_ctypes"]
+depends = ["eth_ctypes", "monad_ctypes"]
 lang.c.header_output_dir = "category/execution/ethereum/event"
 lang.cxx_format.header_output_dir = "category/execution/ethereum/event"
+lang.cxx_format.extra_includes = [
+  "#include <category/execution/ethereum/core/fmt/event_ring_fmt.hpp>"
+]
 
 [settings.event]
 event_ring_type = "exec"
 
 [flow_type]
-doc = "Stored in event descriptor's `user` array to tag the block & transaction context of event"
+doc = "Stored in event descriptor's `content_ext` array to tag the block & transaction context of event"
 underlying_type = "u8"
 lang.c.prefix = "MONAD_FLOW"
 event_name = ""
@@ -44,15 +47,18 @@ block_number = {type = "u64", doc = "Proposal is to become this block"}
 #
 
 [block_start]
-doc = "Event recorded at the start of block execution"
+doc = "Event recorded at the start of EVM execution"
 
 [block_start.fields]
-block_tag = {type = "block_tag", doc = "Execution is for this block"}
+block_tag = {type = "block_tag", doc = "Proposal is for this block"}
 round = {type = "u64", doc = "Round when block was proposed"}
 epoch = {type = "u64", doc = "Epoch when block was proposed"}
+proposal_epoch_nanos = {type = "u128", doc = "UNIX epoch nanosecond timestamp"}
+chain_id = {type = "u256", doc = "Blockchain we're associated with"}
+author = {type = "secp256k1_pubkey", doc = "Public key of block author"}
 parent_eth_hash = {type = "hash32", doc = "Hash of Ethereum parent block"}
-chain_id = {type = "u256", doc = "Block chain we're associated with"}
-exec_input = {type = "eth_block_exec_input", doc = "Ethereum execution inputs"}
+eth_block_input = {type = "eth_block_input", doc = "Ethereum execution inputs"}
+monad_block_input = {type = "native_block_input", doc = "Monad execution inputs"}
 
 [block_reject]
 doc = """Event recorded when a block is rejected (i.e., is invalid)
@@ -113,12 +119,14 @@ doc = "Entry in an EIP-2930 storage access warmup list"
 index = {type = "u32", doc = "Array index of access list entry"}
 entry = {type = "access_list_entry", doc = "Entry for a single account"}
 
-[txn_authorization_list_entry]
+[txn_auth_list_entry]
 doc = "Entry in an EIP-7702 authorization list"
 
-[txn_authorization_list_entry.fields]
-index = {type = "u32", doc = "Array index of authorization list entry"}
-entry = {type = "authorization_list_entry", doc = "Entry for a single authorization"}
+[txn_auth_list_entry.fields]
+index = {type = "u32", doc = "Array index of EIP-7702 list entry"}
+entry = {type = "auth_list_entry", doc = "Entry for a single authorization"}
+authority = {type = "address", doc = "Recovered authority from signature"}
+is_valid_authority = {type = "bool", doc = "Distinguish true 0x0 from recovery failure"}
 
 [txn_header_end]
 doc = "Marker event recorded after all transaction header events are emitted"
