@@ -1,0 +1,18 @@
+[settings]
+doc = "C layout-compatible types describing Monad blockchain extensions to Ethereum"
+depends = ["base_ctypes"]
+lang.c.header_output_dir = "category/execution/monad/core"
+lang.c.extra_includes = ["#include <category/execution/ethereum/core/base_ctypes.h>"]
+lang.cxx_format.header_output_dir = "category/execution/monad/core/fmt"
+lang.cxx_format.extra_includes = [
+  "#include <category/execution/ethereum/core/fmt/int_fmt.hpp>"
+]
+
+[native_block_input]
+doc = """Fields of a proposed Monad block that are known at the start of
+execution and are extensions, i.e., they are not part of the Ethereum
+specification"""
+
+[native_block_input.fields]
+base_fee_trend = {type = "u256", doc = "Trend accumulator"}
+base_fee_moment = {type = "u256", doc = "Moment accumulator"}
