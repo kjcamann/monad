@@ -135,8 +135,7 @@ def emit_event_enum_type(module: ModuleInfo, out: TextIO):
   print(
 f"""/// Each type of event is assigned a unique value in this enumeration
 enum {event_type_prefix}_event_type : uint16_t
-{{
-    {event_type_prefix.upper()}_NONE,""", file=out)
+{{""", file=out)
 
   for td in module.type_defs.values():
     if td.event_name:
@@ -167,7 +166,7 @@ def emit_module_header_file(
 
   print('// clang-format on\n', file=out)
   if module.is_event_module:
-    n_types = module.event_count + 1
+    n_types = module.event_count
     event_type_prefix = get_c_type_name_prefix(module)
     event_ring_type = module.event_config.event_ring_type
     print(
@@ -217,11 +216,8 @@ def emit_metadata_array(module: ModuleInfo, out: TextIO):
   event_type_prefix = get_c_type_name_prefix(module)
   n_types = module.event_count + 1
   print(
-f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{n_types}] = {{
-    [{event_type_prefix.upper()}_NONE] =
-        {{.event_type = {event_type_prefix.upper()}_NONE,
-         .c_name = "{event_type_prefix.upper()}_NONE",
-         .description = "reserved code so that 0 remains invalid"}},''', file=out)
+f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{n_types}] = {{''',
+    file=out)
   for td in module.type_defs.values():
     if not td.event_name:
       continue

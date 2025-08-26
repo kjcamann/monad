@@ -162,6 +162,28 @@ IntrinsicModule = ModuleInfo(
   event_config = None,
   origin_file = None)
 
+# Event external types
+
+EventExternalModule = ModuleInfo(
+  name = '<event>',
+  type_defs = {
+    'event_record_error': ExternalTypeInfo(
+      module_name = 'event_external',
+      type_name = 'event_record_error',
+      doc_comment = 'event_record_error (event_ring builtin)',
+      lang_attrs = dict(),
+      event_name = None,
+      lang_lowering_map = {
+        'c': 'struct monad_event_record_error',
+        'rust': 'monad_event_record_error'
+      })
+  },
+  dependencies = [],
+  doc_comment = "Types which are provided by the event ring API",
+  lang_attrs = dict(),
+  event_config = None,
+  origin_file = None)
+
 def lookup_type(module_types: Mapping[str, TypeInfo],
                 dependencies: list[ModuleInfo],
                 type_name: str,
@@ -338,6 +360,29 @@ def create_module(module_name: str, dependencies: list[ModuleInfo],
         event_ring_type = get_value(event_config, 'event_ring_type', str,
                                     event_config_context)
         event_config = EventConfig(event_ring_type=event_ring_type)
+
+        # Inject the NONE and RECORD_ERROR event types
+        types['none'] = EmptyTypeInfo(
+            module_name = module_name,
+            type_name = 'none',
+            doc_comment = 'Reserved code so that 0 remains invalid',
+            lang_attrs = dict(),
+            event_name = 'none')
+
+        # The RECORD_ERROR type is a type alias for monad_event_record_error,
+        # which is extenrally defined (by event_ring.h)
+        event_ext_module, event_record_error = \
+            EventExternalModule.lookup_type('event_record_error')
+        types['record_error'] = AliasTypeInfo(
+            module_name = module_name,
+            type_name = 'record_error',
+            doc_comment = 'Reserved event type used for recording errors',
+            lang_attrs = dict(),
+            event_name = 'record_error',
+            underlying_type = event_record_error,
+            strong = False)
+
+      # Don't try to generate types from the 'settings' element
       continue
 
     # Type names must follow Python identifier rules, which approximately match
@@ -415,6 +460,7 @@ def load_type_modules(source_paths: list[pathlib.Path]) -> Mapping[str, ModuleIn
   # always defined in "definition before use" order. The settings.depends key
   # is an array listing the dependencies.
   module_dependency_map = dict()
+  has_event_module = False
   for module_name, toml in module_name_to_toml.items():
     if 'settings' not in toml:
       toml['settings'] = dict() # No settings key; inject empty settings
@@ -428,15 +474,24 @@ def load_type_modules(source_paths: list[pathlib.Path]) -> Mapping[str, ModuleIn
     # Everything depends on the intrinsic module
     depends.insert(0, IntrinsicModule.name)
 
+    event_config = toml['settings'].get('event', {})
+    if event_config:
+      # A settings.event key means this is an event module; these depend on
+      # the EventExternalModule too
+      depends.append(EventExternalModule.name)
+      has_event_module = True
+
     # This map will have the structure of a directed graph adjacency list,
     # which can be used directly by graphlib's TopologicalSorter
     module_dependency_map[module_name] = depends
 
   module_map = {IntrinsicModule.name: IntrinsicModule}
+  if has_event_module:
+    module_map[EventExternalModule.name] = EventExternalModule
 
   # Visit the modules in dependency order
   for module_name in graphlib.TopologicalSorter(module_dependency_map).static_order():
-    if module_name == IntrinsicModule.name:
+    if module_name in (IntrinsicModule.name, EventExternalModule.name):
       continue # Skip this one
     dependent_modules = [module_map[n] for n in module_dependency_map[module_name]]
     module_map[module_name] = create_module(module_name, dependent_modules,
