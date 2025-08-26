@@ -87,7 +87,10 @@ def emit_module_prologue(module: ModuleInfo, out: TextIO):
         visit_queue.append(child_dep)
 
   if module.is_event_module:
-    module_use_lines += ['use monad_event_ring::event_metadata::*;']
+    module_use_lines += [
+      'use monad_event_ring::event_metadata::*;',
+      'use monad_event_ring::event_ring::monad_event_record_error;'
+    ]
 
   if module_use_lines:
     module_use_lines += ['']
@@ -171,8 +174,7 @@ def emit_format_as_function(module: ModuleInfo, out: TextIO):
   event_enum_type = f'{event_ring_type}_event_type'
   print(
 f'''pub fn format_as(bytes: &[u8], event_type: {event_enum_type}) -> String {{
-    match event_type {{
-        {event_enum_type}::NONE => String::from("NONE"),''', file=out)
+    match event_type {{''', file=out)
 
   indent = ' ' * 8
   for td in module.type_defs.values():
@@ -193,8 +195,7 @@ f"""/// Each type of event is assigned a unique value in this enumeration
 #[repr(u16)]
 pub enum {event_ring_type}_event_type
 {{
-    #[default]
-    NONE,""", file=out)
+    #[default]""", file=out)
 
   for td in module.type_defs.values():
     if td.event_name:
@@ -205,14 +206,9 @@ pub enum {event_ring_type}_event_type
 def emit_event_metadata_array(module: ModuleInfo, out: TextIO):
   event_ring_type = module.event_config.event_ring_type
   metadata_array_name = f'{event_ring_type.upper()}_EVENT_METADATA'
-  n_types = module.event_count + 1
+  n_types = module.event_count
   print(f'''
-pub const {metadata_array_name}: [EventMetadata; {n_types}] = [
-    EventMetadata {{
-        event_type: {event_ring_type}_event_type::NONE as u16,
-        c_name: "NONE",
-        description: "Reserved code so that 0 remains invalid",
-    }},''', file=out)
+pub const {metadata_array_name}: [EventMetadata; {n_types}] = [''', file=out)
   for td in module.type_defs.values():
     if not td.event_name:
       continue
@@ -241,8 +237,8 @@ pub static {event_ring_type.upper()}_EVENT_DOMAIN_METADATA: EventDomainMetadata 
 """, file=out)
 
   print(f'''
-pub const {event_ring_type.upper()}_EVENT_DEFAULT_RING_PATH: &str =
-    "/dev/hugepages/monad-{event_ring_type}-events";
+pub const {event_ring_type.upper()}_EVENT_DEFAULT_FILE_NAME: &str =
+    "monad-{event_ring_type}-events";
 ''', file=out)
 
 def emit_module_file(module: ModuleInfo, out: TextIO):
