@@ -214,7 +214,7 @@ def emit_metadata_epilogue(out: TextIO):
 
 def emit_metadata_array(module: ModuleInfo, out: TextIO):
   event_type_prefix = get_c_type_name_prefix(module)
-  n_types = module.event_count + 1
+  n_types = module.event_count
   print(
 f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{n_types}] = {{''',
     file=out)

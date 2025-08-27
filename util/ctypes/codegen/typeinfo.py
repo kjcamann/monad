@@ -21,6 +21,7 @@ class IntrinsicType(Enum):
   u16 = auto()
   u32 = auto()
   u64 = auto()
+  u128 = auto()
 
 @dataclass
 class TypeInfo:
