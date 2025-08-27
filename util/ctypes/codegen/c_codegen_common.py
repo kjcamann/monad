@@ -53,6 +53,7 @@ IntrinsicTypeMap = {
   IntrinsicType.u16 : 'uint16_t',
   IntrinsicType.u32 : 'uint32_t',
   IntrinsicType.u64 : 'uint64_t',
+  IntrinsicType.u128 : '__uint128_t',
 }
 
 def get_c_type_name_prefix(module: ModuleInfo) -> str:
