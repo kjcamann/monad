@@ -22,6 +22,8 @@ add_executable(
   monad/main.cpp
   monad/event.cpp
   monad/event.hpp
+  monad/event_cvt.cpp
+  monad/event_cvt.hpp
   monad/file_io.hpp
   monad/file_io.cpp
   monad/runloop_ethereum.cpp

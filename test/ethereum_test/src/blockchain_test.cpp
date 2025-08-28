@@ -44,6 +44,7 @@
 #include <category/execution/ethereum/event/record_block_events.hpp>
 #include <category/execution/ethereum/execute_block.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
+#include <category/execution/ethereum/metrics/block_metrics.hpp>
 #include <category/execution/ethereum/precompiles.hpp>
 #include <category/execution/ethereum/rlp/encode2.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
@@ -305,7 +306,7 @@ Result<BlockExecOutput> BlockchainTest::execute(
     }
 
     BOOST_OUTCOME_TRY(
-        receipts,
+        BlockEvmOutput block_evm_output,
         execute_block<traits>(
             chain,
             block,
@@ -317,6 +318,7 @@ Result<BlockExecOutput> BlockchainTest::execute(
             metrics,
             call_tracers));
 
+    receipts = std::move(block_evm_output.receipts);
     block_state.log_debug();
     block_state.commit(
         bytes32_t{block.header.number},

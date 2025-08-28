@@ -176,7 +176,8 @@ std::vector<std::vector<std::optional<Address>>> recover_authorities(
 }
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block_transactions(
+Result<std::pair<std::vector<Receipt>, std::vector<State>>>
+execute_block_transactions(
     Chain const &chain, BlockHeader const &header,
     std::vector<Transaction> const &transactions,
     std::vector<Address> const &senders,
@@ -198,6 +199,9 @@ Result<std::vector<Receipt>> execute_block_transactions(
     std::atomic<size_t> txn_exec_finished = 0;
     size_t const txn_count = transactions.size();
 
+    std::vector<std::unique_ptr<State>> txn_states;
+    txn_states.resize(txn_count);
+
     auto const tx_exec_begin = std::chrono::steady_clock::now();
     for (unsigned i = 0; i < txn_count; ++i) {
         priority_pool.submit(
@@ -215,7 +219,8 @@ Result<std::vector<Receipt>> execute_block_transactions(
              &block_metrics,
              &call_tracer = *call_tracers[i],
              &txn_exec_finished,
-             &revert_transaction = revert_transaction] {
+             &revert_transaction = revert_transaction,
+             &txn_states] {
                 std::unique_ptr<State> captured_state;
                 record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
                 try {
@@ -243,6 +248,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
                         *results[i],
                         call_tracer.get_call_frames(),
                         *captured_state.get());
+                    txn_states[i] = std::move(captured_state);
                 }
                 catch (...) {
                     promises[i + 1].set_exception(std::current_exception());
@@ -266,7 +272,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
         cpu_relax();
     }
 
-    std::vector<Receipt> retvals;
+    std::vector<Receipt> receipts;
     for (unsigned i = 0; i < transactions.size(); ++i) {
         MONAD_ASSERT(results[i].has_value());
         if (MONAD_UNLIKELY(results[i].value().has_error())) {
@@ -277,23 +283,28 @@ Result<std::vector<Receipt>> execute_block_transactions(
                 results[i].value().assume_error().message().c_str());
         }
         BOOST_OUTCOME_TRY(auto retval, std::move(results[i].value()));
-        retvals.push_back(std::move(retval));
+        receipts.push_back(std::move(retval));
+    }
+
+    std::vector<State> txn_states_owned;
+    for (std::unique_ptr<State> &s : txn_states) {
+        txn_states_owned.emplace_back(std::move(*s.release()));
     }
 
     // YP eq. 22
     uint64_t cumulative_gas_used = 0;
-    for (auto &receipt : retvals) {
+    for (auto &receipt : receipts) {
         cumulative_gas_used += receipt.gas_used;
         receipt.gas_used = cumulative_gas_used;
     }
 
-    return retvals;
+    return std::make_pair(std::move(receipts), std::move(txn_states_owned));
 }
 
 EXPLICIT_TRAITS(execute_block_transactions);
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block(
+Result<BlockEvmOutput> execute_block(
     Chain const &chain, Block const &block, std::vector<Address> const &senders,
     std::vector<std::vector<std::optional<Address>>> const &authorities,
     BlockState &block_state, BlockHashBuffer const &block_hash_buffer,
@@ -330,8 +341,10 @@ Result<std::vector<Receipt>> execute_block(
     record_account_access_events(
         MONAD_ACCT_ACCESS_BLOCK_PROLOGUE, prologue_state);
 
+    std::vector<Receipt> receipts;
+    std::vector<State> txn_states;
     BOOST_OUTCOME_TRY(
-        auto const retvals,
+        std::tie(receipts, txn_states),
         execute_block_transactions<traits>(
             chain,
             block.header,
@@ -363,7 +376,11 @@ Result<std::vector<Receipt>> execute_block(
     record_account_access_events(
         MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, epilogue_state);
 
-    return retvals;
+    return {
+        std::move(prologue_state),
+        std::move(epilogue_state),
+        std::move(receipts),
+        std::move(txn_states)};
 }
 
 EXPLICIT_TRAITS(execute_block);
