@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "event.hpp"
+#include "event_cvt.hpp"
 #include "runloop_ethereum.hpp"
 #include "runloop_monad.hpp"
 
@@ -113,6 +114,9 @@ MONAD_ANONYMOUS_NAMESPACE_END
 using namespace monad;
 namespace fs = std::filesystem;
 
+event_cross_validation_test::UpdateVersion event_cvt_update_version;
+fs::path event_cvt_export_path;
+
 int main(int const argc, char const *argv[])
 try {
     cxx_runtime_terminate_handler = std::get_terminate();
@@ -195,6 +199,26 @@ try {
         dump_snapshot,
         "directory to dump state to at the end of run");
     cli.add_flag("--trace_calls", trace_calls, "enable call tracing");
+
+    std::unordered_map<
+        std::string,
+        event_cross_validation_test::UpdateVersion> const
+        CVT_UPDATE_VERSION_MAP = {
+            {"v1", event_cross_validation_test::UpdateVersion::V1},
+            {"v2", event_cross_validation_test::UpdateVersion::V2}};
+    CLI::Option *const event_cvt_version =
+        cli.add_option(
+               "--event-cvt-version",
+               event_cvt_update_version,
+               "version of the event CVT updates to generate")
+            ->transform(CLI::CheckedTransformer(
+                CVT_UPDATE_VERSION_MAP, CLI::ignore_case));
+    cli.add_option(
+           "--event-cvt-export-path",
+           event_cvt_export_path,
+           "path to the event cross-validation test export file path")
+        ->needs(event_cvt_version);
+
     auto *const group =
         cli.add_option_group("load", "methods to initialize the db");
     group

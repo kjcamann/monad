@@ -21,7 +21,7 @@
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/core/receipt.hpp>
 #include <category/execution/ethereum/dispatch_transaction.hpp>
-#include <category/execution/ethereum/metrics/block_metrics.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/vm/evm/traits.hpp>
 
@@ -34,13 +34,23 @@
 MONAD_NAMESPACE_BEGIN
 
 class BlockHashBuffer;
+class BlockMetrics;
 class BlockState;
 class State;
 struct Block;
 struct Chain;
 
+struct BlockEvmOutput
+{
+    State prologue_state;
+    State epilogue_state;
+    std::vector<Receipt> receipts;
+    std::vector<State> txn_states;
+};
+
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block_transactions(
+Result<std::pair<std::vector<Receipt>, std::vector<State>>>
+execute_block_transactions(
     Chain const &, BlockHeader const &, std::vector<Transaction> const &,
     std::vector<Address> const &senders,
     std::vector<std::vector<std::optional<Address>>> const &authorities,
@@ -50,7 +60,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
                                      uint64_t, State &) { return false; });
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block(
+Result<BlockEvmOutput> execute_block(
     Chain const &, Block const &, std::vector<Address> const &senders,
     std::vector<std::vector<std::optional<Address>>> const &authorities,
     BlockState &, BlockHashBuffer const &, fiber::PriorityPool &,

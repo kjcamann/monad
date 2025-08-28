@@ -956,7 +956,7 @@ TYPED_TEST(DBTest, call_frames_stress_test)
             block.value().transactions[i], call_frames[i]));
     }
 
-    auto const receipts = execute_block<EvmTraits<EVMC_SHANGHAI>>(
+    auto const block_evm_output = execute_block<EvmTraits<EVMC_SHANGHAI>>(
         EthereumMainnet{},
         block.value(),
         senders,
@@ -967,7 +967,7 @@ TYPED_TEST(DBTest, call_frames_stress_test)
         metrics,
         call_tracers);
 
-    ASSERT_TRUE(!receipts.has_error());
+    ASSERT_TRUE(!block_evm_output.has_error());
 
     bs.log_debug();
 
@@ -977,7 +977,7 @@ TYPED_TEST(DBTest, call_frames_stress_test)
     bs.commit(
         block_id,
         header,
-        receipts.value(),
+        block_evm_output.value().receipts,
         call_frames,
         recover_senders(transactions),
         transactions,
@@ -1154,7 +1154,7 @@ TYPED_TEST(DBTest, call_frames_refund)
             block.value().transactions[i], call_frames[i]));
     }
 
-    auto const receipts = execute_block<EvmTraits<EVMC_SHANGHAI>>(
+    auto const block_evm_output = execute_block<EvmTraits<EVMC_SHANGHAI>>(
         ShanghaiEthereumMainnet{},
         block.value(),
         senders,
@@ -1165,7 +1165,7 @@ TYPED_TEST(DBTest, call_frames_refund)
         metrics,
         call_tracers);
 
-    ASSERT_TRUE(!receipts.has_error());
+    ASSERT_TRUE(!block_evm_output.has_error());
 
     bs.log_debug();
 
@@ -1175,7 +1175,7 @@ TYPED_TEST(DBTest, call_frames_refund)
     bs.commit(
         block_id,
         header,
-        receipts.value(),
+        block_evm_output.value().receipts,
         call_frames,
         recover_senders(transactions),
         transactions,
