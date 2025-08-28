@@ -177,7 +177,7 @@ std::vector<std::vector<std::optional<Address>>> recover_authorities(
 }
 
 template <Traits traits>
-void execute_block_header(
+State execute_block_header(
     Chain const &chain, BlockState &block_state, BlockHeader const &header)
 {
     State state{block_state, Incarnation{header.number, 0}};
@@ -206,12 +206,14 @@ void execute_block_header(
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
     record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_PROLOGUE, state);
+    return state;
 }
 
 EXPLICIT_TRAITS(execute_block_header);
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block_transactions(
+Result<std::pair<std::vector<Receipt>, std::vector<State>>>
+execute_block_transactions(
     Chain const &chain, BlockHeader const &header,
     std::span<Transaction const> const transactions,
     std::span<Address const> const senders,
@@ -235,6 +237,9 @@ Result<std::vector<Receipt>> execute_block_transactions(
     std::atomic<size_t> txn_exec_finished = 0;
     size_t const txn_count = transactions.size();
 
+    std::vector<std::optional<State>> txn_states;
+    txn_states.resize(txn_count);
+
     auto const tx_exec_begin = std::chrono::steady_clock::now();
     for (unsigned i = 0; i < txn_count; ++i) {
         priority_pool.submit(
@@ -253,7 +258,8 @@ Result<std::vector<Receipt>> execute_block_transactions(
              &call_tracer = *call_tracers[i],
              &state_tracer = *state_tracers[i],
              &txn_exec_finished,
-             &revert_transaction = revert_transaction] {
+             &revert_transaction = revert_transaction,
+             &txn_states] {
                 record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
                 State state{block_state, Incarnation{header.number, i + 1}};
                 try {
@@ -282,6 +288,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
                         *results[i],
                         call_tracer.get_call_frames(),
                         state);
+                    txn_states[i].emplace(std::move(state));
                 }
                 catch (...) {
                     promises[i + 1].set_exception(std::current_exception());
@@ -305,7 +312,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
         cpu_relax();
     }
 
-    std::vector<Receipt> retvals;
+    std::vector<Receipt> receipts;
     for (unsigned i = 0; i < transactions.size(); ++i) {
         MONAD_ASSERT(results[i].has_value());
         if (MONAD_UNLIKELY(results[i].value().has_error())) {
@@ -316,23 +323,28 @@ Result<std::vector<Receipt>> execute_block_transactions(
                 results[i].value().assume_error().message().c_str());
         }
         BOOST_OUTCOME_TRY(auto retval, std::move(results[i].value()));
-        retvals.push_back(std::move(retval));
+        receipts.push_back(std::move(retval));
+    }
+
+    std::vector<State> txn_states_owned;
+    for (std::optional<State> &s : txn_states) {
+        txn_states_owned.emplace_back(std::move(*s));
     }
 
     // YP eq. 22
     uint64_t cumulative_gas_used = 0;
-    for (auto &receipt : retvals) {
+    for (auto &receipt : receipts) {
         cumulative_gas_used += receipt.gas_used;
         receipt.gas_used = cumulative_gas_used;
     }
 
-    return retvals;
+    return std::make_pair(std::move(receipts), std::move(txn_states_owned));
 }
 
 EXPLICIT_TRAITS(execute_block_transactions);
 
 template <Traits traits>
-Result<std::vector<Receipt>> execute_block(
+Result<BlockEvmOutput> execute_block(
     Chain const &chain, Block const &block,
     std::span<Address const> const senders,
     std::span<std::vector<std::optional<Address>> const> const authorities,
@@ -348,10 +360,13 @@ Result<std::vector<Receipt>> execute_block(
     MONAD_ASSERT(senders.size() == call_tracers.size());
     MONAD_ASSERT(senders.size() == state_tracers.size());
 
-    execute_block_header<traits>(chain, block_state, block.header);
+    State prologue_state =
+        execute_block_header<traits>(chain, block_state, block.header);
 
+    std::vector<Receipt> receipts;
+    std::vector<State> txn_states;
     BOOST_OUTCOME_TRY(
-        auto const retvals,
+        std::tie(receipts, txn_states),
         execute_block_transactions<traits>(
             chain,
             block.header,
@@ -366,24 +381,29 @@ Result<std::vector<Receipt>> execute_block(
             state_tracers,
             revert_transaction));
 
-    State state{
+    State epilogue_state{
         block_state, Incarnation{block.header.number, Incarnation::LAST_TX}};
 
     if constexpr (traits::evm_rev() >= EVMC_SHANGHAI) {
-        process_withdrawal(state, block.withdrawals);
+        process_withdrawal(epilogue_state, block.withdrawals);
     }
 
-    apply_block_reward<traits>(state, block);
+    apply_block_reward<traits>(epilogue_state, block);
 
     if constexpr (traits::evm_rev() >= EVMC_SPURIOUS_DRAGON) {
-        state.destruct_touched_dead();
+        epilogue_state.destruct_touched_dead();
     }
 
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
-    record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, state);
+    MONAD_ASSERT(block_state.can_merge(epilogue_state));
+    block_state.merge(epilogue_state);
+    record_account_access_events(
+        MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, epilogue_state);
 
-    return retvals;
+    return {
+        std::move(prologue_state),
+        std::move(epilogue_state),
+        std::move(receipts),
+        std::move(txn_states)};
 }
 
 EXPLICIT_TRAITS(execute_block);

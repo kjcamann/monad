@@ -74,7 +74,7 @@ private:
 public:
     State(BlockState &, Incarnation, bool relaxed_validation = false);
 
-    State(State &&) = delete;
+    State(State &&) = default;
     State(State const &) = delete;
     State &operator=(State &&) = delete;
     State &operator=(State const &) = delete;
