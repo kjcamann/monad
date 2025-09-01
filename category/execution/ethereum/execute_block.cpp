@@ -76,42 +76,33 @@ void process_withdrawal(
     }
 }
 
-void transfer_balance_dao(
-    BlockState &block_state, Incarnation const incarnation)
+void transfer_balance_dao(State &prologue_state)
 {
-    State state{block_state, incarnation};
-
     for (auto const &addr : dao::child_accounts) {
-        auto const balance = intx::be::load<uint256_t>(state.get_balance(addr));
-        state.add_to_balance(dao::withdraw_account, balance);
-        state.subtract_from_balance(addr, balance);
+        auto const balance =
+            intx::be::load<uint256_t>(prologue_state.get_balance(addr));
+        prologue_state.add_to_balance(dao::withdraw_account, balance);
+        prologue_state.subtract_from_balance(addr, balance);
     }
-
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
 }
 
 // EIP-4788
-void set_beacon_root(BlockState &block_state, BlockHeader const &header)
+void set_beacon_root(State &prologue_state, BlockHeader const &header)
 {
     constexpr auto BEACON_ROOTS_ADDRESS{
         0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02_address};
     constexpr uint256_t HISTORY_BUFFER_LENGTH{8191};
 
-    State state{block_state, Incarnation{header.number, 0}};
-    if (state.account_exists(BEACON_ROOTS_ADDRESS)) {
+    if (prologue_state.account_exists(BEACON_ROOTS_ADDRESS)) {
         uint256_t timestamp{header.timestamp};
         bytes32_t k1{
             to_bytes(to_big_endian(timestamp % HISTORY_BUFFER_LENGTH))};
         bytes32_t k2{to_bytes(to_big_endian(
             timestamp % HISTORY_BUFFER_LENGTH + HISTORY_BUFFER_LENGTH))};
-        state.set_storage(
+        prologue_state.set_storage(
             BEACON_ROOTS_ADDRESS, k1, to_bytes(to_big_endian(timestamp)));
-        state.set_storage(
+        prologue_state.set_storage(
             BEACON_ROOTS_ADDRESS, k2, header.parent_beacon_block_root.value());
-
-        MONAD_ASSERT(block_state.can_merge(state));
-        block_state.merge(state);
     }
 }
 
@@ -198,29 +189,29 @@ Result<std::vector<Receipt>> execute_block(
     MONAD_ASSERT(senders.size() == block.transactions.size());
     MONAD_ASSERT(senders.size() == call_tracers.size());
 
-    {
-        State state{block_state, Incarnation{block.header.number, 0}};
+    // A few "system level" state-affecting operations occur prior to
+    // transaction execution.
+    State prologue_state{block_state, Incarnation{block.header.number, 0}};
 
-        if constexpr (traits::evm_rev() >= EVMC_PRAGUE) {
-            deploy_block_hash_history_contract(state);
-        }
-
-        set_block_hash_history(state, block.header);
-
-        MONAD_ASSERT(block_state.can_merge(state));
-        block_state.merge(state);
+    if constexpr (traits::evm_rev() >= EVMC_PRAGUE) {
+        deploy_block_hash_history_contract(prologue_state);
+        set_block_hash_history(prologue_state, block.header);
     }
 
     if constexpr (traits::evm_rev() >= EVMC_CANCUN) {
-        set_beacon_root(block_state, block.header);
+        set_beacon_root(prologue_state, block.header);
     }
 
     if constexpr (traits::evm_rev() == EVMC_HOMESTEAD) {
         if (MONAD_UNLIKELY(block.header.number == dao::dao_block_number)) {
-            transfer_balance_dao(
-                block_state, Incarnation{block.header.number, 0});
+            transfer_balance_dao(prologue_state);
         }
     }
+
+    MONAD_ASSERT(block_state.can_merge(prologue_state));
+    block_state.merge(prologue_state);
+    record_account_access_events(
+        MONAD_ACCT_ACCESS_BLOCK_PROLOGUE, prologue_state);
 
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[block.transactions.size() + 1]};
@@ -249,6 +240,7 @@ Result<std::vector<Receipt>> execute_block(
              &call_tracer = *call_tracers[i],
              &txn_exec_finished,
              &revert_transaction = revert_transaction] {
+                std::unique_ptr<State> captured_state;
                 record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
                 try {
                     results[i] = dispatch_transaction<traits>(
@@ -263,7 +255,8 @@ Result<std::vector<Receipt>> execute_block(
                         block_metrics,
                         promises[i],
                         call_tracer,
-                        revert_transaction);
+                        revert_transaction,
+                        captured_state);
                     promises[i + 1].set_value();
                     record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_EXIT, i);
                     record_txn_events(
@@ -272,7 +265,8 @@ Result<std::vector<Receipt>> execute_block(
                         sender,
                         authorities,
                         *results[i],
-                        call_tracer.get_call_frames());
+                        call_tracer.get_call_frames(),
+                        *captured_state.get());
                 }
                 catch (...) {
                     promises[i + 1].set_exception(std::current_exception());
@@ -317,21 +311,23 @@ Result<std::vector<Receipt>> execute_block(
         receipt.gas_used = cumulative_gas_used;
     }
 
-    State state{
+    State epilogue_state{
         block_state, Incarnation{block.header.number, Incarnation::LAST_TX}};
 
     if constexpr (traits::evm_rev() >= EVMC_SHANGHAI) {
-        process_withdrawal(state, block.withdrawals);
+        process_withdrawal(epilogue_state, block.withdrawals);
     }
 
-    apply_block_reward<traits>(state, block);
+    apply_block_reward<traits>(epilogue_state, block);
 
     if constexpr (traits::evm_rev() >= EVMC_SPURIOUS_DRAGON) {
-        state.destruct_touched_dead();
+        epilogue_state.destruct_touched_dead();
     }
 
-    MONAD_ASSERT(block_state.can_merge(state));
-    block_state.merge(state);
+    MONAD_ASSERT(block_state.can_merge(epilogue_state));
+    block_state.merge(epilogue_state);
+    record_account_access_events(
+        MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, epilogue_state);
 
     return retvals;
 }

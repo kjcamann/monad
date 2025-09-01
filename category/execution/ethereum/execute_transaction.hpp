@@ -25,6 +25,7 @@
 #include <evmc/evmc.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 MONAD_NAMESPACE_BEGIN
@@ -32,6 +33,7 @@ MONAD_NAMESPACE_BEGIN
 class BlockHashBuffer;
 class BlockMetrics;
 struct BlockHeader;
+class BlockMetrics;
 class BlockState;
 struct CallTracerBase;
 struct Chain;
@@ -91,6 +93,7 @@ class ExecuteTransaction : public ExecuteTransactionNoValidation<traits>
     BlockMetrics &block_metrics_;
     boost::fibers::promise<void> &prev_;
     CallTracerBase &call_tracer_;
+    std::unique_ptr<State> captured_state_;
 
     Result<evmc::Result> execute_impl2(State &);
     Receipt execute_final(State &, evmc::Result const &);
@@ -106,6 +109,8 @@ public:
     ~ExecuteTransaction() = default;
 
     Result<Receipt> operator()();
+
+    std::unique_ptr<State> take_captured_state();
 };
 
 uint64_t g_star(

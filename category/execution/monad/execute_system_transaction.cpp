@@ -114,6 +114,7 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
             }
             auto const receipt = execute_final(state);
             block_state_.merge(state);
+            captured_state_ = std::make_unique<State>(std::move(state));
             return receipt;
         }
     }
@@ -133,6 +134,7 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
         }
         auto const receipt = execute_final(state);
         block_state_.merge(state);
+        captured_state_ = std::make_unique<State>(std::move(state));
         return receipt;
     }
 }
@@ -212,6 +214,14 @@ Result<void> ExecuteSystemTransaction<traits>::execute_staking_syscall(
         return contract.syscall_on_epoch_change(calldata);
     }
     return staking::StakingError::MethodNotSupported;
+}
+
+template <Traits traits>
+std::unique_ptr<State> ExecuteSystemTransaction<traits>::take_captured_state()
+{
+    std::unique_ptr<State> current{};
+    std::swap(current, captured_state_);
+    return current;
 }
 
 EXPLICIT_MONAD_TRAITS_CLASS(ExecuteSystemTransaction);

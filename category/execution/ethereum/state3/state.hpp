@@ -20,6 +20,7 @@
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
 #include <category/core/keccak.hpp>
+#include <category/core/likely.h>
 #include <category/core/monad_exception.hpp>
 #include <category/execution/ethereum/core/account.hpp>
 #include <category/execution/ethereum/core/address.hpp>
@@ -47,6 +48,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -122,7 +124,7 @@ public:
     {
     }
 
-    State(State &&) = delete;
+    State(State &&) = default;
     State(State const &) = delete;
     State &operator=(State &&) = delete;
     State &operator=(State const &) = delete;
