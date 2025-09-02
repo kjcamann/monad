@@ -33,6 +33,7 @@ extern "C"
 #endif
 
 enum monad_event_content_type : uint16_t;
+struct monad_event_ring;
 
 /// Arguments for the `monad_event_ring_init_simple` function
 struct monad_event_ring_simple_config
