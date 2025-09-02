@@ -97,7 +97,7 @@ try_parse_event_ring_config(std::string_view s)
             "<ring-name-or-path>[:<descriptor-shift>:<payload-buffer-shift>]",
             s));
     }
-    cfg.event_ring_spec = tokens[0];
+    cfg.event_ring_file = tokens[0];
     if (size(tokens) < 2 || tokens[1].empty()) {
         cfg.descriptors_shift = DEFAULT_EXEC_RING_DESCRIPTORS_SHIFT;
     }
@@ -123,23 +123,18 @@ int init_execution_event_recorder(EventRingConfig ring_config)
 {
     // Create with rw-rw-r--
     constexpr mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+    char ring_path[PATH_MAX];
+
     MONAD_ASSERT(!g_exec_event_recorder, "recorder initialized twice?");
 
-    if (!ring_config.event_ring_spec.contains('/')) {
-        // The event ring specification does not contain a '/' character; this
-        // is interpreted as a filename in the default event ring directory,
-        // as computed by `monad_event_open_ring_dir_fd`
-        char event_ring_dir_path_buf[PATH_MAX];
-        int const rc = monad_event_open_ring_dir_fd(
-            nullptr, event_ring_dir_path_buf, sizeof event_ring_dir_path_buf);
-        if (rc != 0) {
-            LOG_ERROR(
-                "open of event ring default directory failed: {}",
-                monad_event_ring_get_last_error());
-            return rc;
-        }
-        ring_config.event_ring_spec = std::string{event_ring_dir_path_buf} +
-                                      '/' + ring_config.event_ring_spec;
+    if (int const rc = monad_event_resolve_ring_file(
+            ring_config.event_ring_file.c_str(), ring_path, sizeof ring_path);
+        rc != 0) {
+        LOG_ERROR(
+            "resolution of event ring file {} failed: {}",
+            ring_config.event_ring_file,
+            monad_event_ring_get_last_error());
+        return rc;
     }
 
     // Open the file and acquire a BSD-style exclusive lock on it; note there
@@ -147,7 +142,6 @@ int init_execution_event_recorder(EventRingConfig ring_config)
     // it (e.g., if we're racing against another execution daemon started
     // accidentally). In that case we'll either win or lose the race to acquire
     // the lock, and will resize it only if we end up winning
-    char const *const ring_path = ring_config.event_ring_spec.c_str();
     int ring_fd [[gnu::cleanup(cleanup_close)]] =
         open(ring_path, O_RDWR | O_CREAT, mode);
     if (ring_fd == -1) {
