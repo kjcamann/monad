@@ -208,8 +208,10 @@ def emit_event_metadata_array(module: ModuleInfo, out: TextIO):
   event_ring_type = module.event_config.event_ring_type
   metadata_array_name = f'{event_ring_type.upper()}_EVENT_METADATA'
   n_types = module.event_count
+  event_count_constant = f'{event_ring_type.upper()}_EVENT_COUNT'
   print(f'''
-pub const {metadata_array_name}: [EventMetadata; {n_types}] = [''', file=out)
+pub const {event_count_constant}: usize = {n_types};
+pub const {metadata_array_name}: [EventMetadata; {event_count_constant}] = [''', file=out)
   for td in module.type_defs.values():
     if not td.event_name:
       continue

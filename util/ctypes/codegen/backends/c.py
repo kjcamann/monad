@@ -36,6 +36,7 @@ def emit_module_header_prologue(emit_warning: bool, module: ModuleInfo, out: Tex
                               for md in module.dependencies if not md.is_external_only)
   module_include_lines += module.lang_attrs.get('c', {}).get('extra_includes', [])
   if module.is_event_module:
+    module_include_lines.insert(0, '#include <stddef.h>') # Need size_t for _EVENT_COUNT
     module_include_lines.append('#include <category/core/event/event_metadata.h>')
   if module_include_lines:
     module_include_lines += ['']
@@ -169,8 +170,10 @@ def emit_module_header_file(
     n_types = module.event_count
     event_type_prefix = get_c_type_name_prefix(module)
     event_ring_type = module.event_config.event_ring_type
+    event_count_constant = f'{event_type_prefix.upper()}_EVENT_COUNT'
     print(
-f"""extern struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{n_types}];
+f"""constexpr size_t {event_count_constant} = {n_types};
+extern struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{event_count_constant}];
 extern uint8_t const g_{event_type_prefix}_event_schema_hash[32];
 
 constexpr char MONAD_EVENT_DEFAULT_{event_ring_type.upper()}_FILE_NAME[] = \\
@@ -214,9 +217,9 @@ def emit_metadata_epilogue(out: TextIO):
 
 def emit_metadata_array(module: ModuleInfo, out: TextIO):
   event_type_prefix = get_c_type_name_prefix(module)
-  n_types = module.event_count
+  event_count_constant = f'{event_type_prefix.upper()}_EVENT_COUNT'
   print(
-f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{n_types}] = {{''',
+f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{event_count_constant}] = {{''',
     file=out)
   for td in module.type_defs.values():
     if not td.event_name:
