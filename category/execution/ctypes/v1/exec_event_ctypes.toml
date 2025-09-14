@@ -4,7 +4,8 @@ depends = ["eth_ctypes", "monad_ctypes"]
 lang.c.header_output_dir = "category/execution/ethereum/event"
 lang.cxx_format.header_output_dir = "category/execution/ethereum/event"
 lang.cxx_format.extra_includes = [
-  "#include <category/execution/ethereum/core/fmt/event_ring_fmt.hpp>"
+  "#include <category/core/event/event_ring_fmt.hpp>",
+  "#include <category/execution/ethereum/core/fmt/base_ctypes_fmt.hpp>"
 ]
 
 [settings.event]
