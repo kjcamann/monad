@@ -45,6 +45,11 @@ class FieldInfo:
   doc_comment: str     # Documentation comment for the field (short, trailing)
   trailing_array_element_type: TypeInfo|None  # Element type of trailing array
 
+  @property
+  def is_byte_vlta_size(self) -> bool:
+    return isinstance(self.trailing_array_element_type, IntrinsicTypeInfo) and \
+           self.trailing_array_element_type.intrinsic_type is IntrinsicType.u8
+
   def fingerprint(self) -> bytes:
     t = self.trailing_array_element_type
     return self.name.encode() + self.type_info.fingerprint() + \

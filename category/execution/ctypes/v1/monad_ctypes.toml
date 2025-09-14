@@ -5,7 +5,7 @@ lang.c.header_output_dir = "category/execution/monad/core"
 lang.c.extra_includes = ["#include <category/execution/ethereum/core/base_ctypes.h>"]
 lang.cxx_format.header_output_dir = "category/execution/monad/core/fmt"
 lang.cxx_format.extra_includes = [
-  "#include <category/execution/ethereum/core/fmt/int_fmt.hpp>"
+  "#include <category/execution/ethereum/core/fmt/base_ctypes_fmt.hpp>"
 ]
 
 [native_block_input]

@@ -5,9 +5,7 @@ lang.c.header_output_dir = "category/execution/ethereum/core"
 lang.c.extra_includes = ["#include <category/execution/ethereum/core/base_ctypes.h>"]
 lang.cxx_format.header_output_dir = "category/execution/ethereum/core/fmt"
 lang.cxx_format.extra_includes = [
-  "#include <category/execution/ethereum/core/fmt/address_fmt.hpp>",
-  "#include <category/execution/ethereum/core/fmt/bytes_fmt.hpp>",
-  "#include <category/execution/ethereum/core/fmt/int_fmt.hpp>"
+  "#include <category/execution/ethereum/core/fmt/base_ctypes_fmt.hpp>"
 ]
 
 #
