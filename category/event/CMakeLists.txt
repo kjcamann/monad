@@ -20,7 +20,7 @@
 
 cmake_minimum_required(VERSION 3.23)
 
-project(monad_event LANGUAGES C)
+project(monad_event LANGUAGES C CXX)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set(MONAD_EVENT_HUGETLBFS_DEFAULT ON)
@@ -33,6 +33,11 @@ option(MONAD_EVENT_USE_LIBHUGETLBFS
   ${MONAD_EVENT_HUGETLBFS_DEFAULT})
 
 find_library(libzstd_file zstd REQUIRED)
+
+# libgmp is not required, but if it is available, it can be used by the C++20
+# std::formatter specialization of `monad_c_uint256_ne` to do basic integer
+# to UTF-8 conversion via gmp_snprintf by default
+find_library(libgmp_file gmp)
 
 add_library(
   monad_event
@@ -53,6 +58,7 @@ target_sources(monad_event PUBLIC
   "../core/assert.h"
   "../core/cleanup.h"
   "../core/format_err.h"
+  "../core/hex.hpp"
   "../core/likely.h"
   "../core/path_util.h"
   "../core/srcloc.h"
@@ -62,14 +68,19 @@ target_sources(monad_event PUBLIC
   "../core/event/event_recorder.h"
   "../core/event/event_recorder_inline.h"
   "../core/event/event_ring.h"
+  "../core/event/event_ring_fmt.hpp"
   "../core/event/event_ring_util.h"
   "../core/event/test_event_ctypes.h"
   "../core/mem/align.h"
   "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
+  "../execution/ethereum/core/fmt/base_ctypes_fmt.hpp"
+  "../execution/ethereum/core/fmt/eth_ctypes_fmt.hpp"
   "../execution/ethereum/event/exec_event_ctypes.h"
+  "../execution/ethereum/event/exec_event_ctypes_fmt.hpp"
   "../execution/ethereum/event/exec_iter_help.h"
   "../execution/ethereum/event/exec_iter_help_inline.h"
+  "../execution/monad/core/fmt/monad_ctypes_fmt.hpp"
   "../execution/monad/core/monad_ctypes.h")
 
 target_include_directories(monad_event PUBLIC
@@ -106,7 +117,7 @@ if(APPLE OR NOT LIBC_HAS_STDBIT)
   target_link_libraries(monad_event PUBLIC monad_event_os_compat)
 endif()
 
-target_compile_definitions(monad_event PUBLIC _GNU_SOURCE)
+target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERNAL)
 target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 target_link_libraries(monad_event PRIVATE ${libzstd_file})
@@ -119,6 +130,13 @@ if(MONAD_EVENT_USE_LIBHUGETLBFS)
   target_link_libraries(monad_event PRIVATE hugetlbfs)
 else()
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
+endif()
+
+if(libgmp_file)
+  target_compile_definitions(monad_event PUBLIC MONAD_EVENT_HAS_LIBGMP)
+  target_link_libraries(monad_event PRIVATE ${libgmp_file})
+else()
+  message(WARNING "libgmp is not available; uint256 values > UINT128_MAX will print as hex uint64_t[4]")
 endif()
 
 option(MONAD_EVENT_BUILD_EXAMPLE
