@@ -127,7 +127,7 @@ try {
     unsigned nthreads = 4;
     unsigned nfibers = 256;
     bool no_compaction = false;
-    bool trace_calls = false;
+    bool no_trace_calls = false;
     std::string exec_event_ring_config;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
@@ -174,7 +174,7 @@ try {
         "--dump_snapshot",
         dump_snapshot,
         "directory to dump state to at the end of run");
-    cli.add_flag("--trace_calls", trace_calls, "enable call tracing");
+    cli.add_flag("--no_trace_calls", no_trace_calls, "disable call tracing");
     auto *const group =
         cli.add_option_group("load", "methods to initialize the db");
     group
@@ -430,7 +430,7 @@ try {
                 block_num,
                 end_block_num,
                 stop,
-                trace_calls);
+                !no_trace_calls);
         case CHAIN_CONFIG_MONAD_DEVNET:
         case CHAIN_CONFIG_MONAD_TESTNET:
         case CHAIN_CONFIG_MONAD_MAINNET:
@@ -446,7 +446,7 @@ try {
                 block_num,
                 end_block_num,
                 stop,
-                trace_calls);
+                !no_trace_calls);
         }
         MONAD_ABORT_PRINTF("Unsupported chain");
     }();
