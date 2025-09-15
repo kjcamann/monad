@@ -254,6 +254,13 @@ static void print_event(
     //
     //    // ... switch cases for other event types
     //    };
+    //
+    // To keep the example simple, this program chooses to hexdump rather than
+    // implement "pretty printing" functions for all the various payload types,
+    // but a more sophisticated program in the SDK (the C++ `eventcap` utility)
+    // has C++20 std::formatter specializations that can format the fields of
+    // payload types. The Rust `eventwatch` example program can also do this,
+    // by virtue of the #[derive(Debug)] attribute.
     hexdump_event_payload(event_ring, event, out);
 }
 
