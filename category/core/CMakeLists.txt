@@ -120,6 +120,7 @@ add_library(
   "event/event_recorder_inline.h"
   "event/event_ring.c"
   "event/event_ring.h"
+  "event/event_ring_fmt.hpp"
   "event/event_ring_util.c"
   "event/event_ring_util.h"
   "event/test_event_ctypes.h"
