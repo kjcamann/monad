@@ -274,7 +274,7 @@ static void event_loop(struct monad_event_ring_iter *iter, int pidfd, FILE *out)
     while (g_should_stop == 0) {
         switch (monad_event_ring_iter_try_next(iter, &event)) {
         case MONAD_EVENT_RING_NOT_READY:
-            if ((not_ready_count++ & ((1UL << 25) - 1)) == 0) {
+            if ((++not_ready_count & ((1UL << 25) - 1)) == 0) {
                 // The above guard prevents us from calling process_has_exited
                 // too often: it is orders of magnitude slower than the cost
                 // of an event ring poll
@@ -337,9 +337,24 @@ static void find_initial_iteration_point(struct monad_event_ring_iter *iter)
         iter, MONAD_EXEC_BLOCK_START, nullptr, nullptr);
 }
 
+// See the comment in shim-backtrace.c to understand what this function is, and
+// why it is needed; if you see linker errors related to a function named
+// `monad_stack_backtrace_capture_and_print` in your own projects, please read
+// the documentation in shim-backtrace.c
+extern void monad_stack_backtrace_capture_and_print(
+    char *buffer, size_t size, int fd, unsigned indent,
+    bool print_async_unsafe_info)
+{
+    // Supress "unused parameter" warnings
+    (void)buffer, (void)size, (void)fd, (void)indent,
+        (void)print_async_unsafe_info;
+    dprintf(fd, "backtrace not implemented, see comment in shim-backtrace.c\n");
+}
+
 int main(int argc, char **argv)
 {
     char event_ring_pathbuf[PATH_MAX];
+    char const *default_ring_path;
     char const *event_ring_input = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME;
     int const pos_arg_idx = parse_options(argc, argv);
 
@@ -351,6 +366,11 @@ int main(int argc, char **argv)
         event_ring_input = argv[pos_arg_idx];
     }
 
+    default_ring_path = getenv("MONAD_EVENT_DEFAULT_RING_PATH");
+    if (default_ring_path == nullptr) {
+        default_ring_path = MONAD_EVENT_DEFAULT_HUGETLBFS;
+    }
+
     // Event ring shared memory files can be located anywhere, but there is a
     // performance benefit to placing them on certain filesystems; consequently,
     // there are several functions related to opening / creating event ring
@@ -359,7 +379,7 @@ int main(int argc, char **argv)
     // case, MONAD_EVENT_DEFAULT_EXEC_FILE_NAME); the below function will place
     // "pure" file names (i.e., with no '/' in path) in the best subdirectory
     if (monad_event_resolve_ring_file(
-            MONAD_EVENT_DEFAULT_HUGETLBFS,
+            default_ring_path,
             event_ring_input,
             event_ring_pathbuf,
             sizeof event_ring_pathbuf) != 0) {
