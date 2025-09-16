@@ -337,6 +337,20 @@ static void find_initial_iteration_point(struct monad_event_ring_iter *iter)
         iter, MONAD_EXEC_BLOCK_START, nullptr, nullptr);
 }
 
+// See the comment in shim-backtrace.c to understand what this function is, and
+// why it is needed; if you see linker errors related to a function named
+// `monad_stack_backtrace_capture_and_print` in your own projects, please read
+// the documentation in shim-backtrace.c
+extern void monad_stack_backtrace_capture_and_print(
+    char *buffer, size_t size, int fd, unsigned indent,
+    bool print_async_unsafe_info)
+{
+    // Supress "unused parameter" warnings
+    (void)buffer, (void)size, (void)fd, (void)indent,
+        (void)print_async_unsafe_info;
+    dprintf(fd, "backtrace not implemented, see comment in shim-backtrace.c\n");
+}
+
 int main(int argc, char **argv)
 {
     char event_ring_pathbuf[PATH_MAX];
