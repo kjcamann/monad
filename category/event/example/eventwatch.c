@@ -39,7 +39,7 @@
 #include <unistd.h>
 
 #if defined(__linux__)
-#include <syscall.h>
+    #include <syscall.h>
 #endif
 
 #include <category/core/event/event_iterator.h>
@@ -79,7 +79,7 @@ struct option const longopts[] = {
     {}
 };
 
-int parse_options(int argc, char **argv)
+static int parse_options(int argc, char **argv)
 {
     int ch;
 
@@ -101,7 +101,7 @@ int parse_options(int argc, char **argv)
 
 static sig_atomic_t g_should_stop;
 
-void handle_signal(int)
+static void handle_signal(int)
 {
     g_should_stop = 1;
 }
@@ -284,8 +284,7 @@ static void event_loop(
     }
 }
 
-static void find_initial_iteration_point(
-    struct monad_event_iterator *iter)
+static void find_initial_iteration_point(struct monad_event_iterator *iter)
 {
     // This function is not strictly necessary, but it is probably useful for
     // most use cases. When an iterator is initialized via a call to
