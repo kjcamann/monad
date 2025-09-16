@@ -88,7 +88,7 @@ struct option const longopts[] = {
     {}
 };
 
-int parse_options(int argc, char **argv)
+static int parse_options(int argc, char **argv)
 {
     int ch;
 
@@ -110,7 +110,7 @@ int parse_options(int argc, char **argv)
 
 static sig_atomic_t g_should_stop;
 
-void handle_signal(int)
+static void handle_signal(int)
 {
     g_should_stop = 1;
 }
