@@ -49,10 +49,11 @@ constexpr bool PLATFORM_LINUX = false;
     #endif
 #endif
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
+#include <category/core/event/event_source.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
 
@@ -88,7 +89,7 @@ struct option const longopts[] = {
     {}
 };
 
-int parse_options(int argc, char **argv)
+static int parse_options(int argc, char **argv)
 {
     int ch;
 
@@ -110,7 +111,7 @@ int parse_options(int argc, char **argv)
 
 static sig_atomic_t g_should_stop;
 
-void handle_signal(int)
+static void handle_signal(int)
 {
     g_should_stop = 1;
 }
@@ -130,12 +131,11 @@ static bool process_has_exited(int pidfd)
 
 static void hexdump_event_payload(
     struct monad_event_ring const *event_ring,
-    struct monad_event_descriptor const *event, FILE *out)
+    struct monad_event_descriptor const *event, uint8_t const *payload,
+    FILE *out)
 {
     static char hexdump_buf[1 << 25];
     char *o = hexdump_buf;
-    uint8_t const *const payload =
-        monad_event_ring_payload_peek(event_ring, event);
     uint8_t const *const payload_end = payload + event->payload_size;
     for (uint8_t const *line = payload; line < payload_end; line += 16) {
         // Print one line of the dump, which is 16 bytes, in the form:
@@ -181,6 +181,8 @@ static void print_event(
 
     struct monad_event_metadata const *event_md =
         &g_monad_exec_event_metadata[event->event_type];
+    uint8_t const *const payload =
+        monad_event_ring_payload_peek(event_ring, event);
 
     // An optimization to only do the string formatting of the %H:%M:%S part
     // of the time each second when it changes, because strftime(3) is slow
@@ -224,8 +226,8 @@ static void print_event(
         // potentially confusing in the output; we want the consensus events
         // to print nothing.
         uint64_t block_number;
-        if (monad_exec_ring_get_block_number(
-                event_ring, event, &block_number)) {
+        if (monad_exec_get_block_number(
+                event_ring, event, payload, &block_number)) {
             o += sprintf(o, " BLK: %lu", (unsigned long)block_number);
         }
         else {
@@ -260,23 +262,23 @@ static void print_event(
     // has C++20 std::formatter specializations that can format the fields of
     // payload types. The Rust `eventwatch` example program can also do this,
     // by virtue of the #[derive(Debug)] attribute.
-    hexdump_event_payload(event_ring, event, out);
+    hexdump_event_payload(event_ring, event, payload, out);
 }
 
 // The main event processing loop of the application
 static void event_loop(
     struct monad_event_ring const *event_ring,
-    struct monad_event_iterator *iter, int pidfd, FILE *out)
+    struct monad_event_ring_iter *iter, int pidfd, FILE *out)
 {
     struct monad_event_descriptor event;
     uint64_t not_ready_count = 0;
 
     while (g_should_stop == 0) {
-        switch (monad_event_iterator_try_next(iter, &event)) {
-        case MONAD_EVENT_NOT_READY:
-            if ((not_ready_count++ & ((1U << 25) - 1)) == 0) {
+        switch (monad_event_ring_iter_try_next(iter, &event)) {
+        case MONAD_EVENT_RING_NOT_READY:
+            if ((not_ready_count++ & ((1UL << 25) - 1)) == 0) {
                 // The above guard prevents us from calling process_has_exited
-                // too often, as it is orders of magnitude slower than the cost
+                // too often: it is orders of magnitude slower than the cost
                 // of an event ring poll
                 fflush(out);
                 if (process_has_exited(pidfd)) {
@@ -285,17 +287,17 @@ static void event_loop(
             }
             continue; // Nothing produced yet
 
-        case MONAD_EVENT_GAP:
+        case MONAD_EVENT_RING_GAP:
             fprintf(
                 stderr,
                 "ERROR: event gap from %lu -> %lu, resetting iterator\n",
-                (unsigned long)iter->read_last_seqno,
+                (unsigned long)iter->cur_seqno,
                 (unsigned long)monad_event_ring_get_last_written_seqno(
                     event_ring, false));
-            monad_event_iterator_reset(iter);
+            monad_event_ring_iter_reset(iter);
             break;
 
-        case MONAD_EVENT_SUCCESS:
+        case MONAD_EVENT_RING_SUCCESS:
             print_event(event_ring, &event, out);
             break;
         }
@@ -303,7 +305,7 @@ static void event_loop(
     }
 }
 
-static void find_initial_iteration_point(struct monad_event_iterator *iter)
+static void find_initial_iteration_point(struct monad_event_ring_iter *iter)
 {
     // This function is not strictly necessary, but it is probably useful for
     // most use cases. When an iterator is initialized via a call to
@@ -333,7 +335,22 @@ static void find_initial_iteration_point(struct monad_event_iterator *iter)
     //
     // The event ring typically holds hundreds of blocks, so moving backward
     // doesn't materially increase the risk that we'll fall behind and gap.
-    (void)monad_exec_iter_consensus_prev(iter, MONAD_EXEC_BLOCK_START, nullptr);
+    (void)monad_exec_iter_consensus_prev(
+        iter, MONAD_EXEC_BLOCK_START, nullptr, nullptr);
+}
+
+// See the comment in shim-backtrace.c to understand what this function is, and
+// why it is needed; if you see linker errors related to a function named
+// `monad_stack_backtrace_capture_and_print` in your own projects, please read
+// the documentation in shim-backtrace.c
+extern void monad_stack_backtrace_capture_and_print(
+    char *buffer, size_t size, int fd, unsigned indent,
+    bool print_async_unsafe_info)
+{
+    // Supress "unused parameter" warnings
+    (void)buffer, (void)size, (void)fd, (void)indent,
+        (void)print_async_unsafe_info;
+    dprintf(fd, "backtrace not implemented, see comment in shim-backtrace.c\n");
 }
 
 int main(int argc, char **argv)
@@ -482,7 +499,7 @@ int main(int argc, char **argv)
     (void)close(ring_fd);
 
     // Create an iterator to read from the event ring
-    struct monad_event_iterator iter;
+    struct monad_event_ring_iter iter;
     if (monad_event_ring_init_iterator(&exec_ring, &iter) != 0) {
         goto Error;
     }
@@ -491,7 +508,7 @@ int main(int argc, char **argv)
     // if this is a live event ring, move the iterator to the start of the most
     // recently produced block
     if (is_snapshot) {
-        monad_event_iterator_set_seqno(&iter, 1);
+        monad_event_ring_iter_set_seqno(&iter, 1);
     }
     else {
         find_initial_iteration_point(&iter);
