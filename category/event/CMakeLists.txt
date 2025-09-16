@@ -40,6 +40,10 @@ option(MONAD_EVENT_USE_O_TMPFILE
 
 find_library(libzstd_file zstd REQUIRED)
 
+# The execinfo.h functions (used in shim-backtrace.c) are in glibc, but for
+# musl libc they're in libexecinfo
+find_library(libexecinfo_file execinfo OPTIONAL)
+
 # libgmp is not required, but if it is available, it can be used by the C++20
 # std::formatter specialization of `monad_c_uint256_ne` to do basic integer
 # to UTF-8 conversion via gmp_snprintf by default
@@ -172,6 +176,10 @@ target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 target_link_libraries(monad_event PRIVATE ${libzstd_file})
 
+if(libexecinfo_file)
+  target_link_libraries(monad_event PRIVATE ${libexecinfo_file})
+endif()
+
 if(MONAD_EVENT_USE_LIBHUGETLBFS)
   find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
   target_sources(monad_event PRIVATE
@@ -189,13 +197,21 @@ else()
   message(WARNING "libgmp is not available; uint256 values > UINT128_MAX will print as hex uint64_t[4]")
 endif()
 
-option(MONAD_EVENT_BUILD_EXAMPLE
-    "Build the example program that shows how to use the API" ON)
+option(MONAD_EVENT_BUILD_EXAMPLES
+    "Build the example programs that show how to use the API" ON)
 
-if (MONAD_EVENT_BUILD_EXAMPLE)
+if (MONAD_EVENT_BUILD_EXAMPLES)
   add_executable(eventwatch "example/eventwatch.c")
   target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
+
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    add_executable(event-hist-recovery
+      "example/event-hist-recovery.c"
+      "example/shim-backtrace.c")
+    target_compile_options(event-hist-recovery PRIVATE -Wall -Wextra -Wconversion -Werror)
+    target_link_libraries(event-hist-recovery PRIVATE monad_event)
+  endif()
 endif()
 
 if(TARGET monad_event_os_compat)
