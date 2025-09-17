@@ -24,62 +24,61 @@
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 
 // Defined in blockcap_builder.c
-extern thread_local char _g_monad_blockcap_error_buf[1024];
+extern thread_local char _g_monad_bcap_error_buf[1024];
 
 #define FORMAT_ERRC(...)                                                       \
     monad_format_err(                                                          \
-        _g_monad_blockcap_error_buf,                                           \
-        sizeof(_g_monad_blockcap_error_buf),                                   \
+        _g_monad_bcap_error_buf,                                               \
+        sizeof(_g_monad_bcap_error_buf),                                       \
         &MONAD_SOURCE_LOCATION_CURRENT(),                                      \
         __VA_ARGS__)
 
-struct monad_blockcap_finalize_tracker
+struct monad_bcap_finalize_tracker
 {
-    struct monad_blockcap_proposal_list pending;
+    struct monad_bcap_proposal_list pending;
 };
 
-int monad_blockcap_finalize_tracker_create(
-    struct monad_blockcap_finalize_tracker **ft_p)
+int monad_bcap_finalize_tracker_create(
+    struct monad_bcap_finalize_tracker **ft_p)
 {
     *ft_p = malloc(sizeof **ft_p);
     if (*ft_p == nullptr) {
         return FORMAT_ERRC(
-            errno, "malloc of monad_blockcap_finalize_tracker_create failed");
+            errno, "malloc of monad_bcap_finalize_tracker_create failed");
     }
     TAILQ_INIT(&(*ft_p)->pending);
     return 0;
 }
 
-void monad_blockcap_finalize_tracker_destroy(
-    struct monad_blockcap_finalize_tracker *ft)
+void monad_bcap_finalize_tracker_destroy(struct monad_bcap_finalize_tracker *ft)
 {
     if (ft != nullptr) {
-        struct monad_blockcap_proposal *p;
+        struct monad_bcap_proposal *p;
         while ((p = TAILQ_FIRST(&ft->pending))) {
             TAILQ_REMOVE(&ft->pending, p, entry);
-            monad_blockcap_proposal_free(p);
+            monad_bcap_proposal_free(p);
         }
         free(ft);
     }
 }
 
-void monad_blockcap_finalize_tracker_add_proposal(
-    struct monad_blockcap_finalize_tracker *ft,
-    struct monad_blockcap_proposal *proposal)
+void monad_bcap_finalize_tracker_add_proposal(
+    struct monad_bcap_finalize_tracker *ft,
+    struct monad_bcap_proposal *proposal)
 {
     TAILQ_INSERT_TAIL(&ft->pending, proposal, entry);
 }
 
-int monad_blockcap_finalize_tracker_on_finalize(
-    struct monad_blockcap_finalize_tracker *ft,
+int monad_bcap_finalize_tracker_update(
+    struct monad_bcap_finalize_tracker *ft,
     struct monad_exec_block_tag const *block_tag,
-    struct monad_blockcap_proposal **finalized,
-    struct monad_blockcap_proposal_list *abandoned)
+    struct monad_bcap_proposal **finalized,
+    struct monad_bcap_proposal_list *abandoned)
 {
     *finalized = nullptr;
     TAILQ_INIT(abandoned);
 
-    struct monad_blockcap_proposal *scan = TAILQ_FIRST(&ft->pending);
+    struct monad_bcap_proposal *scan = TAILQ_FIRST(&ft->pending);
     while (scan != nullptr) {
         if (scan->block_tag.block_number > block_tag->block_number) {
             // Proposal is for a later block than the finalized block height;

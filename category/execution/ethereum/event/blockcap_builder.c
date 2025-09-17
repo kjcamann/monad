@@ -29,18 +29,18 @@
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 
-thread_local char _g_monad_blockcap_error_buf[1024];
+thread_local char _g_monad_bcap_error_buf[1024];
 
 #define FORMAT_ERRC(...)                                                       \
     monad_format_err(                                                          \
-        _g_monad_blockcap_error_buf,                                           \
-        sizeof(_g_monad_blockcap_error_buf),                                   \
+        _g_monad_bcap_error_buf,                                               \
+        sizeof(_g_monad_bcap_error_buf),                                       \
         &MONAD_SOURCE_LOCATION_CURRENT(),                                      \
         __VA_ARGS__)
 
-struct monad_blockcap_builder
+struct monad_bcap_builder
 {
-    struct monad_blockcap_proposal *current_proposal;
+    struct monad_bcap_proposal *current_proposal;
     uint64_t last_exec_seqno;
     struct monad_vbuf_writer *event_vbuf_writer;
     struct monad_vbuf_writer *seqno_index_vbuf_writer;
@@ -55,15 +55,14 @@ get_vbuf_writer_compression(struct monad_vbuf_writer const *vbw)
 }
 
 static int builder_append_event(
-    struct monad_blockcap_builder *bcb,
-    enum monad_event_content_type content_type,
+    struct monad_bcap_builder *bcb, enum monad_event_content_type content_type,
     struct monad_event_descriptor const *event, void const *payload,
-    enum monad_blockcap_append_result *append_result)
+    enum monad_bcap_append_result *append_result)
 {
     int rc;
 
     if (bcb->current_proposal == nullptr) {
-        *append_result = MONAD_BLOCKCAP_OUTSIDE_BLOCK_SCOPE;
+        *append_result = MONAD_BCAP_OUTSIDE_BLOCK_SCOPE;
         return 0;
     }
     size_t const write_offset = monad_round_size_to_align(
@@ -102,17 +101,16 @@ static int builder_append_event(
     if (bcb->current_proposal->event_count++ == 0) {
         bcb->current_proposal->start_seqno = event->seqno;
     }
-    *append_result = MONAD_BLOCKCAP_PROPOSAL_APPENDED;
+    *append_result = MONAD_BCAP_PROPOSAL_APPENDED;
     return 0;
 }
 
-static int
-try_create_block_proposal(struct monad_blockcap_proposal **proposal_p)
+static int try_create_block_proposal(struct monad_bcap_proposal **proposal_p)
 {
-    struct monad_blockcap_proposal *proposal;
+    struct monad_bcap_proposal *proposal;
     *proposal_p = proposal = malloc(sizeof *proposal);
     if (proposal == nullptr) {
-        return FORMAT_ERRC(errno, "malloc of monad_blockcap_proposal failed");
+        return FORMAT_ERRC(errno, "malloc of monad_bcap_proposal failed");
     }
     memset(proposal, 0, sizeof *proposal);
     monad_vbuf_chain_init(&proposal->event_vbuf_chain);
@@ -121,10 +119,9 @@ try_create_block_proposal(struct monad_blockcap_proposal **proposal_p)
 }
 
 static int act_on_block_start(
-    struct monad_blockcap_builder *bcb,
-    struct monad_event_descriptor const *event,
+    struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
     struct monad_exec_block_start const *block_start,
-    enum monad_blockcap_append_result *append_result)
+    enum monad_bcap_append_result *append_result)
 {
     int rc;
 
@@ -149,10 +146,9 @@ static int act_on_block_start(
 }
 
 static int act_on_block_termination_event(
-    struct monad_blockcap_builder *bcb,
-    struct monad_event_descriptor const *event, void const *payload,
-    enum monad_blockcap_append_result *append_result,
-    struct monad_blockcap_proposal **proposal_p)
+    struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
+    void const *payload, enum monad_bcap_append_result *append_result,
+    struct monad_bcap_proposal **proposal_p)
 {
     int rc = builder_append_event(
         bcb, MONAD_EVENT_CONTENT_TYPE_EXEC, event, payload, append_result);
@@ -187,25 +183,25 @@ static int act_on_block_termination_event(
 
     *proposal_p = bcb->current_proposal;
     if (event->event_type == MONAD_EXEC_BLOCK_END) {
-        *append_result = MONAD_BLOCKCAP_PROPOSAL_FINISHED;
+        *append_result = MONAD_BCAP_PROPOSAL_FINISHED;
     }
     else {
         // TODO(ken): treat EVM_ERROR differently than BLOCK_REJECT?
-        *append_result = MONAD_BLOCKCAP_PROPOSAL_ABORTED;
+        *append_result = MONAD_BCAP_PROPOSAL_ABORTED;
     }
     bcb->current_proposal = nullptr;
     return 0;
 }
 
-int monad_blockcap_builder_create(
-    struct monad_blockcap_builder **bcb_p,
+int monad_bcap_builder_create(
+    struct monad_bcap_builder **bcb_p,
     struct monad_vbuf_writer_options const *event_vbuf_options,
     struct monad_vbuf_writer_options const *seqno_index_vbuf_options)
 {
     int rc;
-    struct monad_blockcap_builder *bcb = *bcb_p = malloc(sizeof *bcb);
+    struct monad_bcap_builder *bcb = *bcb_p = malloc(sizeof *bcb);
     if (bcb == nullptr) {
-        return FORMAT_ERRC(errno, "malloc of monad_blockcap_builder failed");
+        return FORMAT_ERRC(errno, "malloc of monad_bcap_builder failed");
     }
     memset(bcb, 0, sizeof *bcb);
     rc = monad_vbuf_writer_create(&bcb->event_vbuf_writer, event_vbuf_options);
@@ -231,17 +227,17 @@ int monad_blockcap_builder_create(
     return 0;
 
 Error:
-    monad_blockcap_builder_destroy(bcb);
+    monad_bcap_builder_destroy(bcb);
     *bcb_p = nullptr;
     return rc;
 }
 
-void monad_blockcap_builder_destroy(struct monad_blockcap_builder *bcb)
+void monad_bcap_builder_destroy(struct monad_bcap_builder *bcb)
 {
     if (bcb != nullptr) {
         struct monad_vbuf_chain flush_chain;
         monad_vbuf_chain_init(&flush_chain);
-        monad_blockcap_proposal_free(bcb->current_proposal);
+        monad_bcap_proposal_free(bcb->current_proposal);
         monad_vbuf_writer_destroy(bcb->event_vbuf_writer, &flush_chain);
         monad_vbuf_writer_destroy(bcb->seqno_index_vbuf_writer, &flush_chain);
         monad_vbuf_chain_free(&flush_chain);
@@ -249,14 +245,13 @@ void monad_blockcap_builder_destroy(struct monad_blockcap_builder *bcb)
     }
 }
 
-int monad_blockcap_builder_append_event(
-    struct monad_blockcap_builder *bcb,
-    enum monad_event_content_type content_type,
+int monad_bcap_builder_append_event(
+    struct monad_bcap_builder *bcb, enum monad_event_content_type content_type,
     struct monad_event_descriptor const *event, void const *payload,
-    enum monad_blockcap_append_result *append_result,
-    struct monad_blockcap_proposal **proposal_p)
+    enum monad_bcap_append_result *append_result,
+    struct monad_bcap_proposal **proposal_p)
 {
-    *append_result = MONAD_BLOCKCAP_ERROR;
+    *append_result = MONAD_BCAP_ERROR;
     *proposal_p = nullptr;
 
     if (content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
@@ -276,7 +271,7 @@ int monad_blockcap_builder_append_event(
 
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] == 0) {
         // Not a block-related event; we don't process these
-        *append_result = MONAD_BLOCKCAP_OUTSIDE_BLOCK_SCOPE;
+        *append_result = MONAD_BCAP_OUTSIDE_BLOCK_SCOPE;
         return 0;
     }
     if (bcb->current_proposal == nullptr &&
@@ -284,7 +279,7 @@ int monad_blockcap_builder_append_event(
         // Not currently within a block boundary, and not starting a new block
         // either; this happens when we start seeing events in the middle of a
         // proposal's execution; we just ignore these
-        *append_result = MONAD_BLOCKCAP_OUTSIDE_BLOCK_SCOPE;
+        *append_result = MONAD_BCAP_OUTSIDE_BLOCK_SCOPE;
         return 0;
     }
 
@@ -310,7 +305,7 @@ int monad_blockcap_builder_append_event(
     }
 }
 
-void monad_blockcap_proposal_free(struct monad_blockcap_proposal *proposal)
+void monad_bcap_proposal_free(struct monad_bcap_proposal *proposal)
 {
     if (proposal != nullptr) {
         monad_vbuf_chain_free(&proposal->event_vbuf_chain);
@@ -319,7 +314,7 @@ void monad_blockcap_proposal_free(struct monad_blockcap_proposal *proposal)
     }
 }
 
-char const *monad_blockcap_get_last_error()
+char const *monad_bcap_get_last_error()
 {
-    return _g_monad_blockcap_error_buf;
+    return _g_monad_bcap_error_buf;
 }
