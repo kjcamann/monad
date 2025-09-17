@@ -54,9 +54,10 @@ add_library(
   "../core/event/event_ring_util.c"
   "../core/event/test_event_ctypes_metadata.c"
   "../core/mem/virtual_buf.c"
+  "../execution/ethereum/event/blockcap_archive.c"
   "../execution/ethereum/event/blockcap_builder.c"
   "../execution/ethereum/event/blockcap_finalize_tracker.c"
-  "../execution/ethereum/event/blockcap_writer.c"
+  "../execution/ethereum/event/blockcap_pack_writer.c"
   "../execution/ethereum/event/exec_event_ctypes_metadata.c")
 
 target_sources(monad_event PUBLIC
