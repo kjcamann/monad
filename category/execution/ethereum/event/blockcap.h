@@ -20,13 +20,14 @@
  *
  * This file defines utilities used with the event capture ("evcap") system,
  * for writing block-oriented event streams. They are called the "block
- * capture" (blockcap) utilities.
+ * capture" (blockcap or "bcap") utilities.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include <sys/queue.h>
+#include <sys/types.h>
 
 #include <category/core/mem/virtual_buf.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
@@ -37,15 +38,16 @@ extern "C"
 #endif
 
 enum monad_exec_event_type : uint16_t;
-enum monad_event_content_type : uint16_t;
 
 enum monad_evcap_section_compression : uint8_t;
 
+struct monad_evcap_reader;
+struct monad_evcap_section_desc;
 struct monad_evcap_writer;
 struct monad_event_descriptor;
 struct monad_vbuf_writer_options;
 
-struct monad_blockcap_compression_info
+struct monad_bcap_compression_info
 {
     enum monad_evcap_section_compression compression;
     size_t uncompressed_length;
@@ -64,111 +66,142 @@ struct monad_blockcap_compression_info
 /// has a different meaning than the word "proposal" in the consensus
 /// algorithm. There, it refers to an attempt to vote on a particular block, in
 /// a particular round; here it means "a block which is not yet finalized".
-struct monad_blockcap_proposal
+struct monad_bcap_proposal
 {
     struct monad_exec_block_tag block_tag;
     size_t event_count;
     uint64_t start_seqno;
     struct monad_vbuf_chain event_vbuf_chain;
     struct monad_vbuf_chain seqno_index_vbuf_chain;
-    struct monad_blockcap_compression_info event_compression_info;
-    struct monad_blockcap_compression_info seqno_index_compression_info;
-    TAILQ_ENTRY(monad_blockcap_proposal) entry;
+    struct monad_bcap_compression_info event_compression_info;
+    struct monad_bcap_compression_info seqno_index_compression_info;
+    TAILQ_ENTRY(monad_bcap_proposal) entry;
 };
 
-void monad_blockcap_proposal_free(struct monad_blockcap_proposal *);
+void monad_bcap_proposal_free(struct monad_bcap_proposal *);
 
-TAILQ_HEAD(monad_blockcap_proposal_list, monad_blockcap_proposal);
+TAILQ_HEAD(monad_bcap_proposal_list, monad_bcap_proposal);
 
 /*
- * monad_blockcap_builder
+ * monad_bcap_builder
  *
- * This API is used to build `struct monad_blockcap_proposal` objects, which
+ * This API is used to build `struct monad_bcap_proposal` objects, which
  * are vbuf chains holding all recorded events in the scope of a proposal
  */
 
-enum monad_blockcap_append_result
+enum monad_bcap_append_result
 {
-    MONAD_BLOCKCAP_ERROR,
-    MONAD_BLOCKCAP_OUTSIDE_BLOCK_SCOPE,
-    MONAD_BLOCKCAP_PROPOSAL_APPENDED,
-    MONAD_BLOCKCAP_PROPOSAL_FINISHED,
-    MONAD_BLOCKCAP_PROPOSAL_ABORTED,
+    MONAD_BCAP_ERROR,
+    MONAD_BCAP_OUTSIDE_BLOCK_SCOPE,
+    MONAD_BCAP_PROPOSAL_APPENDED,
+    MONAD_BCAP_PROPOSAL_FINISHED,
+    MONAD_BCAP_PROPOSAL_ABORTED,
 };
 
-struct monad_blockcap_builder;
+struct monad_bcap_builder;
 
-int monad_blockcap_builder_create(
-    struct monad_blockcap_builder **,
+int monad_bcap_builder_create(
+    struct monad_bcap_builder **,
     struct monad_vbuf_writer_options const *event_vbuf_options,
     struct monad_vbuf_writer_options const *seqno_index_vbuf_options);
 
-void monad_blockcap_builder_destroy(struct monad_blockcap_builder *);
+void monad_bcap_builder_destroy(struct monad_bcap_builder *);
 
-int monad_blockcap_builder_append_event(
-    struct monad_blockcap_builder *, enum monad_event_content_type,
-    struct monad_event_descriptor const *, void const *payload,
-    enum monad_blockcap_append_result *, struct monad_blockcap_proposal **);
+int monad_bcap_builder_append_event(
+    struct monad_bcap_builder *, struct monad_event_descriptor const *,
+    void const *payload, enum monad_bcap_append_result *,
+    struct monad_bcap_proposal **);
 
 /*
- * monad_blockcap_finalize_tracker
+ * monad_bcap_finalize_tracker
  *
  * This API tracks when block proposals are finalized or abandoned, based on
  * consensus events
  */
 
-struct monad_blockcap_finalize_tracker;
+struct monad_bcap_finalize_tracker;
 
-int monad_blockcap_finalize_tracker_create(
-    struct monad_blockcap_finalize_tracker **);
+int monad_bcap_finalize_tracker_create(struct monad_bcap_finalize_tracker **);
 
-void monad_blockcap_finalize_tracker_destroy(
-    struct monad_blockcap_finalize_tracker *);
+void monad_bcap_finalize_tracker_destroy(struct monad_bcap_finalize_tracker *);
 
-void monad_blockcap_finalize_tracker_add_proposal(
-    struct monad_blockcap_finalize_tracker *, struct monad_blockcap_proposal *);
+void monad_bcap_finalize_tracker_add_proposal(
+    struct monad_bcap_finalize_tracker *, struct monad_bcap_proposal *);
 
-int monad_blockcap_finalize_tracker_on_finalize(
-    struct monad_blockcap_finalize_tracker *,
+int monad_bcap_finalize_tracker_update(
+    struct monad_bcap_finalize_tracker *,
     struct monad_exec_block_tag const *block_tag,
-    struct monad_blockcap_proposal **finalized,
-    struct monad_blockcap_proposal_list *abandoned);
+    struct monad_bcap_proposal **finalized,
+    struct monad_bcap_proposal_list *abandoned);
 
 /*
- * monad_blockcap_writer
+ * monad_bcap_pack_writer
  *
- * This API defines a layer on top of the "evcap" (event capture) file format,
- * adding in simple indexing and metadata about block boundaries for recording
- * execution rings
+ * This API defines a layer on top of the "evcap" (event capture) file format
+ * which records a block capture "pack" file, which adds in simple indexing and
+ * metadata about block boundaries for recording execution rings.
  *
- * A "block capture" file is just a regular event capture file with:
+ * A pack file is just a regular event capture file with:
  *
  *   - Multiple EVENT_BUNDLE sections in it, with one section containing all
  *     the events for a particular finalized block
  *
- *   - A BLOCK_INDEX section that describes the finalized block number -> event
- *     section mapping. It is designed to be mmap'ed with MAP_SHARED and is
- *     updated atomically for readers that are "polling" the finalized block
+ *   - A PACK_INDEX section that describes the finalized block number -> event
+ *     bundle section mapping. It is designed to be mmap'ed with MAP_SHARED and
+ *     is updated atomically for readers that are "polling" the finalized block
  *     index during recovery
+ *
+ * It is used for producing multi-block analysis in a single file, and is
+ * typically used for performance analysis
  */
 
-struct monad_blockcap_writer;
+struct monad_bcap_pack_writer;
 
-int monad_blockcap_writer_create(struct monad_blockcap_writer **, int fd);
+int monad_bcap_pack_writer_create(struct monad_bcap_pack_writer **, int fd);
 
-void monad_blockcap_writer_destroy(struct monad_blockcap_writer *);
+void monad_bcap_pack_writer_destroy(struct monad_bcap_pack_writer *);
 
 struct monad_evcap_writer *
-monad_blockcap_writer_get_evcap_writer(struct monad_blockcap_writer *);
+monad_bcap_pack_writer_get_evcap_writer(struct monad_bcap_pack_writer *);
 
-int monad_blockcap_writer_add_block(
-    struct monad_blockcap_writer *, struct monad_blockcap_proposal *);
+int monad_bcap_pack_writer_add_block(
+    struct monad_bcap_pack_writer *, struct monad_bcap_proposal const *);
+
+/*
+ * monad_bcap_block_archive
+ *
+ * This API is used to read and write finalized blocks into a directory
+ * structure called the (local) finalized block archive (or "FBA")
+ */
+
+struct monad_bcap_block_archive;
+
+constexpr size_t MONAD_BCAP_FILES_PER_SUBDIR = 10'000;
+
+int monad_bcap_block_archive_open(
+    struct monad_bcap_block_archive **, int dirfd, char const *error_name);
+
+void monad_bcap_block_archive_close(struct monad_bcap_block_archive *);
+
+int monad_bcap_block_archive_open_block_fd(
+    struct monad_bcap_block_archive const *, uint64_t finalized_block,
+    int open_flags, int *fd_out, char *error_name_buf,
+    size_t error_name_buf_size);
+
+int monad_bcap_block_archive_open_block(
+    struct monad_bcap_block_archive const *, uint64_t finalized_block,
+    int *fd_out, char *error_name_buf, size_t error_name_buf_size,
+    struct monad_evcap_reader **, struct monad_evcap_section_desc const **);
+
+int monad_bcap_block_archive_add_block(
+    struct monad_bcap_block_archive *, struct monad_bcap_proposal const *,
+    mode_t dir_create_mode, mode_t file_create_mode);
 
 /// Return a description of the last block capture API error that occurred on
 /// this thread
-char const *monad_blockcap_get_last_error();
+char const *monad_bcap_get_last_error();
 
-struct monad_blockcap_index_entry
+struct monad_bcap_pack_index_entry
 {
     alignas(16) uint64_t block_number;
     uint64_t section_desc_offset;
@@ -176,7 +209,7 @@ struct monad_blockcap_index_entry
 
 // This must be a power of 2, so that an integral number of them fit into an
 // mmap'ed page
-static_assert(sizeof(struct monad_blockcap_index_entry) == 16);
+static_assert(sizeof(struct monad_bcap_pack_index_entry) == 16);
 
 #ifdef __cplusplus
 } // extern "C"
