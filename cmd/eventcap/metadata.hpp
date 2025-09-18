@@ -32,7 +32,7 @@ struct monad_event_metadata;
 constexpr struct MetadataTableEntry
 {
     uint8_t const (*schema_hash)[32];
-    std::span<monad_event_metadata const> entries;
+    std::span<monad_event_metadata const> event_meta;
 } MetadataTable[] = {
     [MONAD_EVENT_CONTENT_TYPE_NONE] =
         {

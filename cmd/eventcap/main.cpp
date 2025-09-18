@@ -434,7 +434,7 @@ consumption rate.)");
      */
 
     CLI::App *const recordexec = cli.add_subcommand(
-        "recordexec", "Record execution events with finalized block indices");
+        "recordexec", "Record execution events with in a block-aware format");
     recordexec->alias("rex");
     recordexec_command.common_options.ring_spec =
         g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
@@ -442,6 +442,19 @@ consumption rate.)");
         recordexec, recordexec_command.common_options, "recordexec");
     add_seqno_range_options(recordexec, recordexec_command.common_options);
     recordexec->get_option("--output")->required();
+    recordexec
+        ->add_option(
+            "-f,--format",
+            recordexec_command.block_format,
+            "block recording format")
+        ->required()
+        ->default_val(BlockRecordFormat::Archive)
+        ->type_name("<block-format>")
+        ->transform(CLI::CheckedTransformer(
+            std::unordered_map<std::string, BlockRecordFormat>{
+                {"archive", BlockRecordFormat::Archive},
+                {"packed", BlockRecordFormat::Packed}},
+            CLI::ignore_case));
     recordexec
         ->add_option(
             "-z,--event-zstd-level",
