@@ -42,14 +42,13 @@ enum monad_event_content_type : uint16_t;
 int monad_evcap_reader_create(
     struct monad_evcap_reader **, int fd, char const *error_name);
 
-/// Destroy a reader for an event capture file created by an earlier call to
-/// monad_evcap_reader_create
+/// Destroy a reader for an event capture file
 void monad_evcap_reader_destroy(struct monad_evcap_reader *);
 
 /// Try to refresh the view an event capture file, if it has changed on disk
 /// since the creation of the reader; if `invalidated` is not nullptr, then
-/// `*invalidated` will be set to true if any memory addresses returned by this
-/// API were invalidated by the refresh
+/// `*invalidated` will be set to true if any memory address returned by this
+/// API was potentially invalidated by the refresh
 int monad_evcap_reader_refresh(struct monad_evcap_reader *, bool *invalidated);
 
 struct monad_evcap_file_header const *
@@ -67,6 +66,14 @@ monad_evcap_reader_load_linked_section_desc(
 struct monad_evcap_section_desc const *monad_evcap_reader_next_section(
     struct monad_evcap_reader const *, enum monad_evcap_section_type filter,
     struct monad_evcap_section_desc const **);
+
+/// Check that the capture file contains SCHEMA section descriptor with the
+/// given content_type and schema_hash; returns 0 upon success, ENOMSG if no
+/// such SCHEMA section was, EPROTO when it does not match, and EBADMSG if
+/// multiple hashes are present (even if they match)
+int monad_evcap_reader_check_schema(
+    struct monad_evcap_reader const *, uint8_t const *ring_magic,
+    enum monad_event_content_type, uint8_t const *schema_hash);
 
 /// Open an iterator to the events in an EVENT_BUNDLE section; if the section
 /// is compressed, this will allocate memory to hold the decompressed contents,
@@ -99,6 +106,8 @@ static bool monad_evcap_iterator_copy_seqno(
     enum monad_event_content_type *, struct monad_event_descriptor const **,
     uint8_t const **payload);
 
+/// Close an iterator and free any dynamically allocated memory for
+/// decompressed section data
 void monad_evcap_iterator_close(struct monad_evcap_event_iterator *);
 
 /// Return a description of the last event reader API error that occurred on
