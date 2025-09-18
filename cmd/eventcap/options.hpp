@@ -65,6 +65,12 @@ enum class TextUIMode : unsigned
     Auto
 };
 
+enum class BlockRecordFormat : unsigned
+{
+    Archive,
+    Packed
+};
+
 struct SemanticSequenceNumber
 {
     monad_exec_event_type consensus_type;
@@ -151,6 +157,7 @@ struct RecordExecCommandOptions
     uint8_t vbuf_segment_shift;
     std::optional<uint8_t> event_zstd_level;
     std::optional<uint8_t> seqno_zstd_level;
+    BlockRecordFormat block_format;
 };
 
 // snapshot subcommand

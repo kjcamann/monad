@@ -151,7 +151,7 @@ bool print_event(
     char event_buf[512];
 
     monad_event_metadata const &event_md =
-        MetadataTable[content_type].entries[event->event_type];
+        MetadataTable[content_type].event_meta[event->event_type];
     std::chrono::sys_time const event_time{
         nanoseconds{event->record_epoch_nanos}};
 

@@ -20,7 +20,6 @@
 #include "util.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +30,6 @@
 #include <print>
 #include <ranges>
 #include <span>
-#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -303,7 +301,7 @@ void print_event_ring_headers(
         monad_event_ring_header const *const h = mr->get_header();
         std::println(
             out,
-            "{:6} [{}] {:9} {:10} {:10} {:10} {:12} {:14} {:14} {:14} {}",
+            "{:6} [{}] {:9} {:10} {:10} {:10} {:12} {:14} {:14} {:{#}14} {}",
             g_monad_event_content_type_names[h->content_type],
             std::to_underlying(h->content_type),
             h->size.descriptor_capacity,
@@ -313,7 +311,7 @@ void print_event_ring_headers(
             __atomic_load_n(&h->control.last_seqno, __ATOMIC_ACQUIRE),
             __atomic_load_n(&h->control.next_payload_byte, __ATOMIC_ACQUIRE),
             __atomic_load_n(&h->control.buffer_window_start, __ATOMIC_ACQUIRE),
-            as_hex(std::span{h->schema_hash}.first(6)),
+            as_hex(std::span{h->schema_hash}.first(4)),
             mr->describe());
     }
 }
@@ -327,10 +325,10 @@ void print_event_capture_header(
     monad_evcap_reader *const evcap_reader = capture->get_reader();
     monad_evcap_file_header const *const file_header =
         monad_evcap_reader_get_file_header(evcap_reader);
-    std::byte const *const map_base = std::bit_cast<std::byte const *>(
+    std::byte const *const map_base = reinterpret_cast<std::byte const *>(
         monad_evcap_reader_get_mmap_base(evcap_reader));
     monad_evcap_section_desc const *sd = nullptr;
-    std::span<monad_blockcap_index_entry const> block_index_table;
+    std::span<monad_bcap_pack_index_entry const> pack_index_table;
     size_t sectab_index = 0;
     size_t table_number = 0;
     size_t entry_number = 0;
@@ -387,25 +385,28 @@ void print_event_capture_header(
                 "   CONTENT_TYPE: {:6} [{}] HASH: {:{#}}",
                 g_monad_event_content_type_names[sd->schema.content_type],
                 std::to_underlying(sd->schema.content_type),
-                monad::as_hex(std::span{sd->schema.schema_hash}));
+                monad::as_hex(std::span{sd->schema.schema_hash}.first(4)));
             break;
 
         case MONAD_EVCAP_SECTION_EVENT_BUNDLE:
-            if (sd->event_bundle.block_index_id == 0 ||
-                empty(block_index_table)) {
+            if (sd->event_bundle.pack_index_id == 0 ||
+                empty(pack_index_table)) {
                 std::print(
                     out,
                     "   #EVT: {} SSEQ: {} SIDX_OFF: {}",
                     sd->event_bundle.event_count,
                     sd->event_bundle.start_seqno,
                     sd->event_bundle.seqno_index_desc_offset);
+                if (uint64_t const b = sd->event_bundle.block_number) {
+                    std::print(out, " BLK: {}", b);
+                }
             }
             else {
                 // We have a block index section descriptor (which usually
                 // appears before event bundles because of how the writer
                 // works)
-                monad_blockcap_index_entry const &index_entry =
-                    block_index_table[sd->event_bundle.block_index_id - 1];
+                monad_bcap_pack_index_entry const &index_entry =
+                    pack_index_table[sd->event_bundle.pack_index_id - 1];
                 std::print(
                     out,
                     "   BLK: {:9} EVT: {:6} SIDX_OFF: {}",
@@ -420,22 +421,22 @@ void print_event_capture_header(
                 out, "   EB_OFF: {}", sd->seqno_index.event_bundle_desc_offset);
             break;
 
-        case MONAD_EVCAP_SECTION_BLOCK_INDEX:
-            block_index_table = std::span{
-                std::bit_cast<monad_blockcap_index_entry const *>(
+        case MONAD_EVCAP_SECTION_PACK_INDEX:
+            pack_index_table = std::span{
+                reinterpret_cast<monad_bcap_pack_index_entry const *>(
                     map_base + sd->content_offset),
-                sd->block_index.block_count};
+                sd->pack_index.block_count};
             std::print(
                 out,
                 "   ACT: {:c} START: {} END: {} CAP: {}",
-                __atomic_load_n(&sd->block_index.is_active, __ATOMIC_ACQUIRE)
+                __atomic_load_n(&sd->pack_index.is_active, __ATOMIC_ACQUIRE)
                     ? 'Y'
                     : 'N',
-                sd->block_index.start_block,
-                sd->block_index.start_block +
+                sd->pack_index.start_block,
+                sd->pack_index.start_block +
                     __atomic_load_n(
-                        &sd->block_index.block_count, __ATOMIC_ACQUIRE),
-                sd->block_index.entry_capacity);
+                        &sd->pack_index.block_count, __ATOMIC_ACQUIRE),
+                sd->pack_index.entry_capacity);
             break;
 
         case MONAD_EVCAP_SECTION_NONE:
