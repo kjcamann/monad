@@ -17,18 +17,20 @@
  * @file
  *
  * Inlined implementation of the performance sensitive functions for
- * `struct monad_evcap_event_iterator`
+ * `struct monad_evcap_event_iter`
  */
 
 #ifndef MONAD_EVCAP_READER_INTERNAL
     #error This file should only be included directly by evcap_reader.h
 #endif
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <category/core/assert.h>
-#include <category/core/event/event_ring.h>
+#include <category/core/event/event_def.h>
+#include <category/core/likely.h>
 #include <category/core/mem/align.h>
 
 #ifdef __cplusplus
@@ -42,61 +44,105 @@ _monad_evcap_align_address(uint8_t const *p, size_t align)
     return (uint8_t *)monad_round_size_to_align((uintptr_t)p, align);
 }
 
-inline size_t monad_evcap_iterator_at_offset(
-    struct monad_evcap_event_iterator const *iter, uint64_t section_offset,
-    enum monad_event_content_type *content_type,
-    struct monad_event_descriptor const **event, uint8_t const **payload)
+inline void monad_evcap_event_section_open_iterator(
+    struct monad_evcap_event_section const *es,
+    struct monad_evcap_event_iter *iter)
 {
-    uint8_t const *initial_address = iter->event_section_base + section_offset;
+    iter->event_section = es;
+    iter->event_section_next = es->section_base;
+}
+
+inline size_t monad_evcap_event_section_at_offset(
+    struct monad_evcap_event_section const *es, uint64_t section_offset,
+    struct monad_event_descriptor const **event, void const **payload)
+{
+    uint8_t const *initial_address = es->section_base + section_offset;
     uint8_t const *read = _monad_evcap_align_address(
         initial_address, alignof(struct monad_event_descriptor));
+    if (read >= es->section_end) {
+        *event = nullptr;
+        *payload = nullptr;
+        return 0;
+    }
     *event = (struct monad_event_descriptor *)read;
     read += sizeof **event;
-    *payload = read;
-    read = _monad_evcap_align_address(
-        read + (*event)->payload_size, alignof(enum monad_event_content_type));
-    if (content_type != nullptr) {
-        *content_type = *(enum monad_event_content_type const *)read;
+    if (payload != nullptr) {
+        *payload = read;
     }
-    read += sizeof *content_type;
+    read = _monad_evcap_align_address(
+        read + (*event)->payload_size, alignof(size_t));
+    read += sizeof(size_t);
     return (size_t)(read - initial_address);
 }
 
-inline bool monad_evcap_iterator_next(
-    struct monad_evcap_event_iterator *iter,
-    enum monad_event_content_type *content_type,
-    struct monad_event_descriptor const **event, uint8_t const **payload)
+inline monad_evcap_read_result_t monad_evcap_event_section_copy_seqno(
+    struct monad_evcap_event_section const *es, uint64_t seqno,
+    struct monad_event_descriptor const **event, void const **payload)
 {
-    if (iter->event_section_next == iter->event_section_end) {
-        *event = nullptr;
-        *payload = nullptr;
-        return false;
+    if (es->seqno_index.offsets == nullptr) {
+        return MONAD_EVCAP_READ_NO_SEQNO;
     }
-    MONAD_DEBUG_ASSERT(iter->event_section_next < iter->event_section_end);
-    iter->event_section_next += monad_evcap_iterator_at_offset(
-        iter,
-        (uint64_t)(iter->event_section_next - iter->event_section_base),
-        content_type,
-        event,
-        payload);
-    return true;
-}
-
-inline bool monad_evcap_iterator_copy_seqno(
-    struct monad_evcap_event_iterator const *iter, uint64_t seqno,
-    enum monad_event_content_type *content_type,
-    struct monad_event_descriptor const **event, uint8_t const **payload)
-{
-    if (iter->seqno_index.offsets == nullptr ||
-        seqno < iter->seqno_index.seqno_start ||
-        seqno >= iter->seqno_index.seqno_end) {
-        return false;
+    if (seqno < es->seqno_index.seqno_start ||
+        seqno >= es->seqno_index.seqno_end) {
+        return MONAD_EVCAP_READ_END;
     }
     uint64_t const offset =
-        iter->seqno_index.offsets[seqno - iter->seqno_index.seqno_start];
-    (void)monad_evcap_iterator_at_offset(
-        iter, offset, content_type, event, payload);
-    return true;
+        es->seqno_index.offsets[seqno - es->seqno_index.seqno_start];
+    (void)monad_evcap_event_section_at_offset(es, offset, event, payload);
+    return MONAD_EVCAP_READ_SUCCESS;
+}
+
+inline monad_evcap_read_result_t monad_evcap_event_iter_next(
+    struct monad_evcap_event_iter *iter,
+    struct monad_event_descriptor const **event, void const **payload)
+{
+    uint64_t const event_offset = (uint64_t)(iter->event_section_next -
+                                             iter->event_section->section_base);
+    size_t const event_size = monad_evcap_event_section_at_offset(
+        iter->event_section, event_offset, event, payload);
+    iter->event_section_next += event_size;
+    return event_size > 0 ? MONAD_EVCAP_READ_SUCCESS : MONAD_EVCAP_READ_END;
+}
+
+inline monad_evcap_read_result_t monad_evcap_event_iter_prev(
+    struct monad_evcap_event_iter *iter,
+    struct monad_event_descriptor const **event, void const **payload)
+{
+    if (MONAD_UNLIKELY(
+            iter->event_section_next == iter->event_section->section_base)) {
+        return MONAD_EVCAP_READ_END;
+    }
+    iter->event_section_next -= *((size_t const *)iter->event_section_next - 1);
+    return monad_evcap_event_iter_copy(iter, event, payload);
+}
+
+inline monad_evcap_read_result_t monad_evcap_event_iter_copy(
+    struct monad_evcap_event_iter const *iter,
+    struct monad_event_descriptor const **event, void const **payload)
+{
+    uint64_t const event_offset = (uint64_t)(iter->event_section_next -
+                                             iter->event_section->section_base);
+    return monad_evcap_event_section_at_offset(
+               iter->event_section, event_offset, event, payload) > 0
+               ? MONAD_EVCAP_READ_SUCCESS
+               : MONAD_EVCAP_READ_END;
+}
+
+inline monad_evcap_read_result_t monad_evcap_event_iter_set_seqno(
+    struct monad_evcap_event_iter *iter, uint64_t seqno)
+{
+    struct monad_evcap_seqno_index const *const seqno_index =
+        &iter->event_section->seqno_index;
+    if (seqno_index->offsets == nullptr) {
+        return MONAD_EVCAP_READ_NO_SEQNO;
+    }
+    if (seqno < seqno_index->seqno_start || seqno >= seqno_index->seqno_end) {
+        return MONAD_EVCAP_READ_END;
+    }
+    iter->event_section_next =
+        iter->event_section->section_base +
+        seqno_index->offsets[seqno - seqno_index->seqno_start];
+    return MONAD_EVCAP_READ_SUCCESS;
 }
 
 #ifdef __cplusplus

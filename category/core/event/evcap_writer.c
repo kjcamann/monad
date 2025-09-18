@@ -31,7 +31,6 @@
 #include <category/core/assert.h>
 #include <category/core/event/evcap_file.h>
 #include <category/core/event/evcap_writer.h>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/format_err.h>
 #include <category/core/mem/align.h>
@@ -84,17 +83,17 @@ struct monad_evcap_writer
     int fd;
     size_t mmap_page_size;
     struct section_table_list section_tables;
-    struct monad_evcap_dynamic_section dyn_sec;
+    struct monad_evcap_dynamic_section dynsec;
     struct monad_evcap_file_header *header;
 };
 
 static int check_dynamic_section(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec)
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec)
 {
-    if (dyn_sec != &ecw->dyn_sec) {
+    if (dynsec != &ecw->dynsec) {
         return FORMAT_ERRC(EINVAL, "invalid dynamic section");
     }
-    if (ecw->dyn_sec.section_desc == nullptr) {
+    if (ecw->dynsec.section_desc == nullptr) {
         return FORMAT_ERRC(ENODEV, "no dynamic section open");
     }
     return 0;
@@ -319,7 +318,7 @@ int monad_evcap_writer_alloc_empty_section(
 
 int monad_evcap_writer_add_schema_section(
     struct monad_evcap_writer *ecw, enum monad_event_content_type content_type,
-    uint8_t const *schema_hash)
+    uint8_t const *schema_hash, struct monad_evcap_section_desc const **sd_p)
 {
     struct monad_evcap_section_desc *sd = alloc_section_table_descriptor(ecw);
     if (sd == nullptr) {
@@ -334,27 +333,30 @@ int monad_evcap_writer_add_schema_section(
         sizeof MONAD_EVENT_RING_HEADER_VERSION);
     sd->schema.content_type = content_type;
     memcpy(sd->schema.schema_hash, schema_hash, sizeof sd->schema.schema_hash);
+    if (sd_p != nullptr) {
+        *sd_p = sd;
+    }
     return 0;
 }
 
-int monad_evcap_writer_dyn_sec_open(
+int monad_evcap_writer_dynsec_open(
     struct monad_evcap_writer *ecw,
-    struct monad_evcap_dynamic_section **dyn_sec_p,
+    struct monad_evcap_dynamic_section **dynsec_p,
     struct monad_evcap_section_desc **sd)
 {
     off_t cur_offset;
 
-    *dyn_sec_p = nullptr;
+    *dynsec_p = nullptr;
     if (sd != nullptr) {
         *sd = nullptr;
     }
 
     // Only one dynamic section at a time is allowed
-    if (ecw->dyn_sec.section_desc != nullptr) {
+    if (ecw->dynsec.section_desc != nullptr) {
         return FORMAT_ERRC(EBUSY, "dynamic section is open");
     }
-    ecw->dyn_sec.section_desc = alloc_section_table_descriptor(ecw);
-    if (ecw->dyn_sec.section_desc == nullptr) {
+    ecw->dynsec.section_desc = alloc_section_table_descriptor(ecw);
+    if (ecw->dynsec.section_desc == nullptr) {
         return errno;
     }
 
@@ -367,26 +369,26 @@ int monad_evcap_writer_dyn_sec_open(
         return FORMAT_ERRC(errno, "could not seek to end for dynamic section");
     }
 
-    *dyn_sec_p = &ecw->dyn_sec;
+    *dynsec_p = &ecw->dynsec;
     if (sd != nullptr) {
-        *sd = ecw->dyn_sec.section_desc;
+        *sd = ecw->dynsec.section_desc;
     }
     // Caller can set any fields except for `offset` (only set here), and
-    // `length` (only set in monad_evcap_file_dyn_sec_{write,sendfile})
+    // `length` (only set in monad_evcap_file_dynsec_{write,sendfile})
     (*sd)->content_offset = (uint64_t)cur_offset;
 
     return 0;
 }
 
-ssize_t monad_evcap_writer_dyn_sec_write(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec,
+ssize_t monad_evcap_writer_dynsec_write(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec,
     void const *buf, size_t const size)
 {
     int rc;
     ssize_t bytes_written;
     size_t residual = size;
 
-    if ((rc = check_dynamic_section(ecw, dyn_sec)) != 0) {
+    if ((rc = check_dynamic_section(ecw, dynsec)) != 0) {
         return -rc;
     }
 
@@ -395,7 +397,7 @@ ssize_t monad_evcap_writer_dyn_sec_write(
             return -FORMAT_ERRC(
                 errno, "write of dynamic section contents failed");
         }
-        dyn_sec->section_desc->file_length += (size_t)bytes_written;
+        dynsec->section_desc->file_length += (size_t)bytes_written;
         buf += (size_t)bytes_written;
         residual -= (size_t)bytes_written;
     }
@@ -406,15 +408,15 @@ ssize_t monad_evcap_writer_dyn_sec_write(
 
 #if MONAD_EVENT_HAS_SENDFILE
 
-ssize_t monad_evcap_writer_dyn_sec_sendfile(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec,
+ssize_t monad_evcap_writer_dynsec_sendfile(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec,
     int const in_fd, off_t offset, size_t const size)
 {
     int rc;
     ssize_t bytes_written;
     size_t residual = size;
 
-    if ((rc = check_dynamic_section(ecw, dyn_sec)) != 0) {
+    if ((rc = check_dynamic_section(ecw, dynsec)) != 0) {
         return rc;
     }
 
@@ -423,7 +425,7 @@ ssize_t monad_evcap_writer_dyn_sec_sendfile(
             -1) {
             return -FORMAT_ERRC(errno, "dynamic section sendfile failed");
         }
-        dyn_sec->section_desc->file_length += (size_t)bytes_written;
+        dynsec->section_desc->file_length += (size_t)bytes_written;
         residual -= (size_t)bytes_written;
     }
     while (residual > 0);
@@ -434,8 +436,8 @@ ssize_t monad_evcap_writer_dyn_sec_sendfile(
 #else // MONAD_EVENT_HAS_SENDFILE
 
 // We either don't have sendfile(2) or it only works with sockets
-ssize_t monad_evcap_writer_dyn_sec_sendfile(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec,
+ssize_t monad_evcap_writer_dynsec_sendfile(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec,
     int const in_fd, off_t offset, size_t const size)
 {
     constexpr size_t READBUF_SIZE = 1UL << 21;
@@ -443,7 +445,7 @@ ssize_t monad_evcap_writer_dyn_sec_sendfile(
     int rc;
     size_t residual = size;
 
-    if ((rc = check_dynamic_section(ecw, dyn_sec)) != 0) {
+    if ((rc = check_dynamic_section(ecw, dynsec)) != 0) {
         return rc;
     }
 
@@ -455,8 +457,8 @@ ssize_t monad_evcap_writer_dyn_sec_sendfile(
             return -FORMAT_ERRC(
                 errno, "dynamic section read failed at %ld", (long)offset);
         }
-        ssize_t const write_rc = monad_evcap_writer_dyn_sec_write(
-            ecw, dyn_sec, readbuf, (size_t)bytes_read);
+        ssize_t const write_rc = monad_evcap_writer_dynsec_write(
+            ecw, dynsec, readbuf, (size_t)bytes_read);
         if (write_rc < 0) {
             return write_rc;
         }
@@ -470,16 +472,16 @@ ssize_t monad_evcap_writer_dyn_sec_sendfile(
 
 #endif
 
-ssize_t monad_evcap_writer_dyn_sec_sync_vbuf_segment(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec,
+ssize_t monad_evcap_writer_dynsec_sync_vbuf_segment(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec,
     struct monad_vbuf_segment const *sync_segment)
 {
     size_t written = 0;
     ssize_t bytes_wr;
 
     while (written < sync_segment->size) {
-        bytes_wr = monad_evcap_writer_dyn_sec_sendfile(
-            ecw, dyn_sec, sync_segment->fd, 0, sync_segment->size);
+        bytes_wr = monad_evcap_writer_dynsec_sendfile(
+            ecw, dynsec, sync_segment->fd, 0, sync_segment->size);
         if (bytes_wr < 0) {
             return bytes_wr;
         }
@@ -489,8 +491,8 @@ ssize_t monad_evcap_writer_dyn_sec_sync_vbuf_segment(
     return (ssize_t)written;
 }
 
-ssize_t monad_evcap_writer_dyn_sec_sync_vbuf_chain(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec,
+ssize_t monad_evcap_writer_dynsec_sync_vbuf_chain(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec,
     struct monad_vbuf_chain const *sync_chain)
 {
     size_t written = 0;
@@ -499,8 +501,8 @@ ssize_t monad_evcap_writer_dyn_sec_sync_vbuf_chain(
 
     TAILQ_FOREACH(sync_segment, &sync_chain->segments, entry)
     {
-        bytes_wr = monad_evcap_writer_dyn_sec_sync_vbuf_segment(
-            ecw, dyn_sec, sync_segment);
+        bytes_wr = monad_evcap_writer_dynsec_sync_vbuf_segment(
+            ecw, dynsec, sync_segment);
         if (bytes_wr < 0) {
             return bytes_wr;
         }
@@ -510,20 +512,20 @@ ssize_t monad_evcap_writer_dyn_sec_sync_vbuf_chain(
     return (ssize_t)written;
 }
 
-int monad_evcap_writer_dyn_sec_close(
-    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dyn_sec)
+int monad_evcap_writer_dynsec_close(
+    struct monad_evcap_writer *ecw, struct monad_evcap_dynamic_section *dynsec)
 {
     ssize_t bytes_written;
     int rc;
 
-    if ((rc = check_dynamic_section(ecw, dyn_sec)) != 0) {
+    if ((rc = check_dynamic_section(ecw, dynsec)) != 0) {
         return rc;
     }
     // Ensure the file size is rounded off to a mmap page boundary
     if ((bytes_written = write_aligned(ecw, nullptr, 0)) < 0) {
         return (int)-bytes_written;
     }
-    memset(&ecw->dyn_sec, 0, sizeof ecw->dyn_sec);
+    memset(&ecw->dynsec, 0, sizeof ecw->dynsec);
     return 0;
 }
 
@@ -535,10 +537,10 @@ int monad_evcap_writer_commit_seqno_index(
 {
     int rc;
     ssize_t bytes_wr;
-    struct monad_evcap_dynamic_section *dyn_sec;
+    struct monad_evcap_dynamic_section *dynsec;
     struct monad_evcap_section_desc *seqno_index_sd;
 
-    rc = monad_evcap_writer_dyn_sec_open(ecw, &dyn_sec, &seqno_index_sd);
+    rc = monad_evcap_writer_dynsec_open(ecw, &dynsec, &seqno_index_sd);
     if (rc != 0) {
         return FORMAT_ERRC(
             rc,
@@ -555,7 +557,7 @@ int monad_evcap_writer_commit_seqno_index(
         seqno_index_sd->descriptor_offset;
 
     bytes_wr =
-        monad_evcap_writer_dyn_sec_sync_vbuf_chain(ecw, dyn_sec, index_chain);
+        monad_evcap_writer_dynsec_sync_vbuf_chain(ecw, dynsec, index_chain);
     if (bytes_wr < 0) {
         return FORMAT_ERRC(
             (int)-bytes_wr,
@@ -567,27 +569,26 @@ int monad_evcap_writer_commit_seqno_index(
                                          ? seqno_index_sd->file_length
                                          : uncompressed_length;
 
-    return monad_evcap_writer_dyn_sec_close(ecw, dyn_sec);
+    return monad_evcap_writer_dynsec_close(ecw, dynsec);
 }
 
 int monad_evcap_vbuf_append_event(
     struct monad_vbuf_writer *vbuf_writer,
-    enum monad_event_content_type content_type,
     struct monad_event_descriptor const *event, void const *payload,
     struct monad_vbuf_chain *vbuf_chain)
 {
     int rc;
+    size_t const initial_offset = monad_vbuf_writer_get_offset(vbuf_writer);
 
-    // Write the event descriptor, payload, and event content type (to support
-    // mixed content captures). The writes may need to insert padding to align
-    // the next descriptor to a "safe" file offset:
+    // Write the event descriptor and payload. The writes may need to insert
+    // padding to align the next descriptor to a "safe" file offset:
     //
     //    .--------------.
     //    |  Descriptor  |
     //    .--------------.
     //    |    Payload   |
     //    .--------------.
-    //    |   Ring type  |
+    //    |  Total size  |
     //    .--------------.
     //    | Tail padding |
     //    .--------------. <-- Aligned to alignof(monad_event_descriptor)
@@ -599,15 +600,14 @@ int monad_evcap_vbuf_append_event(
     // 64-byte aligned instruction such as the x64-64 AVX512 `vmovdqa64`. If
     // this happens at an unaligned address, this will fail (and it will appear
     // as a SIGSEGV with si_code set to SI_KERNEL, and the _wrong_ fault
-    // address, rather than the expected SIGBUS). The eventcap utility's event
-    // source "compatibility" iterator, for example, makes such copies to be
-    // compatible with the event ring iterator.
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer,
-             event,
-             sizeof *event,
-             alignof(struct monad_event_descriptor),
-             vbuf_chain)) != 0) {
+    // address, rather than the expected SIGBUS).
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer,
+        event,
+        sizeof *event,
+        alignof(struct monad_event_descriptor),
+        vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
             "vbuf couldn't append descriptor, caused by:\n%s",
@@ -616,26 +616,45 @@ int monad_evcap_vbuf_append_event(
 
     // memcpy to an "unaligned" address since it's slightly faster and we know
     // we're 64-byte aligned already
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer, payload, event->payload_size, 1, vbuf_chain)) != 0) {
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer, payload, event->payload_size, 1, vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
             "vbuf couldn't append payload, caused by:\n%s",
             monad_vbuf_writer_get_last_error());
     }
 
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer,
-             &content_type,
-             sizeof content_type,
-             alignof(enum monad_event_content_type),
-             vbuf_chain)) != 0) {
+    // Align the writer so that we can store an aligned size_t value
+    rc = monad_vbuf_writer_skip_bytes(
+        vbuf_writer, 0, alignof(size_t), vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
-            "vbuf couldn't append content_type code, caused by:\n%s",
+            "vbuf couldn't align to size_t boundary, caused by:\n%s",
             monad_vbuf_writer_get_last_error());
     }
 
+    // Store the total size, including of the `total_size` value itself, so we
+    // can scan backwards; needed to implement monad_evcap_iterator_prev
+    size_t const total_size = monad_vbuf_writer_get_offset(vbuf_writer) -
+                              initial_offset + sizeof total_size;
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer,
+        &total_size,
+        sizeof total_size,
+        1, // Already aligned
+        vbuf_chain);
+    if (rc != 0) {
+        return FORMAT_ERRC(
+            rc,
+            "vbuf couldn't append total_size, caused by:\n%s",
+            monad_vbuf_writer_get_last_error());
+    }
+
+    // Note: we're not aligned to the next descriptor boundary yet, it is done
+    // on the subsequent write; the final event does not necessary have full
+    // event descriptor tail padding
     return 0;
 }
 

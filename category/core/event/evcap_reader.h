@@ -29,7 +29,8 @@ extern "C"
 {
 #endif
 
-struct monad_evcap_event_iterator;
+struct monad_evcap_event_iter;
+struct monad_evcap_event_section;
 struct monad_evcap_file_header;
 struct monad_evcap_reader;
 struct monad_evcap_section_desc;
@@ -38,18 +39,30 @@ struct monad_event_descriptor;
 enum monad_evcap_section_type : uint16_t;
 enum monad_event_content_type : uint16_t;
 
+/// Result of trying to read an event descriptor and payload from an event
+/// capture file; MONAD_EVCAP_READ_END is returned when ++i (or --i) is after
+/// (or before) the captured event range, or if seeking to any sequence number
+/// outside the capture range; MONAD_EVCAP_READ_NO_SEQNO is returned if the
+/// capture does not contain a sequence number index at all
+typedef enum monad_evcap_read_result
+    : uint16_t
+{
+    MONAD_EVCAP_READ_SUCCESS = 0,
+    MONAD_EVCAP_READ_END = 0x0200,
+    MONAD_EVCAP_READ_NO_SEQNO = 0x0201,
+} monad_evcap_read_result_t;
+
 /// Create a reader for an event capture file
 int monad_evcap_reader_create(
     struct monad_evcap_reader **, int fd, char const *error_name);
 
-/// Destroy a reader for an event capture file created by an earlier call to
-/// monad_evcap_reader_create
+/// Destroy a reader for an event capture file
 void monad_evcap_reader_destroy(struct monad_evcap_reader *);
 
 /// Try to refresh the view an event capture file, if it has changed on disk
 /// since the creation of the reader; if `invalidated` is not nullptr, then
-/// `*invalidated` will be set to true if any memory addresses returned by this
-/// API were invalidated by the refresh
+/// `*invalidated` will be set to true if any memory address returned by this
+/// API was potentially invalidated by the refresh
 int monad_evcap_reader_refresh(struct monad_evcap_reader *, bool *invalidated);
 
 struct monad_evcap_file_header const *
@@ -68,38 +81,67 @@ struct monad_evcap_section_desc const *monad_evcap_reader_next_section(
     struct monad_evcap_reader const *, enum monad_evcap_section_type filter,
     struct monad_evcap_section_desc const **);
 
-/// Open an iterator to the events in an EVENT_BUNDLE section; if the section
-/// is compressed, this will allocate memory to hold the decompressed contents,
-/// and the user must call monad_evcap_iterator_close to free this memory
-int monad_evcap_reader_open_iterator(
-    struct monad_evcap_reader *, struct monad_evcap_section_desc const *,
-    struct monad_evcap_event_iterator *);
+/// Check that the capture file contains a SCHEMA section descriptor with the
+/// given content_type and schema_hash; returns 0 upon success, ENOMSG if no
+/// such section was found, EPROTO if it does not match, and EBADMSG if there
+/// are multiple descriptors for the same content_type (even if they match)
+int monad_evcap_reader_check_schema(
+    struct monad_evcap_reader const *, uint8_t const *ring_magic,
+    enum monad_event_content_type, uint8_t const *schema_hash);
 
-/// Set the ring type, descriptor, and payload for the next event in the
-/// EVENT_BUNDLE section referred to by the given iterator; returns false if
-/// no event was available because all events have been visited
-static bool monad_evcap_iterator_next(
-    struct monad_evcap_event_iterator *, enum monad_event_content_type *,
-    struct monad_event_descriptor const **, uint8_t const **payload);
+/// Open an EVENT_BUNDLE section; if the section is compressed, this will
+/// allocate memory to hold the decompressed contents, and the user must call
+/// monad_evcap_event_section_close to free this memory
+int monad_evcap_event_section_open(
+    struct monad_evcap_event_section *, struct monad_evcap_reader const *,
+    struct monad_evcap_section_desc const *);
 
-/// Set the ring type, descriptor, and payload for the event present at the
-/// given section offset; returns the next (unaligned) read/ address after the
-/// event
-static size_t monad_evcap_iterator_at_offset(
-    struct monad_evcap_event_iterator const *, uint64_t section_offset,
-    enum monad_event_content_type *, struct monad_event_descriptor const **,
-    uint8_t const **payload);
+/// Close an EVENT_BUNDLE and free any dynamically allocated memory for
+/// decompressed section content
+void monad_evcap_event_section_close(struct monad_evcap_event_section *);
 
-/// Set the ring type, descriptor, and payload for the event with the given
-/// sequence number; this is the "evcap equivalent" of the event ring
-/// iterator's `monad_event_iterator_try_copy`; returns false if there's no
-/// sequence number index or if the requested sequence number is out of range
-static bool monad_evcap_iterator_copy_seqno(
-    struct monad_evcap_event_iterator const *, uint64_t seqno,
-    enum monad_event_content_type *, struct monad_event_descriptor const **,
-    uint8_t const **payload);
+/// Open an iterator to the events in an EVENT_BUNDLE section
+static void monad_evcap_event_section_open_iterator(
+    struct monad_evcap_event_section const *, struct monad_evcap_event_iter *);
 
-void monad_evcap_iterator_close(struct monad_evcap_event_iterator *);
+/// Set the event descriptor and payload for the event present at the given
+/// section offset; returns the next (unaligned) read address after the event
+static size_t monad_evcap_event_section_at_offset(
+    struct monad_evcap_event_section const *, uint64_t section_offset,
+    struct monad_event_descriptor const **, void const **payload);
+
+/// Set the event descriptor and payload for the event with the given sequence
+/// number; this is the "evcap equivalent" of the event ring function
+/// `monad_event_ring_try_copy`; returns EBADF if there is no sequence number
+/// index and ERANGE if the requested sequence number is out of range
+static monad_evcap_read_result_t monad_evcap_event_section_copy_seqno(
+    struct monad_evcap_event_section const *, uint64_t seqno,
+    struct monad_event_descriptor const **, void const **payload);
+
+/// Set the event descriptor and payload for the next event in the EVENT_BUNDLE
+/// section referred to by the given iterator; advances the iterator if
+/// successful and returns false once all events have been visited
+static monad_evcap_read_result_t monad_evcap_event_iter_next(
+    struct monad_evcap_event_iter *, struct monad_event_descriptor const **,
+    void const **payload);
+
+/// Set the event descriptor and payload for the previous event in the
+/// EVENT_BUNDLE section referred to by the given iterator; advances the
+/// iterator if successful and returns false once all events have been visited
+static monad_evcap_read_result_t monad_evcap_event_iter_prev(
+    struct monad_evcap_event_iter *, struct monad_event_descriptor const **,
+    void const **payload);
+
+/// Similar to monad_evcap_event_iter_next, but does not advance the iterator
+static monad_evcap_read_result_t monad_evcap_event_iter_copy(
+    struct monad_evcap_event_iter const *,
+    struct monad_event_descriptor const **, void const **payload);
+
+/// Set the iterator so that the next call to monad_evcap_event_iter_copy
+/// or monad_evcap_event_iter_next will return the given sequence number;
+/// possible return codes are the same as `monad_evcap_event_iter_copy_seqno`
+static monad_evcap_read_result_t monad_evcap_event_iter_set_seqno(
+    struct monad_evcap_event_iter *, uint64_t seqno);
 
 /// Return a description of the last event reader API error that occurred on
 /// this thread
@@ -114,15 +156,23 @@ struct monad_evcap_seqno_index
 
 // clang-format off
 
-struct monad_evcap_event_iterator
+struct monad_evcap_event_section
 {
-    uint8_t const *event_section_base;   ///< Base of EVENT_BUNDLE section mmap
-    uint8_t const *event_section_next;   ///< Next event descriptor in section
-    uint8_t const *event_section_end;    ///< Marks end of EVENT_BUNDLE section
+    uint8_t const *section_base;         ///< Base of EVENT_BUNDLE section mmap
+    uint8_t const *section_end;          ///< Marks end of EVENT_BUNDLE section
     struct monad_evcap_seqno_index
         seqno_index;                     ///< Sequence number -> offset index
+    struct monad_evcap_section_desc
+        const *event_sd;                 ///< EVENT_BUNDLE section descriptor
     size_t event_zstd_map_len;           ///< munmap info, if zstd EVENT_BUNDLE
     size_t seqno_zstd_map_len;           ///< munmap info, is zstd SEQNO_INDEX
+};
+
+struct monad_evcap_event_iter
+{
+    struct monad_evcap_event_section
+        const *event_section;            ///< Event section we're reading from
+    uint8_t const *event_section_next;   ///< Next event descriptor in section
 };
 
 // clang-format on
