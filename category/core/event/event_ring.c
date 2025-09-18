@@ -243,8 +243,12 @@ int monad_event_ring_mmap(
             sizeof header->magic) != 0) {
         return FORMAT_ERRC(
             EPROTO,
-            "event ring file `%s` does not contain current magic number",
-            error_name);
+            "event ring file `%s` has version %.*s, library has version %.*s",
+            error_name,
+            (int)sizeof header->magic,
+            header->magic,
+            (int)sizeof header->magic,
+            MONAD_EVENT_RING_HEADER_VERSION);
     }
     event_ring->desc_capacity_mask =
         event_ring->header->size.descriptor_capacity - 1;
