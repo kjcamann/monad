@@ -30,6 +30,9 @@ option(MONAD_EVENT_DISABLE_LIBHUGETLBFS
 # to UTF-8 conversion via gmp_snprintf by default
 find_library(libgmp_file gmp)
 
+# libzstd is required by eventcap
+find_library(libzstd_file zstd REQUIRED)
+
 add_library(
   monad_event
   "../core/assert.c"
@@ -113,6 +116,8 @@ if(libgmp_file)
 else()
   message(WARNING "libgmp is not available; uint256 values > UINT128_MAX will print as hex uint64_t[4]")
 endif()
+
+target_link_libraries(monad_event PRIVATE ${libzstd_file})
 
 option(MONAD_EVENT_BUILD_EXAMPLES
     "Build the example programs that show how to use the API" ON)

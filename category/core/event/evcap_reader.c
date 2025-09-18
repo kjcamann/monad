@@ -25,6 +25,7 @@
 
 #include <category/core/event/evcap_file.h>
 #include <category/core/event/evcap_reader.h>
+#include <category/core/event/event_ring.h>
 #include <category/core/format_err.h>
 #include <category/core/mem/align.h>
 #include <category/core/srcloc.h>
@@ -152,7 +153,7 @@ int monad_evcap_reader_create(
             sizeof MONAD_EVCAP_FILE_MAGIC) != 0) {
         rc = FORMAT_ERRC(
             EINVAL,
-            "`%s` has version %.*s, library uses version %.*s",
+            "evcap file `%s` has version %.*s, library uses version %.*s",
             error_name,
             (int)sizeof MONAD_EVCAP_FILE_MAGIC,
             (char const *)ecr->map_base,
@@ -265,6 +266,61 @@ TryAgain:
     return *sd_iter;
 }
 
+int monad_evcap_reader_check_schema(
+    struct monad_evcap_reader const *evcap_reader, uint8_t const *ring_magic,
+    enum monad_event_content_type content_type, uint8_t const *schema_hash)
+{
+    struct monad_evcap_section_desc const *sd = nullptr;
+    bool found = false;
+
+    while (monad_evcap_reader_next_section(
+        evcap_reader, MONAD_EVCAP_SECTION_SCHEMA, &sd)) {
+        if (memcmp(
+                sd->schema.ring_magic,
+                ring_magic,
+                sizeof sd->schema.ring_magic) != 0) {
+            return FORMAT_ERRC(
+                EMEDIUMTYPE,
+                "capture uses ring version %.*s, expected ring version is %.*s",
+                (int)sizeof sd->schema.ring_magic,
+                sd->schema.ring_magic,
+                (int)sizeof sd->schema.ring_magic,
+                (char const *)ring_magic);
+        }
+        if (sd->schema.content_type != content_type) {
+            continue;
+        }
+        if (memcmp(
+                sd->schema.schema_hash,
+                schema_hash,
+                sizeof sd->schema.schema_hash) != 0) {
+            return FORMAT_ERRC(
+                EPROTO,
+                "event content type %s [%hu] has schema hash %x in the "
+                "library but %x in the capture file",
+                g_monad_event_content_type_names[content_type],
+                content_type,
+                *(unsigned *)schema_hash,
+                *(unsigned *)sd->schema.schema_hash);
+        }
+        if (found == true) {
+            return FORMAT_ERRC(
+                EBADMSG,
+                "multiple SCHEMA descriptors for content type %s [%hu]",
+                g_monad_event_content_type_names[content_type],
+                content_type);
+        }
+        found = true;
+    }
+
+    return found ? 0
+                 : FORMAT_ERRC(
+                       ENOMSG,
+                       "no SCHEMA descriptor for content type %s [%hu]",
+                       g_monad_event_content_type_names[content_type],
+                       content_type);
+}
+
 int monad_evcap_reader_open_iterator(
     struct monad_evcap_reader *ecr,
     struct monad_evcap_section_desc const *event_sd,
@@ -353,4 +409,4 @@ char const *g_monad_evcap_section_names[] = {
     [MONAD_EVCAP_SECTION_SCHEMA] = "SCHEMA",
     [MONAD_EVCAP_SECTION_EVENT_BUNDLE] = "EVENT_BUNDLE",
     [MONAD_EVCAP_SECTION_SEQNO_INDEX] = "SEQNO_INDEX",
-    [MONAD_EVCAP_SECTION_BLOCK_INDEX] = "BLOCK_INDEX"};
+    [MONAD_EVCAP_SECTION_PACK_INDEX] = "PACK_INDEX"};
