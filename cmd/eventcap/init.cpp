@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -314,9 +313,9 @@ constexpr size_t MAGIC_SIZE = std::max(
     sizeof MONAD_EVCAP_FILE_MAGIC, sizeof MONAD_EVENT_RING_HEADER_VERSION);
 static_assert(MAGIC_SIZE >= sizeof ZSTD_MAGICNUMBER);
 
-std::span<monad_event_metadata const> get_metadata_entries(
-    monad_event_content_type content_type, fs::path const &path,
-    uint8_t const *file_hash)
+// The safe way to get a table entry, because the input data may be malformed
+MetadataTableEntry const &get_metadata_table_entry(
+    fs::path const &path, monad_event_content_type content_type)
 {
     if (std::to_underlying(content_type) >= std::size(MetadataTable)) {
         errx_f(
@@ -326,8 +325,7 @@ std::span<monad_event_metadata const> get_metadata_entries(
             std::to_underlying(content_type));
     }
 
-    // Get the metadata hash we're compiled with, or substitute the zero
-    // hash if the command line told us to
+    // Check that the schema hash has been initialized
     if (MetadataTable[content_type].schema_hash == nullptr) {
         errx_f(
             EX_CONFIG,
@@ -337,28 +335,11 @@ std::span<monad_event_metadata const> get_metadata_entries(
             std::to_underlying(content_type));
     }
 
-    // Check that our compile-time library has the same metadata version as
-    // this file
-    uint8_t const(&library_hash)[32] = *MetadataTable[content_type].schema_hash;
-    if (memcmp(&library_hash, file_hash, sizeof library_hash) != 0) {
-        using monad::as_hex;
-        errx_f(
-            EX_CONFIG,
-            "event content type {} [{}] has schema hash {:{#}} "
-            "in the library but {:{#}} in event ring file `{}`",
-            g_monad_event_content_type_names[content_type],
-            std::to_underlying(content_type),
-            as_hex(std::span{library_hash}),
-            as_hex(std::span{file_hash, 32}),
-            path.string());
-    }
-
-    return MetadataTable[content_type].entries;
+    return MetadataTable[std::to_underlying(content_type)];
 }
 
-std::unique_ptr<EventSource> try_load_event_ring_file(
-    EventSourceFile source_file, std::array<char, MAGIC_SIZE> magic,
-    bool loaded_from_zstd)
+std::unique_ptr<EventSource>
+try_load_event_ring_file(EventSourceFile source_file, bool loaded_from_zstd)
 {
     EventRingLiveness initial_liveness;
     if (loaded_from_zstd) {
@@ -368,27 +349,6 @@ std::unique_ptr<EventSource> try_load_event_ring_file(
         initial_liveness = event_ring_is_abandoned(source_file.fd)
                                ? EventRingLiveness::Abandoned
                                : EventRingLiveness::Live;
-    }
-
-    if (std::memcmp(
-            data(magic),
-            MONAD_EVENT_RING_HEADER_VERSION,
-            sizeof MONAD_EVENT_RING_HEADER_VERSION) != 0) {
-        MONAD_ASSERT(
-            std::memcmp(data(magic), "RING", 4) == 0,
-            "caller is supposed to check this");
-        // This starts with "RING", so it's a different version of the file
-        // format that we're compiled to support
-        std::string_view const file_magic{
-            data(magic), sizeof MONAD_EVENT_RING_HEADER_VERSION};
-        std::string_view const library_magic{
-            std::bit_cast<char *>(&MONAD_EVENT_RING_HEADER_VERSION),
-            sizeof MONAD_EVENT_RING_HEADER_VERSION};
-        errx_f(
-            EX_CONFIG,
-            "event ring library is version {}, file version is {}",
-            library_magic,
-            file_magic);
     }
 
     int mmap_extra_flags = MAP_POPULATE;
@@ -419,37 +379,32 @@ std::unique_ptr<EventSource> try_load_event_ring_file(
             monad_event_ring_get_last_error());
     }
 
-    auto const metadata_entries = get_metadata_entries(
-        event_ring.header->content_type,
-        source_file.origin_path,
-        event_ring.header->schema_hash);
+    auto const content_type = event_ring.header->content_type;
+    MetadataTableEntry const &meta_entry =
+        get_metadata_table_entry(source_file.origin_path, content_type);
 
-    return std::make_unique<MappedEventRing>(
-        std::move(source_file), initial_liveness, event_ring, metadata_entries);
-}
-
-std::unique_ptr<EventSource> try_load_event_capture_file(
-    EventSourceFile source_file, std::array<char, MAGIC_SIZE> magic)
-{
-    monad_evcap_reader *evcap_reader;
-    if (std::memcmp(
-            data(magic),
-            MONAD_EVCAP_FILE_MAGIC,
-            sizeof MONAD_EVCAP_FILE_MAGIC) != 0) {
-        MONAD_ASSERT(
-            std::memcmp(data(magic), "EVCAP_", 6) == 0,
-            "caller is supposed to check this");
-        std::string_view const file_magic{
-            data(magic), sizeof MONAD_EVCAP_FILE_MAGIC};
-        std::string_view const library_magic{
-            std::bit_cast<char *>(&MONAD_EVCAP_FILE_MAGIC),
-            sizeof MONAD_EVCAP_FILE_MAGIC};
+    if (monad_event_ring_check_content_type(
+            &event_ring, content_type, *meta_entry.schema_hash) != 0) {
         errx_f(
             EX_CONFIG,
-            "event capture library is version {}, file version is {}",
-            library_magic,
-            file_magic);
+            "event ring library while loading {} -- {}",
+            source_file.origin_path.string(),
+            monad_event_ring_get_last_error());
     }
+
+    return std::make_unique<MappedEventRing>(
+        std::move(source_file),
+        initial_liveness,
+        event_ring,
+        meta_entry.event_meta);
+}
+
+std::unique_ptr<EventSource>
+try_load_event_capture_file(EventSourceFile source_file)
+{
+    monad_evcap_reader *evcap_reader;
+    monad_evcap_section_desc const *sd = nullptr;
+
     if (monad_evcap_reader_create(
             &evcap_reader, source_file.fd, source_file.origin_path.c_str()) !=
         0) {
@@ -459,19 +414,22 @@ std::unique_ptr<EventSource> try_load_event_capture_file(
             monad_evcap_reader_get_last_error());
     }
 
-    monad_evcap_section_desc const *sd = nullptr;
     while (monad_evcap_reader_next_section(
                evcap_reader, MONAD_EVCAP_SECTION_SCHEMA, &sd) != nullptr) {
-        if (memcmp(
-                sd->schema.ring_magic,
+        auto const content_type = sd->schema.content_type;
+        MetadataTableEntry const &meta_entry =
+            get_metadata_table_entry(source_file.origin_path, content_type);
+        if (monad_evcap_reader_check_schema(
+                evcap_reader,
                 MONAD_EVENT_RING_HEADER_VERSION,
-                sizeof MONAD_EVENT_RING_HEADER_VERSION) != 0) {
-            MONAD_ABORT("write a nicer message here"); // XXX
+                content_type,
+                *meta_entry.schema_hash) != 0) {
+            errx_f(
+                EX_SOFTWARE,
+                "evcap library error for {} -- {}",
+                source_file.origin_path.string(),
+                monad_evcap_reader_get_last_error());
         }
-        (void)get_metadata_entries(
-            sd->schema.content_type,
-            source_file.origin_path,
-            sd->schema.schema_hash);
     }
 
     return std::make_unique<EventCaptureFile>(
@@ -514,7 +472,7 @@ try_load_event_source(fs::path const &event_file_path)
     }
 
     bool const is_zstd_compressed =
-        *std::bit_cast<unsigned const *>(data(magic)) == ZSTD_MAGICNUMBER;
+        *reinterpret_cast<unsigned const *>(data(magic)) == ZSTD_MAGICNUMBER;
     if (is_zstd_compressed) {
         // This is a zstd-compressed file. Call a helper function to open it,
         // which will create a memfd to hold the decompressed contents; this
@@ -524,10 +482,10 @@ try_load_event_source(fs::path const &event_file_path)
 
     if (std::memcmp(data(magic), "RING", 4) == 0) {
         return try_load_event_ring_file(
-            std::move(source_file), magic, is_zstd_compressed);
+            std::move(source_file), is_zstd_compressed);
     }
     if (std::memcmp(data(magic), "EVCAP_", 6) == 0) {
-        return try_load_event_capture_file(std::move(source_file), magic);
+        return try_load_event_capture_file(std::move(source_file));
     }
     errx_f(
         EX_CONFIG,
@@ -796,6 +754,16 @@ CommandBuilder::build_recordexec_command(RecordExecCommandOptions const &opts)
         /*set_output=*/false);
     expect_content_type(
         command->event_sources[0], MONAD_EVENT_CONTENT_TYPE_EXEC);
+    if (opts.block_format == BlockRecordFormat::Archive) {
+        // In this case, output is expected to already exist and be a directory
+        if (!fs::is_directory(opts.common_options.output_spec)) {
+            errx_f(
+                EX_USAGE,
+                "recordexec configured in finalized block archive "
+                "mode, but {} is not an existing directory",
+                opts.common_options.output_spec);
+        }
+    }
     return command;
 }
 
