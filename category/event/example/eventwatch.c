@@ -290,8 +290,8 @@ static void event_loop(
                 stderr,
                 "ERROR: event gap from %lu -> %lu, resetting iterator\n",
                 (unsigned long)iter->read_last_seqno,
-                (unsigned long)__atomic_load_n(
-                    &iter->control->last_seqno, __ATOMIC_ACQUIRE));
+                (unsigned long)monad_event_ring_get_last_written_seqno(
+                    event_ring, false));
             monad_event_iterator_reset(iter);
             break;
 

@@ -121,8 +121,10 @@ TEST(ExecEventRecorder, Basic)
     exec_recorder->commit(log_event);
 
     monad_event_descriptor event;
-    ASSERT_TRUE(monad_event_ring_try_copy(
-        exec_recorder->get_event_ring(), log_event.seqno, &event));
+    ASSERT_EQ(
+        monad_event_ring_try_copy(
+            exec_recorder->get_event_ring(), log_event.seqno, &event),
+        MONAD_EVENT_SUCCESS);
     ASSERT_EQ(event.event_type, MONAD_EXEC_TXN_LOG);
     ASSERT_EQ(event.content_ext[MONAD_FLOW_TXN_ID], txn_num + 1);
 
@@ -185,8 +187,10 @@ TEST(ExecEventRecorder, Overflow)
     exec_recorder->commit(log_event);
 
     monad_event_descriptor event;
-    ASSERT_TRUE(monad_event_ring_try_copy(
-        exec_recorder->get_event_ring(), log_event.seqno, &event));
+    ASSERT_EQ(
+        monad_event_ring_try_copy(
+            exec_recorder->get_event_ring(), log_event.seqno, &event),
+        MONAD_EVENT_SUCCESS);
     ASSERT_EQ(event.event_type, MONAD_EXEC_RECORD_ERROR);
     ASSERT_EQ(event.content_ext[MONAD_FLOW_TXN_ID], txn_num + 1);
 
