@@ -36,9 +36,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_recorder.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/core/event/test_event_ctypes.h>
 #include <category/core/likely.h>
@@ -195,25 +195,25 @@ static void writer_main(
 {
     uint64_t const max_writer_iteration =
         (1UL << PERF_ITER_SHIFT) / writer_thread_count;
-    alignas(64) monad_event_iterator iter;
+    monad_event_ring_iter iter;
     std::vector<uint64_t> expected_counters;
     expected_counters.resize(writer_thread_count, 0);
     ASSERT_EQ(0, monad_event_ring_init_iterator(event_ring, &iter));
 
     latch->arrive_and_wait();
-    // Regardless of where the most recent event is, start from zero
-    uint64_t last_seqno = iter.read_last_seqno = 0;
-    while (last_seqno < max_writer_iteration) {
+    // Regardless of where the most recent event is, start from 1
+    uint64_t cur_seqno = iter.cur_seqno = 1;
+    while (cur_seqno < max_writer_iteration) {
         monad_event_descriptor event;
-        monad_event_iter_result const ir =
-            monad_event_iterator_try_next(&iter, &event);
-        if (MONAD_UNLIKELY(ir == MONAD_EVENT_NOT_READY)) {
+        monad_event_ring_result const r =
+            monad_event_ring_iter_try_next(&iter, &event);
+        if (MONAD_UNLIKELY(r == MONAD_EVENT_RING_NOT_READY)) {
             __builtin_ia32_pause();
             continue;
         }
-        ASSERT_EQ(MONAD_EVENT_SUCCESS, ir);
-        EXPECT_EQ(last_seqno + 1, event.seqno);
-        last_seqno = event.seqno;
+        ASSERT_EQ(MONAD_EVENT_RING_SUCCESS, r);
+        EXPECT_EQ(cur_seqno, event.seqno);
+        cur_seqno = event.seqno + 1;
 
         ASSERT_EQ(MONAD_TEST_EVENT_COUNTER, event.event_type);
         ASSERT_EQ(event.payload_size, expected_len);
@@ -416,7 +416,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(EventRecorderDefaultFixture, LargePayloads)
 {
     alignas(64) monad_event_recorder recorder;
-    alignas(64) monad_event_iterator iter;
+    alignas(64) monad_event_ring_iter iter;
     monad_event_descriptor *event;
     monad_event_descriptor first_event;
     monad_event_descriptor second_event;
@@ -447,8 +447,8 @@ TEST_F(EventRecorderDefaultFixture, LargePayloads)
         // remain zero and our memcmp(3) check will catch errors
         monad_event_recorder_commit(event, seqno);
         ASSERT_EQ(
-            MONAD_EVENT_SUCCESS,
-            monad_event_iterator_try_next(&iter, &first_event));
+            MONAD_EVENT_RING_SUCCESS,
+            monad_event_ring_iter_try_next(&iter, &first_event));
     }
 
     for (monad_event_descriptor *output : {&first_event, &second_event}) {
@@ -458,7 +458,8 @@ TEST_F(EventRecorderDefaultFixture, LargePayloads)
         memcpy(payload_buf, data(big_buffer_bytes), size(big_buffer_bytes));
         monad_event_recorder_commit(event, seqno);
         ASSERT_EQ(
-            MONAD_EVENT_SUCCESS, monad_event_iterator_try_next(&iter, output));
+            MONAD_EVENT_RING_SUCCESS,
+            monad_event_ring_iter_try_next(&iter, output));
     }
 
     ASSERT_TRUE(monad_event_ring_payload_check(&event_ring_, &first_event));
