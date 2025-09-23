@@ -38,20 +38,22 @@ extern "C"
 enum monad_exec_event_type : uint16_t;
 
 struct monad_event_descriptor;
-struct monad_event_iterator;
 struct monad_event_ring;
 struct monad_exec_block_tag;
 
+typedef struct monad_evsrc_iterator monad_evsrc_iterator_t;
+typedef struct monad_evsrc_const_iterator monad_evsrc_const_iterator_t;
+
 /// Extract the block number associated with an execution event; returns false
 /// if the payload has expired or if there is no associated block number
-static bool monad_exec_ring_get_block_number(
-    struct monad_event_ring const *, struct monad_event_descriptor const *,
+static bool monad_exec_get_block_number(
+    monad_evsrc_const_iterator_t, struct monad_event_descriptor const *,
     uint64_t *block_number);
 
 /// Return true if the execution event with the given descriptor relates to the
 /// block with the given id
-static bool monad_exec_ring_block_id_matches(
-    struct monad_event_ring const *, struct monad_event_descriptor const *,
+static bool monad_exec_block_id_matches(
+    monad_evsrc_const_iterator_t, struct monad_event_descriptor const *,
     monad_c_bytes32 const *);
 
 /// Rewind the event ring iterator so that the next event produced by
@@ -60,16 +62,15 @@ static bool monad_exec_ring_block_id_matches(
 /// event's descriptor, i.e., behaves like `*--i`; if false is returned, the
 /// iterator is not moved and the copied out event descriptor is not valid
 static bool monad_exec_iter_consensus_prev(
-    struct monad_event_iterator *, enum monad_exec_event_type filter,
+    monad_evsrc_iterator_t, enum monad_exec_event_type filter,
     struct monad_event_descriptor *);
 
 /// Rewind the event ring iterator, as if by repeatedly calling
 /// `monad_exec_iter_consensus_prev`, stopping only when the block number
 /// associated with the event matches the specified block number
 static bool monad_exec_iter_block_number_prev(
-    struct monad_event_iterator *, struct monad_event_ring const *,
-    uint64_t block_number, enum monad_exec_event_type filter,
-    struct monad_event_descriptor *);
+    monad_evsrc_iterator_t, uint64_t block_number,
+    enum monad_exec_event_type filter, struct monad_event_descriptor *);
 
 /// Rewind the event ring iterator, as if by repeatedly calling
 /// `monad_exec_iter_consensus_prev`, stopping only when the block ID
@@ -77,16 +78,15 @@ static bool monad_exec_iter_block_number_prev(
 /// is not an allowed filter type, because block IDs are not recorded for
 /// these events
 static bool monad_exec_iter_block_id_prev(
-    struct monad_event_iterator *, struct monad_event_ring const *,
-    monad_c_bytes32 const *, enum monad_exec_event_type filter,
-    struct monad_event_descriptor *);
+    monad_evsrc_iterator_t, monad_c_bytes32 const *,
+    enum monad_exec_event_type filter, struct monad_event_descriptor *);
 
 /// Rewind the event ring iterator, following the "simple replay strategy",
 /// which is to replay all events that you may not have seen, if the last
 /// finalized block you definitely saw is `block_number`
 static bool monad_exec_iter_rewind_for_simple_replay(
-    struct monad_event_iterator *, struct monad_event_ring const *,
-    uint64_t block_number, struct monad_event_descriptor *);
+    monad_evsrc_iterator_t, uint64_t block_number,
+    struct monad_event_descriptor *);
 
 #ifdef __cplusplus
 } // extern "C"
