@@ -162,9 +162,7 @@ public:
                 "{}",
                 event->seqno,
                 event->payload_buf_offset,
-                __atomic_load_n(
-                    &source_iter->ring_pair.iter.control->buffer_window_start,
-                    __ATOMIC_ACQUIRE));
+                source_iter->ring_pair.ring->get_buffer_window_start());
         }
 
         monad_event_descriptor event_copy = *event;

@@ -152,6 +152,12 @@ public:
         return event_ring_.header;
     }
 
+    uint64_t get_buffer_window_start() const
+    {
+        return __atomic_load_n(
+            &event_ring_.header->control.buffer_window_start, __ATOMIC_ACQUIRE);
+    }
+
     bool set_force_live(bool force)
     {
         std::swap(force_live_, force);
@@ -432,7 +438,8 @@ inline bool EventSource::Iterator::read_seqno(
             *ct = content_type;
         }
         if (monad_event_ring_try_copy(
-                ring_pair.get_event_ring(), seqno, event)) {
+                ring_pair.get_event_ring(), seqno, event) ==
+            MONAD_EVENT_SUCCESS) {
             *payload =
                 static_cast<std::byte const *>(monad_event_ring_payload_peek(
                     ring_pair.get_event_ring(), event));
@@ -478,8 +485,8 @@ inline uint64_t EventSource::Iterator::get_last_written_seqno() const
 {
     switch (source_type) {
     case Type::EventRing:
-        return __atomic_load_n(
-            &ring_pair.iter.control->last_seqno, __ATOMIC_ACQUIRE);
+        return monad_event_ring_get_last_written_seqno(
+            ring_pair.ring->get_event_ring(), false);
     case Type::CaptureFile:
         return capture_iter.section_iter.seqno_index.seqno_end;
     default:
