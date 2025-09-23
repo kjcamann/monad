@@ -40,10 +40,14 @@ static int write_bcap_file(
     int rc;
     struct monad_evcap_dynamic_section *dyn_sec;
     struct monad_evcap_section_desc *event_sd;
+    struct monad_evcap_section_desc const *schema_sd;
 
     // Add SCHEMA section
     rc = monad_evcap_writer_add_schema_section(
-        ecw, MONAD_EVENT_CONTENT_TYPE_EXEC, g_monad_exec_event_schema_hash);
+        ecw,
+        MONAD_EVENT_CONTENT_TYPE_EXEC,
+        g_monad_exec_event_schema_hash,
+        &schema_sd);
     if (rc != 0) {
         goto EVCAP_Error;
     }
@@ -58,6 +62,7 @@ static int write_bcap_file(
     event_sd->compression = proposal->event_compression_info.compression;
     event_sd->content_length =
         proposal->event_compression_info.uncompressed_length;
+    event_sd->event_bundle.schema_desc_offset = schema_sd->descriptor_offset;
     event_sd->event_bundle.event_count = proposal->event_count;
     event_sd->event_bundle.start_seqno = proposal->start_seqno;
     event_sd->event_bundle.block_number = proposal->block_tag.block_number;
