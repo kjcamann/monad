@@ -385,9 +385,7 @@ int monad_event_ring_init_iterator(
     if ((event_ring->mmap_prot & PROT_READ) == 0) {
         return FORMAT_ERRC(EACCES, "event_ring memory not mapped for reading");
     }
-    iter->descriptors = event_ring->descriptors;
-    iter->desc_capacity_mask = header->size.descriptor_capacity - 1;
-    iter->control = &header->control;
+    iter->event_ring = event_ring;
     (void)monad_event_iterator_reset(iter);
     return 0;
 }

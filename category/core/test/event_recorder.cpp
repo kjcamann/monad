@@ -205,13 +205,13 @@ static void writer_main(
     uint64_t last_seqno = iter.read_last_seqno = 0;
     while (last_seqno < max_writer_iteration) {
         monad_event_descriptor event;
-        monad_event_iter_result const ir =
+        monad_event_ring_result const r =
             monad_event_iterator_try_next(&iter, &event);
-        if (MONAD_UNLIKELY(ir == MONAD_EVENT_NOT_READY)) {
+        if (MONAD_UNLIKELY(r == MONAD_EVENT_NOT_READY)) {
             __builtin_ia32_pause();
             continue;
         }
-        ASSERT_EQ(MONAD_EVENT_SUCCESS, ir);
+        ASSERT_EQ(MONAD_EVENT_SUCCESS, r);
         EXPECT_EQ(last_seqno + 1, event.seqno);
         last_seqno = event.seqno;
 
