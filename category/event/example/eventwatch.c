@@ -49,9 +49,9 @@ constexpr bool PLATFORM_LINUX = false;
     #endif
 #endif
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
@@ -218,7 +218,7 @@ static void print_event(
         if (monad_event_ring_try_copy(
                 event_ring,
                 event->content_ext[MONAD_FLOW_BLOCK_SEQNO],
-                &start_block_event)) {
+                &start_block_event) == MONAD_EVENT_RING_SUCCESS) {
             block_start =
                 monad_event_ring_payload_peek(event_ring, &start_block_event);
         }
@@ -265,16 +265,14 @@ static void print_event(
 }
 
 // The main event processing loop of the application
-static void event_loop(
-    struct monad_event_ring const *event_ring,
-    struct monad_event_iterator *iter, int pidfd, FILE *out)
+static void event_loop(struct monad_event_ring_iter *iter, int pidfd, FILE *out)
 {
     struct monad_event_descriptor event;
     uint64_t not_ready_count = 0;
 
     while (g_should_stop == 0) {
-        switch (monad_event_iterator_try_next(iter, &event)) {
-        case MONAD_EVENT_NOT_READY:
+        switch (monad_event_ring_iter_try_next(iter, &event)) {
+        case MONAD_EVENT_RING_NOT_READY:
             if ((not_ready_count++ & ((1U << 25) - 1)) == 0) {
                 // The above guard prevents us from calling process_has_exited
                 // too often, as it is orders of magnitude slower than the cost
@@ -286,25 +284,25 @@ static void event_loop(
             }
             continue; // Nothing produced yet
 
-        case MONAD_EVENT_GAP:
+        case MONAD_EVENT_RING_GAP:
             fprintf(
                 stderr,
                 "ERROR: event gap from %lu -> %lu, resetting iterator\n",
-                (unsigned long)iter->read_last_seqno,
-                (unsigned long)__atomic_load_n(
-                    &iter->control->last_seqno, __ATOMIC_ACQUIRE));
-            monad_event_iterator_reset(iter);
+                (unsigned long)iter->cur_seqno,
+                (unsigned long)monad_event_ring_get_last_written_seqno(
+                    iter->event_ring, false));
+            monad_event_ring_iter_reset(iter);
             break;
 
-        case MONAD_EVENT_SUCCESS:
-            print_event(event_ring, &event, out);
+        case MONAD_EVENT_RING_SUCCESS:
+            print_event(iter->event_ring, &event, out);
             break;
         }
         not_ready_count = 0;
     }
 }
 
-static void find_initial_iteration_point(struct monad_event_iterator *iter)
+static void find_initial_iteration_point(struct monad_event_ring_iter *iter)
 {
     // This function is not strictly necessary, but it is probably useful for
     // most use cases. When an iterator is initialized via a call to
@@ -483,7 +481,7 @@ int main(int argc, char **argv)
     (void)close(ring_fd);
 
     // Create an iterator to read from the event ring
-    struct monad_event_iterator iter;
+    struct monad_event_ring_iter iter;
     if (monad_event_ring_init_iterator(&exec_ring, &iter) != 0) {
         goto Error;
     }
@@ -492,14 +490,14 @@ int main(int argc, char **argv)
     // if this is a live event ring, move the iterator to the start of the most
     // recently produced block
     if (is_snapshot) {
-        monad_event_iterator_set_seqno(&iter, 1);
+        monad_event_ring_iter_set_seqno(&iter, 1);
     }
     else {
         find_initial_iteration_point(&iter);
     }
 
     // Read events from the ring until SIGINT or the monad process exits
-    event_loop(&exec_ring, &iter, pidfd, stdout);
+    event_loop(&iter, pidfd, stdout);
 
     // Clean up: unmap the execution event ring from our address space
     monad_event_ring_unmap(&exec_ring);
