@@ -55,9 +55,8 @@ get_vbuf_writer_compression(struct monad_vbuf_writer const *vbw)
 }
 
 static int builder_append_event(
-    struct monad_bcap_builder *bcb, enum monad_event_content_type content_type,
-    struct monad_event_descriptor const *event, void const *payload,
-    enum monad_bcap_append_result *append_result)
+    struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
+    void const *payload, enum monad_bcap_append_result *append_result)
 {
     int rc;
 
@@ -70,7 +69,6 @@ static int builder_append_event(
         alignof(struct monad_event_descriptor));
     rc = monad_evcap_vbuf_append_event(
         bcb->event_vbuf_writer,
-        content_type,
         event,
         payload,
         &bcb->current_proposal->event_vbuf_chain);
@@ -141,8 +139,7 @@ static int act_on_block_start(
     bcb->current_proposal->seqno_index_compression_info.compression =
         get_vbuf_writer_compression(bcb->seqno_index_vbuf_writer);
     bcb->current_proposal->block_tag = block_start->block_tag;
-    return builder_append_event(
-        bcb, MONAD_EVENT_CONTENT_TYPE_EXEC, event, block_start, append_result);
+    return builder_append_event(bcb, event, block_start, append_result);
 }
 
 static int act_on_block_termination_event(
@@ -150,8 +147,7 @@ static int act_on_block_termination_event(
     void const *payload, enum monad_bcap_append_result *append_result,
     struct monad_bcap_proposal **proposal_p)
 {
-    int rc = builder_append_event(
-        bcb, MONAD_EVENT_CONTENT_TYPE_EXEC, event, payload, append_result);
+    int rc = builder_append_event(bcb, event, payload, append_result);
     if (rc != 0) {
         return rc;
     }
@@ -246,18 +242,12 @@ void monad_bcap_builder_destroy(struct monad_bcap_builder *bcb)
 }
 
 int monad_bcap_builder_append_event(
-    struct monad_bcap_builder *bcb, enum monad_event_content_type content_type,
-    struct monad_event_descriptor const *event, void const *payload,
-    enum monad_bcap_append_result *append_result,
+    struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
+    void const *payload, enum monad_bcap_append_result *append_result,
     struct monad_bcap_proposal **proposal_p)
 {
     *append_result = MONAD_BCAP_ERROR;
     *proposal_p = nullptr;
-
-    if (content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
-        return builder_append_event(
-            bcb, content_type, event, payload, append_result);
-    }
 
     if (bcb->last_exec_seqno > 0 && event->seqno != bcb->last_exec_seqno + 1) {
         return FORMAT_ERRC(
@@ -300,8 +290,7 @@ int monad_bcap_builder_append_event(
             bcb, event, payload, append_result, proposal_p);
 
     default:
-        return builder_append_event(
-            bcb, MONAD_EVENT_CONTENT_TYPE_EXEC, event, payload, append_result);
+        return builder_append_event(bcb, event, payload, append_result);
     }
 }
 

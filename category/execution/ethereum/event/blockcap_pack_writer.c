@@ -47,6 +47,7 @@ struct monad_bcap_pack_writer
 {
     struct monad_evcap_writer *evcap_writer;
     struct monad_bcap_pack_index_entry *index_entries;
+    struct monad_evcap_section_desc const *schema_sd;
     size_t index_entries_map_len;
     struct monad_evcap_pack_index_desc *index_desc;
     bool desynchronized;
@@ -93,6 +94,8 @@ static int write_event_bundle_section(
     event_sd->compression = proposal->event_compression_info.compression;
     event_sd->content_length =
         proposal->event_compression_info.uncompressed_length;
+    event_sd->event_bundle.schema_desc_offset =
+        pkw->schema_sd->descriptor_offset;
     event_sd->event_bundle.event_count = proposal->event_count;
     event_sd->event_bundle.start_seqno = proposal->start_seqno;
     event_sd->event_bundle.block_number = proposal->block_tag.block_number;
@@ -139,7 +142,8 @@ int monad_bcap_pack_writer_create(struct monad_bcap_pack_writer **pkw_p, int fd)
     rc = monad_evcap_writer_add_schema_section(
         pkw->evcap_writer,
         MONAD_EVENT_CONTENT_TYPE_EXEC,
-        g_monad_exec_event_schema_hash);
+        g_monad_exec_event_schema_hash,
+        &pkw->schema_sd);
     if (rc != 0) {
         goto EVCAP_Error;
     }

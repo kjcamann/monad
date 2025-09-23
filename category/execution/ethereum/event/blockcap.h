@@ -38,7 +38,6 @@ extern "C"
 #endif
 
 enum monad_exec_event_type : uint16_t;
-enum monad_event_content_type : uint16_t;
 
 enum monad_evcap_section_compression : uint8_t;
 
@@ -109,9 +108,9 @@ int monad_bcap_builder_create(
 void monad_bcap_builder_destroy(struct monad_bcap_builder *);
 
 int monad_bcap_builder_append_event(
-    struct monad_bcap_builder *, enum monad_event_content_type,
-    struct monad_event_descriptor const *, void const *payload,
-    enum monad_bcap_append_result *, struct monad_bcap_proposal **);
+    struct monad_bcap_builder *, struct monad_event_descriptor const *,
+    void const *payload, enum monad_bcap_append_result *,
+    struct monad_bcap_proposal **);
 
 /*
  * monad_bcap_finalize_tracker
