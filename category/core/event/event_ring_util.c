@@ -277,7 +277,7 @@ int monad_event_ring_init_simple(
 
 int monad_event_ring_check_content_type(
     struct monad_event_ring const *event_ring,
-    enum monad_event_content_type content_type, uint8_t const *schema_hash)
+    monad_event_content_type_t content_type, uint8_t const *schema_hash)
 {
     if (event_ring == nullptr || event_ring->header == nullptr) {
         return FORMAT_ERRC(EFAULT, "event ring is not mapped");
