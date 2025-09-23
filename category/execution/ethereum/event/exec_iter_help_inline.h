@@ -21,32 +21,38 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_source.h>
 #include <category/core/likely.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 
-// Functions like monad_exec_ring_get_block_number expect the caller to pass a
+// Functions like monad_exec_get_block_number expect the caller to pass a
 // descriptor containing a consensus event; if this is not the case, we need to
 // seek to the nearest BLOCK_START and copy that event into a caller-provided
 // buffer, then reseat the event_p pointer to refer to that event buffer instead
-static inline bool _monad_exec_ring_ensure_block(
-    struct monad_event_ring const *event_ring,
+static inline bool _monad_exec_ensure_block(
+    monad_evsrc_const_iterator_t iter,
     struct monad_event_descriptor const **event_p,
-    struct monad_event_descriptor *buf)
+    struct monad_event_descriptor *buf, void const **payload)
 {
     if (MONAD_UNLIKELY(
             (*event_p)->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0 &&
             (*event_p)->event_type != MONAD_EXEC_BLOCK_START)) {
         if (MONAD_UNLIKELY(
-                monad_event_ring_try_copy(
-                    event_ring,
+                monad_evsrc_iterator_copy_seqno(
+                    iter,
                     (*event_p)->content_ext[MONAD_FLOW_BLOCK_SEQNO],
-                    buf) != MONAD_EVENT_SUCCESS)) {
+                    buf,
+                    payload) != MONAD_EVSRC_SUCCESS)) {
             return false;
         }
         *event_p = buf;
+    }
+    if (MONAD_UNLIKELY(
+            monad_evsrc_iterator_try_copy(iter, buf, payload) !=
+            MONAD_EVSRC_SUCCESS)) {
+        return false;
     }
     return true;
 }
@@ -56,24 +62,25 @@ static inline bool _monad_exec_ring_ensure_block(
 // out instead (and set `*moved` to true); if false is returned, the event
 // descriptor is not valid
 static inline bool _monad_exec_iter_copy_consensus_event(
-    struct monad_event_iterator *iter, struct monad_event_descriptor *event,
+    monad_evsrc_iterator_t iter, struct monad_event_descriptor *event,
     bool *moved)
 {
     *moved = false;
     if (MONAD_UNLIKELY(
-            monad_event_iterator_try_copy(iter, event) !=
-            MONAD_EVENT_SUCCESS)) {
+            monad_evsrc_iterator_try_copy(EVSRC_CONST(iter), event, nullptr) !=
+            MONAD_EVSRC_SUCCESS)) {
         return false;
     }
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0 &&
         event->event_type != MONAD_EXEC_BLOCK_START) {
-        uint64_t const iter_save = iter->read_last_seqno;
-        monad_event_iterator_set_seqno(
+        uint64_t const iter_save = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
+        monad_evsrc_iterator_set_seqno(
             iter, event->content_ext[MONAD_FLOW_BLOCK_SEQNO]);
         if (MONAD_UNLIKELY(
-                monad_event_iterator_try_copy(iter, event) !=
-                MONAD_EVENT_SUCCESS)) {
-            iter->read_last_seqno = iter_save;
+                monad_evsrc_iterator_try_copy(
+                    EVSRC_CONST(iter), event, nullptr) !=
+                MONAD_EVSRC_SUCCESS)) {
+            monad_evsrc_iterator_seek(iter, iter_save);
             return false;
         }
         *moved = true;
@@ -81,29 +88,26 @@ static inline bool _monad_exec_iter_copy_consensus_event(
     return true;
 }
 
-static inline bool _monad_exec_ring_is_start_of_block(
-    struct monad_event_ring const *event_ring,
+static inline bool _monad_exec_is_start_of_block(
+    monad_evsrc_const_iterator_t iter,
     struct monad_event_descriptor const *event, uint64_t block_number)
 {
     uint64_t b;
     return event->event_type == MONAD_EXEC_BLOCK_START &&
-           monad_exec_ring_get_block_number(event_ring, event, &b) &&
-           b == block_number;
+           monad_exec_get_block_number(iter, event, &b) && b == block_number;
 }
 
-inline bool monad_exec_ring_get_block_number(
-    struct monad_event_ring const *event_ring,
+inline bool monad_exec_get_block_number(
+    monad_evsrc_const_iterator_t iter,
     struct monad_event_descriptor const *event, uint64_t *block_number)
 {
     struct monad_event_descriptor buf;
     void const *payload;
 
     if (MONAD_UNLIKELY(
-            !_monad_exec_ring_ensure_block(event_ring, &event, &buf))) {
+            !_monad_exec_ensure_block(iter, &event, &buf, &payload))) {
         return false;
     }
-
-    payload = monad_event_ring_payload_peek(event_ring, event);
 
     switch (event->event_type) {
     case MONAD_EXEC_BLOCK_START:
@@ -130,11 +134,11 @@ inline bool monad_exec_ring_get_block_number(
         return false;
     }
 
-    return monad_event_ring_payload_check(event_ring, event);
+    return monad_evsrc_iterator_check_payload(iter, event);
 }
 
-inline bool monad_exec_ring_block_id_matches(
-    struct monad_event_ring const *event_ring,
+inline bool monad_exec_block_id_matches(
+    monad_evsrc_const_iterator_t iter,
     struct monad_event_descriptor const *event, monad_c_bytes32 const *block_id)
 {
     struct monad_event_descriptor buf;
@@ -142,11 +146,9 @@ inline bool monad_exec_ring_block_id_matches(
     bool tag_matches;
 
     if (MONAD_UNLIKELY(
-            !_monad_exec_ring_ensure_block(event_ring, &event, &buf))) {
+            !_monad_exec_ensure_block(iter, &event, &buf, &payload))) {
         return false;
     }
-
-    payload = monad_event_ring_payload_peek(event_ring, event);
 
     switch (event->event_type) {
     case MONAD_EXEC_BLOCK_START:
@@ -176,16 +178,16 @@ inline bool monad_exec_ring_block_id_matches(
         return false;
     }
 
-    return tag_matches && monad_event_ring_payload_check(event_ring, event);
+    return tag_matches && monad_evsrc_iterator_check_payload(iter, event);
 }
 
 inline bool monad_exec_iter_consensus_prev(
-    struct monad_event_iterator *iter, enum monad_exec_event_type filter,
+    monad_evsrc_iterator_t iter, enum monad_exec_event_type filter,
     struct monad_event_descriptor *event)
 {
     struct monad_event_descriptor buf;
     bool moved;
-    uint64_t const iter_save = iter->read_last_seqno;
+    uint64_t const iter_save = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
 
     if (event == nullptr) {
         event = &buf;
@@ -218,8 +220,9 @@ inline bool monad_exec_iter_consensus_prev(
     //
     // If we run out of events before this occurs, the iterator is reset to
     // its original position, and false is returned
-    while (MONAD_UNLIKELY(iter->read_last_seqno > 0)) {
-        --iter->read_last_seqno;
+    while (MONAD_UNLIKELY(
+        monad_evsrc_iterator_try_prev(iter, event, nullptr) ==
+        MONAD_EVSRC_SUCCESS)) {
         if (MONAD_UNLIKELY(
                 !_monad_exec_iter_copy_consensus_event(iter, event, &moved))) {
             break;
@@ -230,18 +233,17 @@ inline bool monad_exec_iter_consensus_prev(
         }
     }
 
-    iter->read_last_seqno = iter_save;
+    monad_evsrc_iterator_seek(iter, iter_save);
     return false;
 }
 
 inline bool monad_exec_iter_block_number_prev(
-    struct monad_event_iterator *iter,
-    struct monad_event_ring const *event_ring, uint64_t block_number,
+    monad_evsrc_iterator_t iter, uint64_t block_number,
     enum monad_exec_event_type filter, struct monad_event_descriptor *event)
 {
     uint64_t cur_block_number;
     struct monad_event_descriptor buf;
-    uint64_t const iter_save = iter->read_last_seqno;
+    uint64_t const iter_save = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
 
     switch (filter) {
     case MONAD_EXEC_NONE:
@@ -263,8 +265,8 @@ inline bool monad_exec_iter_block_number_prev(
     }
 
     while (MONAD_LIKELY(monad_exec_iter_consensus_prev(iter, filter, event))) {
-        if (!monad_exec_ring_get_block_number(
-                event_ring, event, &cur_block_number)) {
+        if (!monad_exec_get_block_number(
+                EVSRC_CONST(iter), event, &cur_block_number)) {
             break;
         }
         if (block_number == cur_block_number) {
@@ -277,17 +279,16 @@ inline bool monad_exec_iter_block_number_prev(
         }
     }
 
-    iter->read_last_seqno = iter_save;
+    monad_evsrc_iterator_seek(iter, iter_save);
     return false;
 }
 
 inline bool monad_exec_iter_block_id_prev(
-    struct monad_event_iterator *iter,
-    struct monad_event_ring const *event_ring, monad_c_bytes32 const *block_id,
+    monad_evsrc_iterator_t iter, monad_c_bytes32 const *block_id,
     enum monad_exec_event_type filter, struct monad_event_descriptor *event)
 {
     struct monad_event_descriptor buf;
-    uint64_t const iter_save = iter->read_last_seqno;
+    uint64_t const iter_save = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
 
     switch (filter) {
     case MONAD_EXEC_NONE:
@@ -310,7 +311,7 @@ inline bool monad_exec_iter_block_id_prev(
         if (event->event_type == MONAD_EXEC_BLOCK_VERIFIED) {
             continue;
         }
-        if (monad_exec_ring_block_id_matches(event_ring, event, block_id)) {
+        if (monad_exec_block_id_matches(EVSRC_CONST(iter), event, block_id)) {
             return true;
         }
         assert(
@@ -319,24 +320,19 @@ inline bool monad_exec_iter_block_id_prev(
             "block number matched, tag didn't, and not START/QC?");
     }
 
-    iter->read_last_seqno = iter_save;
+    monad_evsrc_iterator_seek(iter, iter_save);
     return false;
 }
 
 inline bool monad_exec_iter_rewind_for_simple_replay(
-    struct monad_event_iterator *iter,
-    struct monad_event_ring const *event_ring, uint64_t block_number,
+    monad_evsrc_iterator_t iter, uint64_t block_number,
     struct monad_event_descriptor *event)
 {
-    uint64_t const iter_save = iter->read_last_seqno;
+    uint64_t const iter_save = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
 
     // First, scan backwards to find the BLOCK_FINALIZED for block_number
     if (!monad_exec_iter_block_number_prev(
-            iter,
-            event_ring,
-            block_number,
-            MONAD_EXEC_BLOCK_FINALIZED,
-            event)) {
+            iter, block_number, MONAD_EXEC_BLOCK_FINALIZED, event)) {
         return false; // No need to restore iter_save, done by callee
     }
 
@@ -346,21 +342,22 @@ inline bool monad_exec_iter_rewind_for_simple_replay(
     // the BLOCK_START for its original proposal, we want the consensus
     // event immediately prior to that
     bool found_finalized_block_start = false;
-    uint64_t prev_read = iter->read_last_seqno;
+    uint64_t prev_read = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
 
     while (monad_exec_iter_consensus_prev(iter, MONAD_EXEC_NONE, event) &&
-           !(found_finalized_block_start = _monad_exec_ring_is_start_of_block(
-                 event_ring, event, block_number))) {
-        prev_read = iter->read_last_seqno;
+           !(found_finalized_block_start = _monad_exec_is_start_of_block(
+                 EVSRC_CONST(iter), event, block_number))) {
+        prev_read = monad_evsrc_iterator_tell(EVSRC_CONST(iter));
     }
 
     if (found_finalized_block_start) {
-        iter->read_last_seqno = prev_read;
-        if (monad_event_iterator_try_copy(iter, event) == MONAD_EVENT_SUCCESS) {
+        monad_evsrc_iterator_seek(iter, prev_read);
+        if (monad_evsrc_iterator_try_copy(EVSRC_CONST(iter), event, nullptr) ==
+            MONAD_EVSRC_SUCCESS) {
             return true;
         }
     }
 
-    iter->read_last_seqno = iter_save;
+    monad_evsrc_iterator_seek(iter, iter_save);
     return false;
 }
