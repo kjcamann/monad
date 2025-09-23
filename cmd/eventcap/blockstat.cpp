@@ -126,14 +126,13 @@ bool on_payload_expired(
 {
     MONAD_DEBUG_ASSERT(
         source_iter->source_type == EventSource::Type::EventRing);
-    monad_event_iterator const &ring_iter = source_iter->ring_pair.iter;
+    MappedEventRing const *const mr = source_iter->ring_pair.ring;
     std::println(
         out,
         "ERROR: event {} payload lost! OFFSET: {}, WINDOW_START: {}",
         event->seqno,
         event->payload_buf_offset,
-        __atomic_load_n(
-            &ring_iter.control->buffer_window_start, __ATOMIC_ACQUIRE));
+        mr->get_buffer_window_start());
     return false;
 }
 

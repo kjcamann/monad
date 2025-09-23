@@ -319,9 +319,7 @@ void dump_thread_main(std::span<Command *const> commands)
                     "{}",
                     event.seqno,
                     event.payload_buf_offset,
-                    __atomic_load_n(
-                        &state.iter.ring_pair.iter.control->buffer_window_start,
-                        __ATOMIC_ACQUIRE));
+                    state.iter.ring_pair.ring->get_buffer_window_start());
                 (void)state.iter.clear_gap(true);
             }
         }
