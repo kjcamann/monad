@@ -64,7 +64,7 @@ ssize_t monad_evcap_writer_new_section(
 
 int monad_evcap_writer_add_schema_section(
     struct monad_evcap_writer *, enum monad_event_content_type,
-    uint8_t const *schema_hash);
+    uint8_t const *schema_hash, struct monad_evcap_section_desc const **);
 
 int monad_evcap_writer_dyn_sec_open(
     struct monad_evcap_writer *, struct monad_evcap_dynamic_section **,
@@ -95,9 +95,8 @@ int monad_evcap_writer_commit_seqno_index(
     struct monad_evcap_section_desc *event_bundle_desc);
 
 int monad_evcap_vbuf_append_event(
-    struct monad_vbuf_writer *, enum monad_event_content_type,
-    struct monad_event_descriptor const *, void const *payload,
-    struct monad_vbuf_chain *);
+    struct monad_vbuf_writer *, struct monad_event_descriptor const *,
+    void const *payload, struct monad_vbuf_chain *);
 
 char const *monad_evcap_writer_get_last_error();
 

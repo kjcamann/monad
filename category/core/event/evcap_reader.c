@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -322,9 +323,9 @@ int monad_evcap_reader_check_schema(
 }
 
 int monad_evcap_reader_open_iterator(
-    struct monad_evcap_reader *ecr,
+    struct monad_evcap_reader const *ecr,
     struct monad_evcap_section_desc const *event_sd,
-    struct monad_evcap_event_iterator *iter)
+    struct monad_evcap_iterator *iter)
 {
     int rc;
 
@@ -376,11 +377,10 @@ int monad_evcap_reader_open_iterator(
         iter->seqno_index.seqno_end =
             iter->seqno_index.seqno_start + event_sd->event_bundle.event_count;
     }
-
     return 0;
 }
 
-void monad_evcap_iterator_close(struct monad_evcap_event_iterator *iter)
+void monad_evcap_iterator_close(struct monad_evcap_iterator *iter)
 {
     if (iter == nullptr || iter->event_section_base == nullptr) {
         return;
@@ -394,6 +394,23 @@ void monad_evcap_iterator_close(struct monad_evcap_event_iterator *iter)
             (void *)iter->seqno_index.offsets, iter->seqno_zstd_map_len);
     }
     memset(iter, 0, sizeof *iter);
+}
+
+int _monad_evcap_iterator_set_error(
+    char const *function, char const *file, unsigned line, int rc,
+    char const *format, ...)
+{
+    monad_source_location_t const srcloc = {
+        .function_name = function,
+        .file_name = file,
+        .line = line,
+        .column = 0};
+    va_list ap;
+    va_start(ap, format);
+    rc = monad_vformat_err(
+        g_error_buf, sizeof g_error_buf, &srcloc, rc, format, ap);
+    va_end(ap);
+    return rc;
 }
 
 char const *monad_evcap_reader_get_last_error()

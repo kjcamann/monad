@@ -319,7 +319,7 @@ int monad_evcap_writer_alloc_empty_section(
 
 int monad_evcap_writer_add_schema_section(
     struct monad_evcap_writer *ecw, enum monad_event_content_type content_type,
-    uint8_t const *schema_hash)
+    uint8_t const *schema_hash, struct monad_evcap_section_desc const **sd_p)
 {
     struct monad_evcap_section_desc *sd = alloc_section_table_descriptor(ecw);
     if (sd == nullptr) {
@@ -334,6 +334,9 @@ int monad_evcap_writer_add_schema_section(
         sizeof MONAD_EVENT_RING_HEADER_VERSION);
     sd->schema.content_type = content_type;
     memcpy(sd->schema.schema_hash, schema_hash, sizeof sd->schema.schema_hash);
+    if (sd_p != nullptr) {
+        *sd_p = sd;
+    }
     return 0;
 }
 
@@ -572,22 +575,21 @@ int monad_evcap_writer_commit_seqno_index(
 
 int monad_evcap_vbuf_append_event(
     struct monad_vbuf_writer *vbuf_writer,
-    enum monad_event_content_type content_type,
     struct monad_event_descriptor const *event, void const *payload,
     struct monad_vbuf_chain *vbuf_chain)
 {
     int rc;
+    size_t const initial_offset = monad_vbuf_writer_get_offset(vbuf_writer);
 
-    // Write the event descriptor, payload, and event content type (to support
-    // mixed content captures). The writes may need to insert padding to align
-    // the next descriptor to a "safe" file offset:
+    // Write the event descriptor and payload. The writes may need to insert
+    // padding to align the next descriptor to a "safe" file offset:
     //
     //    .--------------.
     //    |  Descriptor  |
     //    .--------------.
     //    |    Payload   |
     //    .--------------.
-    //    |   Ring type  |
+    //    |  Total size  |
     //    .--------------.
     //    | Tail padding |
     //    .--------------. <-- Aligned to alignof(monad_event_descriptor)
@@ -599,15 +601,14 @@ int monad_evcap_vbuf_append_event(
     // 64-byte aligned instruction such as the x64-64 AVX512 `vmovdqa64`. If
     // this happens at an unaligned address, this will fail (and it will appear
     // as a SIGSEGV with si_code set to SI_KERNEL, and the _wrong_ fault
-    // address, rather than the expected SIGBUS). The eventcap utility's event
-    // source "compatibility" iterator, for example, makes such copies to be
-    // compatible with the event ring iterator.
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer,
-             event,
-             sizeof *event,
-             alignof(struct monad_event_descriptor),
-             vbuf_chain)) != 0) {
+    // address, rather than the expected SIGBUS).
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer,
+        event,
+        sizeof *event,
+        alignof(struct monad_event_descriptor),
+        vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
             "vbuf couldn't append descriptor, caused by:\n%s",
@@ -616,26 +617,45 @@ int monad_evcap_vbuf_append_event(
 
     // memcpy to an "unaligned" address since it's slightly faster and we know
     // we're 64-byte aligned already
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer, payload, event->payload_size, 1, vbuf_chain)) != 0) {
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer, payload, event->payload_size, 1, vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
             "vbuf couldn't append payload, caused by:\n%s",
             monad_vbuf_writer_get_last_error());
     }
 
-    if ((rc = monad_vbuf_writer_memcpy(
-             vbuf_writer,
-             &content_type,
-             sizeof content_type,
-             alignof(enum monad_event_content_type),
-             vbuf_chain)) != 0) {
+    // Align the writer so that we can store an aligned size_t value
+    rc = monad_vbuf_writer_skip_bytes(
+        vbuf_writer, 0, alignof(size_t), vbuf_chain);
+    if (rc != 0) {
         return FORMAT_ERRC(
             rc,
-            "vbuf couldn't append content_type code, caused by:\n%s",
+            "vbuf couldn't align to size_t boundary, caused by:\n%s",
             monad_vbuf_writer_get_last_error());
     }
 
+    // Store the total size, including of the `total_size` value itself, so we
+    // can scan backwards; needed to implement monad_evcap_iterator_prev
+    size_t const total_size = monad_vbuf_writer_get_offset(vbuf_writer) -
+                              initial_offset + sizeof total_size;
+    rc = monad_vbuf_writer_memcpy(
+        vbuf_writer,
+        &total_size,
+        sizeof total_size,
+        1, // Already aligned
+        vbuf_chain);
+    if (rc != 0) {
+        return FORMAT_ERRC(
+            rc,
+            "vbuf couldn't append total_size, caused by:\n%s",
+            monad_vbuf_writer_get_last_error());
+    }
+
+    // Note: we're not aligned to the next descriptor boundary yet, it is done
+    // on the subsequent write; the final event does not necessary have full
+    // event descriptor tail padding
     return 0;
 }
 

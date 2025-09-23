@@ -29,8 +29,8 @@ extern "C"
 {
 #endif
 
-struct monad_evcap_event_iterator;
 struct monad_evcap_file_header;
+struct monad_evcap_iterator;
 struct monad_evcap_reader;
 struct monad_evcap_section_desc;
 struct monad_event_descriptor;
@@ -67,10 +67,10 @@ struct monad_evcap_section_desc const *monad_evcap_reader_next_section(
     struct monad_evcap_reader const *, enum monad_evcap_section_type filter,
     struct monad_evcap_section_desc const **);
 
-/// Check that the capture file contains SCHEMA section descriptor with the
+/// Check that the capture file contains a SCHEMA section descriptor with the
 /// given content_type and schema_hash; returns 0 upon success, ENOMSG if no
-/// such SCHEMA section was, EPROTO when it does not match, and EBADMSG if
-/// multiple hashes are present (even if they match)
+/// such section was found, EPROTO when it does not match, and EBADMSG if there
+/// are multiple descriptors for the same content_type (even if they match)
 int monad_evcap_reader_check_schema(
     struct monad_evcap_reader const *, uint8_t const *ring_magic,
     enum monad_event_content_type, uint8_t const *schema_hash);
@@ -79,36 +79,51 @@ int monad_evcap_reader_check_schema(
 /// is compressed, this will allocate memory to hold the decompressed contents,
 /// and the user must call monad_evcap_iterator_close to free this memory
 int monad_evcap_reader_open_iterator(
-    struct monad_evcap_reader *, struct monad_evcap_section_desc const *,
-    struct monad_evcap_event_iterator *);
+    struct monad_evcap_reader const *, struct monad_evcap_section_desc const *,
+    struct monad_evcap_iterator *);
 
-/// Set the ring type, descriptor, and payload for the next event in the
-/// EVENT_BUNDLE section referred to by the given iterator; returns false if
-/// no event was available because all events have been visited
+/// Set the event descriptor and payload for the next event in the EVENT_BUNDLE
+/// section referred to by the given iterator; advances the iterator if
+/// successful and returns false once all events have been visited
 static bool monad_evcap_iterator_next(
-    struct monad_evcap_event_iterator *, enum monad_event_content_type *,
-    struct monad_event_descriptor const **, uint8_t const **payload);
+    struct monad_evcap_iterator *, struct monad_event_descriptor const **,
+    void const **payload);
 
-/// Set the ring type, descriptor, and payload for the event present at the
-/// given section offset; returns the next (unaligned) read/ address after the
-/// event
+/// Set the event descriptor and payload for the previous event in the
+/// EVENT_BUNDLE section referred to by the given iterator; advances the
+/// iterator if successful and returns false once all events have been visited
+static bool monad_evcap_iterator_prev(
+    struct monad_evcap_iterator *, struct monad_event_descriptor const **,
+    void const **payload);
+
+/// Similar to monad_evcap_iterator_next, but does not advance the iterator
+static bool monad_evcap_iterator_copy(
+    struct monad_evcap_iterator const *, struct monad_event_descriptor const **,
+    void const **payload);
+
+/// Set the event descriptor and payload for the event present at the given
+/// section offset; returns the next (unaligned) read address after the event
 static size_t monad_evcap_iterator_at_offset(
-    struct monad_evcap_event_iterator const *, uint64_t section_offset,
-    enum monad_event_content_type *, struct monad_event_descriptor const **,
-    uint8_t const **payload);
+    struct monad_evcap_iterator const *, uint64_t section_offset,
+    struct monad_event_descriptor const **, void const **payload);
 
-/// Set the ring type, descriptor, and payload for the event with the given
-/// sequence number; this is the "evcap equivalent" of the event ring
-/// iterator's `monad_event_iterator_try_copy`; returns false if there's no
-/// sequence number index or if the requested sequence number is out of range
-static bool monad_evcap_iterator_copy_seqno(
-    struct monad_evcap_event_iterator const *, uint64_t seqno,
-    enum monad_event_content_type *, struct monad_event_descriptor const **,
-    uint8_t const **payload);
+/// Set the event descriptor and payload for the event with the given sequence
+/// number; this is the "evcap equivalent" of the event ring iterator's
+/// `monad_event_ring_try_copy`; returns EBADF if there is no sequence number
+/// index and ERANGE if the requested sequence number is out of range
+static int monad_evcap_iterator_copy_seqno(
+    struct monad_evcap_iterator const *, uint64_t seqno,
+    struct monad_event_descriptor const **, void const **payload);
+
+/// Set the iterator so that the next call to monad_evcap_iterator_copy
+/// or monad_evcap_iterator_next will return the given sequence number;
+/// possible return codes are the same as for `monad_evcap_iterator_copy_seqno`
+static int
+monad_evcap_iterator_set_seqno(struct monad_evcap_iterator *, uint64_t seqno);
 
 /// Close an iterator and free any dynamically allocated memory for
 /// decompressed section data
-void monad_evcap_iterator_close(struct monad_evcap_event_iterator *);
+void monad_evcap_iterator_close(struct monad_evcap_iterator *);
 
 /// Return a description of the last event reader API error that occurred on
 /// this thread
@@ -123,7 +138,7 @@ struct monad_evcap_seqno_index
 
 // clang-format off
 
-struct monad_evcap_event_iterator
+struct monad_evcap_iterator
 {
     uint8_t const *event_section_base;   ///< Base of EVENT_BUNDLE section mmap
     uint8_t const *event_section_next;   ///< Next event descriptor in section

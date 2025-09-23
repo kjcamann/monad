@@ -64,13 +64,15 @@ struct monad_evcap_schema_desc
 };
 
 // EVENT_BUNDLE section: the main section type in an event capture file, which
-// stores event content. Event bundles are generic (they can contain any
-// content_type, or multiple content types). Most fields in this descriptor do
-// not apply to all event bundles, but give extra metadata for special kinds of
-// capture files, e.g., block_number applies when a section contains all the
-// events in one finalized block, and is used by block archive and pack files
+// stores event content. Event bundles are generic: they can contain events
+// with any content_type, but all events must all be from same content type.
+// Most fields in this descriptor do not apply to all event bundles, but give
+// extra metadata for special kinds of capture files, e.g., block_number
+// applies when a section contains all the events in one finalized block, and
+// is used by block archive and pack files
 struct monad_evcap_event_bundle_desc
 {
+    uint64_t schema_desc_offset;
     uint64_t event_count;
     uint64_t start_seqno;
     uint32_t pack_index_id;
