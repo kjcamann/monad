@@ -19,16 +19,17 @@
  * Historical event recovery example - this small CLI application serves as a
  * demo of how to recover execution events that we missed for some reason
  * (our processing program crashed, the execution daemon crashed, etc.) It
- * relies on replaying a local copy of any blocks that are missing.
+ * relies on replaying a local copy of any blocks that were not processed.
  *
  * The local blocks are either already present on the host (written by a local
  * `blockcap` daemon) or they are downloaded from the cloud archive. This
  * program does not know how the blocks were recorded: it invokes an external
- * process to ensure that a range of blocks is present on disk "somehow".
+ * process to ensure that a range of blocks is present on disk "somehow."
  *
  * It is up to this external process to ensure the requested blocks are
  * populated in the local block directory structure, which could include
- * downloading the missing data from a remote archive.
+ * downloading the missing data from a remote archive. If the blocks are
+ * already present, this will be a no-op.
  */
 
 #include <errno.h>
@@ -61,6 +62,7 @@
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_ring_util.h>
+#include <category/core/event/event_source.h>
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
@@ -116,10 +118,10 @@ struct option const longopts[] = {
 
 // Half open range (block_start, block_end] representing a range of blocks
 // we need to fetch from the local archive. The range is half open on the
-// left side because we ask "what is the last block that we have definitely
-// already seen?" (and so does not need to be fetched) rather than "what's
-// the first thing that is missing?" (potentially nothing, if we're caught
-// up)
+// left side because everything is written in terms of "what is the last block
+// that we have definitely already seen?" (and so does not need to be fetched)
+// rather than "what is the first block that is missing?" (because this is
+// potentially nothing, if we're caught up)
 struct block_range
 {
     uint64_t block_start;
@@ -210,8 +212,9 @@ static bool process_has_exited(int pidfd)
     return poll(&pfd, 1, 0) == -1 || (pfd.revents & POLLIN) == POLLIN;
 }
 
-// Return the directory that this example program is running from; this is one
-// place where we'll search for the block fetch program
+// Return the directory that this example program is running from; our
+// executable's directory is one place where we'll search for the block fetch
+// program
 static char *get_exec_dir_name()
 {
     char path[PATH_MAX];
@@ -237,9 +240,9 @@ static char *resolve_fetch_command(char const *cmd, unsigned verbose)
         get_current_dir_name, get_exec_dir_name};
 
     if (strchr(cmd, '/') != nullptr) {
-        // General UNIX style is we only do complex resolution with "pure"
-        // filenames; this has a '/' so it's always relative to the current
-        // working directory
+        // General UNIX shell style is we only do complex command lookup when
+        // passed a "pure" command name; this command name has a '/' so it is
+        // always resolved relative to the current working directory
         if (verbose > 1) {
             fprintf(
                 stderr,
@@ -250,7 +253,7 @@ static char *resolve_fetch_command(char const *cmd, unsigned verbose)
         return realpath(cmd, nullptr);
     }
 
-    // Seed with PATH environment variable
+    // Seed the path search list with the PATH environment variable
     char const *const path_env = getenv("PATH");
     char *path_search = strdup(path_env != nullptr ? path_env : "");
     if (path_search == nullptr) {
@@ -280,7 +283,7 @@ static char *resolve_fetch_command(char const *cmd, unsigned verbose)
     char access_buf[PATH_MAX];
 
     // For each search path entry, check if <path-candidate>/cmd is an
-    // executable file, and stop the first time we find one
+    // executable file, and stop as soon as we find something that works
     while ((next_path = strsep(&path_search, ":"))) {
         int const buf_size =
             snprintf(access_buf, sizeof access_buf, "%s/%s", next_path, cmd);
@@ -319,8 +322,8 @@ static char *resolve_fetch_command(char const *cmd, unsigned verbose)
 // in the local finalized block archive directory; most of the time, we hope
 // that this does nothing because the files already exist locally. If there are
 // missing files, it may download them from a remote archive. Either way, the
-// assumption is that once this function returns, any block in that range can be
-// opened without an ENOENT error
+// assumption is that once this function returns, any block in that range can
+// be opened without an ENOENT error
 static void fetch_missing_block_range(
     char const *fetch_command, char const *block_dir_path,
     struct block_range range, bool verbose)
@@ -333,7 +336,7 @@ static void fetch_missing_block_range(
         return;
     }
     // The input is the half-open range (start, end], but the command takes
-    // an inclusive closed range [start, end], so add 1
+    // an inclusive closed range [start, end], thus why we add 1
     sprintf(start_block, "%lu", range.block_start + 1);
     sprintf(end_block, "%lu", range.block_end);
     if (verbose) {
@@ -367,7 +370,7 @@ static void fetch_missing_block_range(
     // wait forever, since the program could hang and would need to be killed
     // and restarted. We would need to have some kind of policy, e.g., to
     // decide if it is taking too long / not making progress. In this toy
-    // program, we wait forever
+    // example, we just wait forever
     if (waitid(P_PID, (id_t)child_pid, &exit_info, WEXITED) == -1) {
         err(EX_OSERR, "waitid failed");
     }
@@ -403,8 +406,8 @@ static void fetch_missing_block_range(
 }
 
 // Open the live event ring: this is mostly the same code as the basic
-// example (eventwatch.c) so it does not contain the explantory comments;
-// see eventwatch.c for an explanation of each of these steps
+// example (eventwatch.c) so it does not contain the explanatory comments;
+// see eventwatch.c for this same code, but with more explanation
 static int
 open_event_ring(char const *event_ring_path, struct monad_event_ring *exec_ring)
 {
@@ -466,10 +469,7 @@ open_event_ring(char const *event_ring_path, struct monad_event_ring *exec_ring)
     int pidfd = -1;
 #endif
 
-    // We no longer need the event ring file descriptor
     (void)close(ring_fd);
-
-    // Create an iterator to read from the event ring
     struct monad_event_iterator iter;
     if (monad_event_ring_init_iterator(exec_ring, &iter) != 0) {
         goto EventRingError;
@@ -488,8 +488,7 @@ EventRingError:
 // produced finalized block in the live event ring, compute the half-open
 // range of all the blocks we're missing
 static struct block_range compute_missing_block_range(
-    uint64_t last_finalized_block, struct monad_event_ring const *event_ring,
-    struct monad_event_iterator *iter, int pidfd)
+    uint64_t last_finalized_block, struct monad_event_iterator *iter, int pidfd)
 {
     struct block_range r = {.block_start = last_finalized_block};
     struct monad_event_descriptor event;
@@ -497,7 +496,7 @@ static struct block_range compute_missing_block_range(
     unsigned wait_count = 0;
 
     found_finalized = monad_exec_iter_consensus_prev(
-        iter, MONAD_EXEC_BLOCK_FINALIZED, &event);
+        EVSRC_ITER(iter), MONAD_EXEC_BLOCK_FINALIZED, &event);
     while (!found_finalized) {
         // Unable to rewind to the previous BLOCK_FINALIZED event; this means
         // that execution has been restarted recently, and there is not yet a
@@ -515,10 +514,11 @@ static struct block_range compute_missing_block_range(
         sleep(1);
         monad_event_iterator_reset(iter);
         found_finalized = monad_exec_iter_consensus_prev(
-            iter, MONAD_EXEC_BLOCK_FINALIZED, &event);
+            EVSRC_ITER(iter), MONAD_EXEC_BLOCK_FINALIZED, &event);
     }
 
-    if (!monad_exec_ring_get_block_number(event_ring, &event, &r.block_end)) {
+    if (!monad_exec_get_block_number(
+            EVSRC_CONST_ITER(iter), &event, &r.block_end)) {
         errx(EX_SOFTWARE, "unable to get block number for %lu", event.seqno);
     }
 
@@ -534,12 +534,6 @@ static struct block_range compute_missing_block_range(
 
     return r;
 }
-
-enum event_liveness
-{
-    EVENT_REPLAY,
-    EVENT_LIVE,
-};
 
 // One of the things this example is trying to show is that if you write your
 // software in terms of some processing function `f` (where you call
@@ -567,16 +561,19 @@ enum event_liveness
 // only see finalized blocks, and no BLOCK_FINALIZED event will be seen, but
 // can be assumed to be implicitly emitted after BLOCK_END.
 static void print_event(
-    struct monad_event_ring const *event_ring,
-    struct monad_event_descriptor const *event, enum event_liveness liveness,
-    FILE *out)
+    monad_evsrc_const_iterator_t iter,
+    struct monad_event_descriptor const *event, void const *payload, FILE *out)
 {
-    // This function is largely the same as the version in eventwatch.c,
-    // except that:
+    // This function is similar to the version in eventwatch.c, except that:
     //
-    //   1. It does not print a hexdump afterward
+    //   1. It is written in terms of the "event source" (evsrc) API, which
+    //      unifies the API of the live event ring iterator and the event
+    //      capture iterator
     //
-    //   2. After BLOCK_END is encountered when liveness == EVENT_REPLAY,
+    //   2. It does not print a hexdump afterward, although the comment where
+    //      it would print one has some important information
+    //
+    //   3. After BLOCK_END is encountered when liveness == EVENT_REPLAY,
     //      it prints an implicit finalization notice. This is meant to
     //      capture the fact that during "normal" (live) replay we have
     //      to do the extra work of tracking a proposed block through its
@@ -584,12 +581,25 @@ static void print_event(
     //      but most real applications need to. But when we are in
     //      EVENT_REPLAY mode, a special case is trigger where we know it is
     //      implicitly finalized
+    enum event_liveness
+    {
+        EVENT_REPLAY,
+        EVENT_LIVE,
+    };
+
     static char time_buf[32];
     static time_t last_second = 0;
 
     ldiv_t time_parts;
     char event_buf[256];
     char *o = event_buf;
+
+    // We can determine whether this event comes from a live event ring or
+    // from a capture file from the evsrc iterator
+    enum event_liveness const liveness =
+        monad_evsrc_iterator_get_type(iter) == MONAD_EVSRC_EVENT_RING
+            ? EVENT_LIVE
+            : EVENT_REPLAY;
 
     struct monad_event_metadata const *event_md =
         &g_monad_exec_event_metadata[event->event_type];
@@ -621,8 +631,7 @@ static void print_event(
         event->payload_buf_offset);
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0) {
         uint64_t block_number;
-        if (monad_exec_ring_get_block_number(
-                event_ring, event, &block_number)) {
+        if (monad_exec_get_block_number(iter, event, &block_number)) {
             o += sprintf(o, " BLK: %lu", block_number);
         }
         else {
@@ -632,6 +641,24 @@ static void print_event(
     if (event->content_ext[MONAD_FLOW_TXN_ID] != 0) {
         o += sprintf(o, " TXN: %lu", event->content_ext[MONAD_FLOW_TXN_ID] - 1);
     }
+
+    // To simplify the example, we don't print a hexdump of the event payload
+    // like the eventwatch.c example does. If we did, we would need to address
+    // the fact that `payload` may point into either
+    //
+    //   - event ring shared memory, which can be overwritten ("expire") OR
+    //   - event capture memory, which never expires
+    //
+    // This can be detected by calling the event source iterator function
+    // `monad_evsrc_iterator_check_payload`. Alternatively, the caller can
+    // opt out of using the zero-copy style, and pin `payload` by calling
+    // `monad_event_ring_payload_memcpy` before calling this function.
+    o += sprintf(
+        o,
+        " EXPIRED?: %c",
+        monad_evsrc_iterator_check_payload(iter, event) ? 'N' : 'Y');
+    (void)payload;
+
     *o++ = '\n';
     fwrite(event_buf, (size_t)(o - event_buf), 1, out);
 
@@ -670,8 +697,8 @@ static void event_loop(
 
 RecoverAgain:
     monad_event_iterator_reset(&ring_iter);
-    struct block_range missing = compute_missing_block_range(
-        last_finalized_block, event_ring, &ring_iter, pidfd);
+    struct block_range missing =
+        compute_missing_block_range(last_finalized_block, &ring_iter, pidfd);
     do {
         fetch_missing_block_range(
             resolved_fetch_command,
@@ -680,10 +707,10 @@ RecoverAgain:
             cfg->verbose > 0);
         for (uint64_t b = missing.block_start + 1; b <= missing.block_end;
              ++b) {
-            uint8_t const *payload;
+            void const *payload;
             struct monad_evcap_reader *evcap_reader;
             struct monad_evcap_section_desc const *block_sd;
-            struct monad_evcap_event_iterator evcap_iter;
+            struct monad_evcap_iterator evcap_iter;
             struct monad_event_descriptor const *evcap_event;
 
             // Try to open block b; we expect it to always be there, because
@@ -709,9 +736,12 @@ RecoverAgain:
                     "evcap_reader library error -- %s",
                     monad_evcap_reader_get_last_error());
             }
-            while (monad_evcap_iterator_next(
-                &evcap_iter, nullptr, &evcap_event, &payload)) {
-                print_event(event_ring, evcap_event, EVENT_REPLAY, out);
+            while (monad_evcap_iterator_copy(
+                &evcap_iter, &evcap_event, &payload)) {
+                print_event(
+                    EVSRC_CONST_ITER(&evcap_iter), evcap_event, payload, out);
+                (void)monad_evcap_iterator_next(
+                    &evcap_iter, &evcap_event, nullptr);
             }
             monad_evcap_iterator_close(&evcap_iter);
             monad_evcap_reader_destroy(evcap_reader);
@@ -721,8 +751,8 @@ RecoverAgain:
         // we were processing replay events. Our strategy is incremental: keep
         // using replay to close the gap until the gap is less than a certain
         // size, then we're "caught up enough" to switch to the live event ring.
-        missing = compute_missing_block_range(
-            missing.block_end, event_ring, &ring_iter, pidfd);
+        missing =
+            compute_missing_block_range(missing.block_end, &ring_iter, pidfd);
     }
     while (g_should_stop == 0 &&
            missing.block_end - missing.block_start > LIVE_RING_BLOCK_THRESHOLD);
@@ -730,7 +760,7 @@ RecoverAgain:
     // Rewind the live ring to the point where it will replay events after
     // the initial proposal of the last finalized block
     if (!monad_exec_iter_rewind_for_simple_replay(
-            &ring_iter, event_ring, missing.block_start, &live_event)) {
+            EVSRC_ITER(&ring_iter), missing.block_start, &live_event)) {
         // We were within the threshold, but somehow the rewind failed
         // TODO(ken): it is extremely unlikely this can ever happen, and we
         //  should think more about what the right to do is in this case
@@ -748,7 +778,7 @@ RecoverAgain:
     }
 
     while (g_should_stop == 0) {
-        switch (monad_event_iterator_try_next(&ring_iter, &live_event)) {
+        switch (monad_event_iterator_try_copy(&ring_iter, &live_event)) {
         case MONAD_EVENT_NOT_READY:
             if ((not_ready_count++ & ((1U << 25) - 1)) == 0) {
                 // The above guard prevents us from calling process_has_exited
@@ -766,24 +796,29 @@ RecoverAgain:
                 stderr,
                 "ERROR: event gap from %lu -> %lu, re-entering recovery\n",
                 ring_iter.read_last_seqno,
-                __atomic_load_n(
-                    &ring_iter.control->last_seqno, __ATOMIC_ACQUIRE));
+                monad_event_ring_get_last_written_seqno(event_ring, false));
             goto RecoverAgain;
 
         case MONAD_EVENT_SUCCESS:
-            print_event(event_ring, &live_event, EVENT_LIVE, out);
+            print_event(
+                EVSRC_CONST_ITER(&ring_iter),
+                &live_event,
+                monad_event_ring_payload_peek(event_ring, &live_event),
+                out);
             // Keep track of the last finalized block number, so we can recover
             // again when a gap occurs
             if (live_event.event_type == MONAD_EXEC_BLOCK_FINALIZED) {
-                if (monad_exec_ring_get_block_number(
-                        event_ring, &live_event, &last_finalized_block) ==
-                    false) {
+                if (monad_exec_get_block_number(
+                        EVSRC_CONST_ITER(&ring_iter),
+                        &live_event,
+                        &last_finalized_block) == false) {
                     errx(
                         EX_SOFTWARE,
                         "finalization of %lu expired immediately?",
                         live_event.seqno);
                 }
             }
+            monad_event_iterator_advance(&ring_iter, 1);
             break;
         }
         not_ready_count = 0;

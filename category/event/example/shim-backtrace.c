@@ -14,13 +14,25 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stddef.h>
-
 #include <stdio.h>
+
+#if __has_include(<execinfo.h>)
+    #include <execinfo.h>
+    #define HAS_GNU_BACKTRACE 1
+#endif
 
 extern void monad_stack_backtrace_capture_and_print(
     char *buffer, size_t size, int fd, unsigned indent,
     bool print_async_unsafe_info)
 {
-    (void)buffer, (void)size, (void)fd, (void)indent, (void)print_async_unsafe_info;
+#if HAS_GNU_BACKTRACE
+    int const n_frames =
+        backtrace((void *)buffer, (int)(size / sizeof(void *)));
+    backtrace_symbols_fd((void *)buffer, n_frames, fd);
+    (void)indent, (void)print_async_unsafe_info;
+#else
+    (void)buffer, (void)size, (void)fd, (void)indent,
+        (void)print_async_unsafe_info;
     fprintf(stderr, "error: backtrace not implemented\n");
+#endif
 }

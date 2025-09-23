@@ -53,6 +53,7 @@ constexpr bool PLATFORM_LINUX = false;
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_ring_util.h>
+#include <category/core/event/event_source.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
 
@@ -170,6 +171,7 @@ static void hexdump_event_payload(
 
 static void print_event(
     struct monad_event_ring const *event_ring,
+    struct monad_event_iterator const *iter,
     struct monad_event_descriptor const *event, FILE *out)
 {
     static char time_buf[32];
@@ -224,8 +226,8 @@ static void print_event(
         // potentially confusing in the output; we want the consensus events
         // to print nothing.
         uint64_t block_number;
-        if (monad_exec_ring_get_block_number(
-                event_ring, event, &block_number)) {
+        if (monad_exec_get_block_number(
+                EVSRC_ITER(iter), event, &block_number)) {
             o += sprintf(o, " BLK: %lu", (unsigned long)block_number);
         }
         else {
@@ -296,7 +298,7 @@ static void event_loop(
             break;
 
         case MONAD_EVENT_SUCCESS:
-            print_event(event_ring, &event, out);
+            print_event(event_ring, iter, &event, out);
             break;
         }
         not_ready_count = 0;
@@ -333,7 +335,8 @@ static void find_initial_iteration_point(struct monad_event_iterator *iter)
     //
     // The event ring typically holds hundreds of blocks, so moving backward
     // doesn't materially increase the risk that we'll fall behind and gap.
-    (void)monad_exec_iter_consensus_prev(iter, MONAD_EXEC_BLOCK_START, nullptr);
+    (void)monad_exec_iter_consensus_prev(
+        monad_evsrc_iterator_from_ring(iter), MONAD_EXEC_BLOCK_START, nullptr);
 }
 
 int main(int argc, char **argv)
