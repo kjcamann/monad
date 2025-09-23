@@ -15,16 +15,13 @@
 
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "init.hpp"
 #include "options.hpp"
 
 #include <array>
 #include <csignal>
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <format>
 #include <memory>
 #include <string>
@@ -32,7 +29,6 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <CLI/CLI.hpp>
@@ -40,97 +36,6 @@
 #include <sysexits.h>
 
 #include <category/core/event/event_ring.h>
-#include <category/execution/ethereum/event/exec_event_ctypes.h>
-
-// TODO(ken): clean up and give better parse errors?
-bool lexical_cast(std::string const &input, SequenceNumberSpec &spec)
-{
-    uint64_t number;
-    if (CLI::detail::lexical_cast(input, number)) {
-        if (number < 1) {
-            return false;
-        }
-        spec = number;
-        return true;
-    }
-
-    SemanticSequenceNumber semantic_seqno;
-    auto const colon_index = input.find(':');
-    std::string consensus_code;
-    if (colon_index != std::string::npos) {
-        consensus_code = input.substr(0, colon_index);
-        std::string const block_token = input.substr(colon_index + 1);
-        uint64_t block_number;
-        if (block_token.starts_with("0x")) {
-            uint8_t block_id[32];
-            if (block_token.length() - 2 != sizeof(block_id) * 2) {
-                return false;
-            }
-            char const *const start = block_token.data() + 2;
-            for (size_t i = 0; i < 32; ++i) {
-                if (std::sscanf(start + 2 * i, "%hhx", block_id + i) != 1) {
-                    return false;
-                }
-            }
-            auto &label =
-                semantic_seqno.block_label.emplace<std::array<std::byte, 32>>();
-            std::memcpy(label.data(), block_id, sizeof block_id);
-        }
-        else {
-            if (!CLI::detail::lexical_cast(block_token, block_number)) {
-                return false;
-            }
-            semantic_seqno.block_label = block_number;
-        }
-    }
-    else {
-        consensus_code = input;
-    }
-
-    if (consensus_code.length() != 1) {
-        return false;
-    }
-
-    switch (consensus_code[0]) {
-    case 'E':
-        [[fallthrough]];
-    case 'P':
-        semantic_seqno.consensus_type = MONAD_EXEC_BLOCK_START;
-        break;
-
-    case 'F':
-        semantic_seqno.consensus_type = MONAD_EXEC_BLOCK_FINALIZED;
-        break;
-
-    case 'Q':
-        semantic_seqno.consensus_type = MONAD_EXEC_BLOCK_QC;
-        break;
-
-    case 'V':
-        if (std::holds_alternative<std::array<std::byte, 32>>(
-                semantic_seqno.block_label)) {
-            // Can't use block ID for verified
-            return false;
-        }
-        semantic_seqno.consensus_type = MONAD_EXEC_BLOCK_VERIFIED;
-        break;
-
-    case 'R':
-        if (std::holds_alternative<std::array<std::byte, 32>>(
-                semantic_seqno.block_label)) {
-            // Can't use block ID for simple replay
-            return false;
-        }
-        semantic_seqno.consensus_type = MONAD_EXEC_NONE;
-        break;
-
-    default:
-        return false;
-    }
-
-    spec = semantic_seqno;
-    return true;
-}
 
 namespace
 {
@@ -144,14 +49,16 @@ void add_common_options(
     CLI::App *subcommand, CommonCommandOptions &options,
     std::string_view subcommand_verb)
 {
-    CLI::Option *const ring_opt = subcommand
-                                      ->add_option(
-                                          "-r,--ring",
-                                          options.ring_spec,
-                                          "Event ring file or --input name")
-                                      ->type_name("<ring-spec>");
-    if (!empty(options.ring_spec)) {
-        ring_opt->default_val(options.ring_spec)->capture_default_str();
+    CLI::Option *const source_opt =
+        subcommand
+            ->add_option(
+                "-s,--source",
+                options.event_source_spec,
+                "Event ring, capture file, archive directory, or --input name")
+            ->type_name("<event-source-spec>");
+    if (!empty(options.event_source_spec)) {
+        source_opt->default_val(options.event_source_spec)
+            ->capture_default_str();
     }
     subcommand
         ->add_option(
@@ -172,8 +79,8 @@ void add_seqno_range_options(
 {
     subcommand
         ->add_option(
-            "-s,--start",
-            options.start_seqno,
+            "-b,--begin",
+            options.begin_seqno,
             "Start iteration at this sequence number")
         ->type_name("<seqno>");
     subcommand
@@ -181,8 +88,7 @@ void add_seqno_range_options(
             "-e,--end",
             options.end_seqno,
             "Stop iteration at this sequence number")
-        ->type_name("<seqno>")
-        ->check(CLI::PositiveNumber);
+        ->type_name("<seqno>");
 }
 
 CLI::Option *add_tui_mode_option(CLI::App *subcommand, TextUIMode &tui_mode)
@@ -209,7 +115,8 @@ int main(int argc, char **argv)
 {
     BlockStatCommandOptions blockstat_command{};
     ExecStatCommandOptions execstat_command{};
-    HeaderCommandOptions header_command{};
+    HeadStatCommandOptions headstat_command{};
+    InfoCommandOptions info_command{};
     RecordCommandOptions record_command{};
     RecordExecCommandOptions recordexec_command{};
 
@@ -244,6 +151,8 @@ int main(int argc, char **argv)
         ->type_name("<ring-spec>")
         ->delimiter(',');
 
+    cli.require_subcommand(1, 0);
+
     /*
      * blockstat command
      */
@@ -255,7 +164,7 @@ int main(int argc, char **argv)
     add_seqno_range_options(blockstat, blockstat_command.common_options);
     blockstat->alias("bs");
     blockstat->add_flag(
-        "-b,--blocks",
+        "--blocks",
         blockstat_command.display_blocks,
         "Display information about each block");
     CLI::Option *const outliers_opt =
@@ -346,56 +255,60 @@ If no subcommand instance specifies an --output option, stdout will be used.)");
     CLI::App *const execstat =
         cli.add_subcommand("execstat", "Print execution statistics");
     execstat->alias("xs");
-    execstat_command.common_options.ring_spec =
+    execstat_command.common_options.event_source_spec =
         g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
     add_common_options(execstat, execstat_command.common_options, "execstat");
     add_tui_mode_option(execstat, execstat_command.tui_mode);
 
     /*
-     * header subcommand
+     * headstat subcommand
      */
 
-    CLI::App *const header =
-        cli.add_subcommand("header", "Print event file header");
-    add_common_options(header, header_command.common_options, "header");
-    header->remove_option(header->get_option("--ring"));
-    header
+    CLI::App *const headstat =
+        cli.add_subcommand("headstat", "Print live event ring file statistics");
+    headstat->alias("hs");
+    add_common_options(headstat, headstat_command.common_options, "headstat");
+    headstat->remove_option(headstat->get_option("--source"));
+    headstat->add_option("file", headstat_command.inputs, "Event ring fil")
+        ->type_name("<event-ring-file>");
+    headstat
         ->add_option(
-            "file",
-            header_command.inputs,
-            "Event ring file, type, evcap file, or --input name")
-        ->type_name("<ring-spec>");
-    CLI::Option *const header_stat_opt =
-        header
-            ->add_option(
-                "-s,--stat",
-                header_command.stats_interval,
-                "Print statistics update after this period")
-            ->type_name("<seconds>")
-            ->check(CLI::Range(1, 600));
-    header->get_option("--thread")
-        ->needs(header_stat_opt)
-        ->description("Thread for sampling live ring stats");
-    header->get_option("--output")
+            "-s,--stat",
+            headstat_command.stats_interval,
+            "Print statistics update after this period")
+        ->type_name("<seconds>")
+        ->check(CLI::Range(1, 600))
+        ->required();
+    headstat->get_option("--output")
         ->description("Output file, stdout if not specified");
-    header
-        ->add_flag(
-            "-Z,--no-zeros",
-            header_command.discard_zero_samples,
-            "Remove samples when no events are recorded")
-        ->needs(header_stat_opt);
-    header->add_flag(
+    headstat->add_flag(
+        "-Z,--no-zeros",
+        headstat_command.discard_zero_samples,
+        "Remove samples when no events are recorded");
+    add_tui_mode_option(headstat, headstat_command.tui_mode);
+    headstat->footer(
+        R"(The event ring file header will be statistically sampled at the
+specified rate, to produce a sample distribution for events/second and the
+MiB/s payload consumption rate.)");
+
+    /*
+     * info subcommand
+     */
+
+    CLI::App *const info =
+        cli.add_subcommand("info", "Print event source file information");
+    add_common_options(info, info_command.common_options, "info");
+    info->remove_option(info->get_option("--source"));
+    info->remove_option(info->get_option("--thread"));
+    info->add_option(
+            "file",
+            info_command.inputs,
+            "Event ring file, type, evcap file, or archive directory")
+        ->type_name("<event-source-file>");
+    info->add_flag(
         "--full-section-table",
-        header_command.full_evcap_section_table,
+        info_command.full_evcap_section_table,
         "Print the full section table for evcap files");
-    add_tui_mode_option(header, header_command.tui_mode)
-        ->needs(header_stat_opt);
-    header->footer(
-        R"(Without any extra options, the header subcommand will dump the information
-in the event ring file header to the output file. If the -s,--stat option is
-specified, the header will be statistically sampled at the specified rate, to
-produce a sample distribution for events/second and the MiB/s payload
-consumption rate.)");
 
     /*
      * record subcommand
@@ -425,7 +338,7 @@ consumption rate.)");
         record_command.no_seqno_index,
         "Disable the sequence number index");
     record->add_flag(
-        "-b,--backpressure",
+        "--backpressure",
         record_command.print_backpressure_stats,
         "Print backpressure statistics to stderr");
 
@@ -434,14 +347,27 @@ consumption rate.)");
      */
 
     CLI::App *const recordexec = cli.add_subcommand(
-        "recordexec", "Record execution events with finalized block indices");
+        "recordexec", "Record execution events with in a block-aware format");
     recordexec->alias("rex");
-    recordexec_command.common_options.ring_spec =
+    recordexec_command.common_options.event_source_spec =
         g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
     add_common_options(
         recordexec, recordexec_command.common_options, "recordexec");
     add_seqno_range_options(recordexec, recordexec_command.common_options);
     recordexec->get_option("--output")->required();
+    recordexec
+        ->add_option(
+            "-f,--format",
+            recordexec_command.block_format,
+            "block recording format")
+        ->required()
+        ->default_val(BlockRecordFormat::Archive)
+        ->type_name("<block-format>")
+        ->transform(CLI::CheckedTransformer(
+            std::unordered_map<std::string, BlockRecordFormat>{
+                {"archive", BlockRecordFormat::Archive},
+                {"packed", BlockRecordFormat::Packed}},
+            CLI::ignore_case));
     recordexec
         ->add_option(
             "-z,--event-zstd-level",
@@ -505,7 +431,7 @@ wrapping around and over-writing earlier ones. This is used to create test
 case data, or to re-create replay inputs. Typically the user runs zstd to
 compress the output ring file, e.g.:
 
-    eventcap snap -rexec -o- -e 100000 | zstd -19 > /tmp/snapshot.zst
+    eventcap snap -sexec -o- -e 100000 | zstd -19 > /tmp/snapshot.zst
 
 If the user does not specify an ending sequence number describing when to
 terminate the snapshot, it must be terminated manually by sending SIGINT to
@@ -516,7 +442,7 @@ In that case, the typical way of running the above command would require
 setsid(1) to be used for the later pipeline stage so it is not interrupted
 along with the process group leader (which is eventcap), e.g.:
 
-    eventcap snap -rexec -o- | sedsid zstd -19 > /tmp/snapshot.zst
+    eventcap snap -sexec -o- | sedsid zstd -19 > /tmp/snapshot.zst
 
 The threading model behaves the same as the dump command.)");
 
@@ -548,8 +474,11 @@ The threading model behaves the same as the dump command.)");
     if (execstat->count() > 0) {
         builder.build_execstat_command(execstat_command);
     }
-    if (header->count() > 0) {
-        builder.build_header_command(header_command);
+    if (headstat->count() > 0) {
+        builder.build_headstat_command(headstat_command);
+    }
+    if (info->count() > 0) {
+        builder.build_info_command(info_command);
     }
     if (record->count() > 0) {
         builder.build_record_command(record_command);
@@ -566,8 +495,8 @@ The threading model behaves the same as the dump command.)");
     // Some commands are "one-offs" and don't need their own thread; these are
     // handled immediately on the main thread
     for (std::unique_ptr<Command> const &command : topology.commands) {
-        if (command->has_type(Command::Type::Header)) {
-            auto *const opts = command->get_options<HeaderCommandOptions>();
+        if (command->has_type(Command::Type::Info)) {
+            auto const *const opts = command->get_options<InfoCommandOptions>();
             print_event_source_headers(
                 command->event_sources,
                 opts->full_evcap_section_table,
