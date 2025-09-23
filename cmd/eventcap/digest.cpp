@@ -15,7 +15,8 @@
 
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "options.hpp"
 #include "util.hpp"
 
@@ -34,7 +35,6 @@
 #include <openssl/evp.h>
 #include <openssl/types.h>
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/hex.hpp>
 
@@ -43,10 +43,10 @@ namespace
 
 struct EventSourceState
 {
-    EventSource::Iterator iter;
+    EventIterator iter;
     size_t not_ready_count;
     EVP_MD_CTX *hash_ctx;
-    EventSource *event_source;
+    EventSourceSpec const *event_source;
     bool finished;
     Command *command;
 };
@@ -61,17 +61,15 @@ void digest_thread_main(std::span<Command *const> commands)
     EVP_MD const *const sha256_md = EVP_sha256();
 
     for (size_t i = 0; Command *const c : commands) {
-        auto const *const options = c->get_common_options();
         EventSourceState &state = *new (&states[i++]) EventSourceState{};
         state.hash_ctx = EVP_MD_CTX_create();
         if (EVP_DigestInit_ex(state.hash_ctx, sha256_md, nullptr) != 1) {
             ERR_print_errors_fp(stderr);
             errx_f(EX_SOFTWARE, "EVP_DigestInit_ex failed");
         }
-        state.event_source = c->event_sources[0];
+        state.event_source = &c->event_sources[0];
         state.command = c;
-        state.event_source->init_iterator(
-            &state.iter, options->start_seqno, options->end_seqno);
+        state.event_source->init_iterator(&state.iter);
     }
 
     size_t active_state_count = size(states);
@@ -82,17 +80,23 @@ void digest_thread_main(std::span<Command *const> commands)
             }
 
             using enum EventIteratorResult;
-            monad_event_content_type content_type;
             monad_event_descriptor event;
             std::byte const *payload;
-            switch (state.iter.next(&content_type, &event, &payload)) {
-            case AfterStart:
+            switch (state.iter.next(&event, &payload)) {
+            case Error:
                 errx_f(
                     EX_SOFTWARE,
-                    "event seqno {} occurs after start seqno {};"
+                    "EventIterator::next error {} -- {}",
+                    state.iter.error_code,
+                    state.iter.last_error_msg);
+
+            case AfterBegin:
+                errx_f(
+                    EX_SOFTWARE,
+                    "event seqno {} occurs after begin seqno {};"
                     "events missing",
                     event.seqno,
-                    *state.iter.start_seqno);
+                    *state.iter.begin_seqno);
 
             case AfterEnd:
                 errx_f(
@@ -102,14 +106,14 @@ void digest_thread_main(std::span<Command *const> commands)
                     event.seqno,
                     *state.iter.end_seqno);
 
-            case Finished:
+            case End:
                 --active_state_count;
                 state.finished = true;
                 continue;
 
             case NotReady:
                 if ((++state.not_ready_count & NotReadyCheckMask) == 0) {
-                    if (state.event_source->is_finalized()) {
+                    if (state.event_source->source_file->is_finalized()) {
                         --active_state_count;
                         state.finished = true;
                     }

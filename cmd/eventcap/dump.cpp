@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "metadata.hpp"
 #include "options.hpp"
 #include "util.hpp"
 
-#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -39,21 +39,22 @@
 #include <category/core/event/event_ring.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes_fmt.hpp>
+#include <category/execution/ethereum/event/exec_iter_help.h>
 
 namespace
 {
 
 struct EventSourceState
 {
-    EventSource::Iterator iter;
+    EventIterator iter;
     size_t not_ready_count;
     bool finished;
-    EventSource const *event_source;
+    EventSourceSpec const *event_source;
     Command const *command;
 };
 
 bool hexdump_event_payload(
-    EventSource::Iterator const *iter, monad_event_descriptor const *event,
+    EventIterator const *iter, monad_event_descriptor const *event,
     std::byte const *const payload_base, std::FILE *out)
 {
     // Large thread_locals will cause a stack overflow, so make the
@@ -64,9 +65,9 @@ bool hexdump_event_payload(
 
     bool const overflow = event->payload_size > hexdump_buf_size;
     std::byte const *const payload_end =
-        overflow
-            ? std::bit_cast<std::byte *>(hexdump_buf.get()) + hexdump_buf_size
-            : payload_base + event->payload_size;
+        overflow ? reinterpret_cast<std::byte *>(hexdump_buf.get()) +
+                       hexdump_buf_size
+                 : payload_base + event->payload_size;
     char *o = hexdump_buf.get();
     for (std::byte const *line = payload_base; line < payload_end; line += 16) {
         // Print one line of the dump, which is 16 bytes, in the form:
@@ -105,32 +106,17 @@ bool hexdump_event_payload(
 }
 
 char *format_exec_event_user_array(
-    EventSource::Iterator const *iter, monad_event_descriptor const *event,
-    char *o)
+    EventIterator const *iter, monad_event_descriptor const *event,
+    std::byte const *payload, char *o)
 {
-    if (uint64_t const block_start_seqno =
-            event->content_ext[MONAD_FLOW_BLOCK_SEQNO]) {
-        monad_event_descriptor block_start_event;
-        std::byte const *block_start_payload;
-        std::optional<uint64_t> block_number;
-        if (iter->read_seqno(
-                block_start_seqno,
-                nullptr,
-                &block_start_event,
-                &block_start_payload)) {
-            auto const *const bs =
-                reinterpret_cast<monad_exec_block_start const *>(
-                    block_start_payload);
-            block_number = bs->block_tag.block_number;
-            if (!iter->check_payload(&block_start_event)) {
-                block_number.reset();
-            }
-        }
-        if (block_number) {
-            o = std::format_to(o, " BLK: {}", *block_number);
+    if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0) {
+        uint64_t block_number;
+        if (monad_exec_get_block_number(
+                iter->get_evsrc_any(), event, payload, &block_number)) {
+            o = std::format_to(o, " BLK: {}", block_number);
         }
         else {
-            o = std::format_to(o, " BLK: N/A");
+            o = std::format_to(o, " BLK: <LOST>");
         }
     }
     if (uint64_t const txn_id = event->content_ext[MONAD_FLOW_TXN_ID]) {
@@ -140,9 +126,9 @@ char *format_exec_event_user_array(
 }
 
 bool print_event(
-    EventSource::Iterator const *iter, monad_event_content_type content_type,
-    monad_event_descriptor const *event, std::byte const *payload,
-    DumpCommandOptions const *dump_opts, std::FILE *out)
+    EventIterator const *iter, monad_event_descriptor const *event,
+    std::byte const *payload, DumpCommandOptions const *dump_opts,
+    std::FILE *out)
 {
     using std::chrono::seconds, std::chrono::nanoseconds;
     static std::chrono::sys_time<seconds> last_second{};
@@ -151,7 +137,7 @@ bool print_event(
     char event_buf[512];
 
     monad_event_metadata const &event_md =
-        MetadataTable[content_type].entries[event->event_type];
+        MetadataTable[iter->content_type].event_meta[event->event_type];
     std::chrono::sys_time const event_time{
         nanoseconds{event->record_epoch_nanos}};
 
@@ -194,20 +180,21 @@ bool print_event(
     //   2. For all other rings, or if explicitly requested for debugging
     //      purposes, the hex value of each array element is printed
     if (dump_opts->always_dump_content_ext ||
-        content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
+        iter->content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
         o = std::format_to(o, " CONTENT_EXT:");
         for (uint64_t const u : event->content_ext) {
             o = std::format_to(o, " {0:#08x}", u);
         }
     }
-    if (content_type == MONAD_EVENT_CONTENT_TYPE_EXEC) {
-        o = format_exec_event_user_array(iter, event, o);
+    if (iter->content_type == MONAD_EVENT_CONTENT_TYPE_EXEC) {
+        o = format_exec_event_user_array(iter, event, payload, o);
     }
     *o++ = '\n';
     std::fwrite(event_buf, static_cast<size_t>(o - event_buf), 1, out);
     bool payload_ok = true;
 
-    if (dump_opts->decode && content_type == MONAD_EVENT_CONTENT_TYPE_EXEC &&
+    if (dump_opts->decode &&
+        iter->content_type == MONAD_EVENT_CONTENT_TYPE_EXEC &&
         event->payload_size > 0) {
         // TODO(ken): generalize a decode interface beyond the exec ring
         std::string buf;
@@ -241,11 +228,9 @@ void dump_thread_main(std::span<Command *const> commands)
 
     for (size_t i = 0; Command *const c : commands) {
         EventSourceState &state = *new (&states[i++]) EventSourceState{};
-        state.event_source = c->event_sources[0];
+        state.event_source = &c->event_sources[0];
         state.command = c;
-        CommonCommandOptions const *cc_opts = c->get_common_options();
-        state.event_source->init_iterator(
-            &state.iter, cc_opts->start_seqno, cc_opts->end_seqno);
+        state.event_source->init_iterator(&state.iter);
     }
 
     while (g_should_exit == 0 && active_state_count > 0) {
@@ -257,23 +242,31 @@ void dump_thread_main(std::span<Command *const> commands)
                 continue;
             }
 
-            monad_event_content_type content_type;
             monad_event_descriptor event;
             std::byte const *payload;
-            switch (state.iter.next(&content_type, &event, &payload)) {
+            switch (state.iter.next(&event, &payload)) {
+            // Loop-terminating cases
+            case Error:
+                std::println(
+                    stderr,
+                    "EventIterator::next error {} -- {}",
+                    state.iter.error_code,
+                    state.iter.last_error_msg);
+                [[fallthrough]];
             case AfterEnd:
                 [[fallthrough]];
-            case Finished:
+            case End:
                 --active_state_count;
                 state.finished = true;
                 [[fallthrough]];
+
             case Skipped:
                 continue;
 
             case NotReady:
                 if ((++state.not_ready_count & NotReadyCheckMask) == 0) {
                     std::fflush(state.command->output->file);
-                    if (state.event_source->is_finalized()) {
+                    if (state.event_source->source_file->is_finalized()) {
                         --active_state_count;
                         state.finished = true;
                     }
@@ -291,11 +284,11 @@ void dump_thread_main(std::span<Command *const> commands)
                 continue;
             }
 
-            case AfterStart:
+            case AfterBegin:
                 std::println(
                     stderr,
-                    "ERROR: missing start seqno {}",
-                    *state.iter.start_seqno);
+                    "ERROR: missing begin seqno {}",
+                    *state.iter.begin_seqno);
                 [[fallthrough]];
 
             case Success:
@@ -310,8 +303,8 @@ void dump_thread_main(std::span<Command *const> commands)
                 // an index
                 std::print(output, "{}. ", ring_index);
             }
-            bool const payload_ok = print_event(
-                &state.iter, content_type, &event, payload, options, output);
+            bool const payload_ok =
+                print_event(&state.iter, &event, payload, options, output);
             if (!payload_ok) {
                 std::println(
                     stderr,
@@ -319,9 +312,8 @@ void dump_thread_main(std::span<Command *const> commands)
                     "{}",
                     event.seqno,
                     event.payload_buf_offset,
-                    __atomic_load_n(
-                        &state.iter.ring_pair.iter.control->buffer_window_start,
-                        __ATOMIC_ACQUIRE));
+                    state.iter.ring.get_mapped_event_ring()
+                        ->get_buffer_window_start());
                 (void)state.iter.clear_gap(true);
             }
         }

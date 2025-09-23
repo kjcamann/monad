@@ -23,8 +23,8 @@
  * Although there is little harm in taking this dependency ourselves, third
  * party users of the SDK may not want to use this library. If they use an
  * SDK function which asserts, they will will need to provide this symbol
- * to the linker. This file serves as an example of how to do this, using
- * the C++23 <stacktrace>
+ * to the linker. This file serves as an example of how to do this using
+ * the C++23 <stacktrace>.
  */
 
 #include <version>
@@ -42,10 +42,10 @@ extern "C" void monad_stack_backtrace_capture_and_print(
     bool /*print_async_unsafe_info*/)
 {
     // The implementation gives a fixed-sized buffer into which to write
-    // the stack trace, so that this function can be used in contexts where
-    // it is not safe to allocate memory. We don't currently do the work of
-    // wiring up to the C++ allocator system, so for now we just ignore these
-    // parameters.
+    // the stack return addresses, so that this function can be used in
+    // contexts where it is not safe to allocate memory. We don't currently do
+    // the work of wiring fixed-sized buffers up to the C++ allocator interface,
+    // so for now we just ignore these parameters.
     (void)buffer, (void)size;
 
     char indent_buffer[64];
@@ -55,7 +55,7 @@ extern "C" void monad_stack_backtrace_capture_and_print(
     for (std::stacktrace_entry const &e : std::stacktrace::current()) {
         dprintf(
             fd,
-            "%s  %s @ %s:%u\n",
+            "%s%s @ %s:%u\n",
             indent_buffer,
             e.description().c_str(),
             e.source_file().c_str(),
@@ -68,6 +68,8 @@ extern "C" void monad_stack_backtrace_capture_and_print(
 extern "C" void monad_stack_backtrace_capture_and_print(
     char *, size_t, int fd, unsigned indent, bool)
 {
+    // You may want to use shim-backtrace.c from the SDK example code if
+    // your C++ standard library has no backtracing function
     char indent_buffer[64];
     memset(indent_buffer, ' ', 64);
     indent_buffer[indent] = 0;

@@ -13,16 +13,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "init.hpp"
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
 #include "metadata.hpp"
 #include "options.hpp"
+#include "parse.hpp"
 #include "util.hpp"
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -31,6 +32,7 @@
 #include <format>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -38,7 +40,6 @@
 #include <tuple>
 #include <unordered_set>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <fcntl.h>
@@ -58,8 +59,8 @@
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/core/event/test_event_ctypes.h>
-#include <category/core/hex.hpp>
 #include <category/core/mem/align.h>
+#include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 
 namespace fs = std::filesystem;
@@ -68,6 +69,8 @@ namespace fs = std::filesystem;
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wc99-designator"
 #endif
+
+extern char const *__progname;
 
 namespace
 {
@@ -108,8 +111,10 @@ constexpr char const *describe(Command::Type t)
         return "dump";
     case ExecStat:
         return "execstat";
-    case Header:
-        return "header";
+    case HeadStat:
+        return "headstat";
+    case Info:
+        return "info";
     case Record:
         return "record";
     case RecordExec:
@@ -132,40 +137,81 @@ constexpr ThreadEntrypointFunction get_thread_entrypoint(Command::Type t)
         return dump_thread_main;
     case ExecStat:
         return execstat_thread_main;
-    case Header:
-        return header_stats_thread_main;
+    case HeadStat:
+        return headstat_thread_main;
     case Record:
         return record_thread_main;
     case RecordExec:
         return recordexec_thread_main;
     case Snapshot:
         return snapshot_thread_main;
+    default:
+        break;
     }
     std::unreachable();
 }
 
-fs::path resolve_input_spec(std::string const &input)
+void try_insert_named_input(
+    std::string const &named_input, fs::path const &canonical_path,
+    NamedInputMap &input_map, std::string_view context)
 {
-    std::string unexpanded_input = input;
-    auto const i_entry = std::ranges::find(
-        EventContentTypeToDefaultFileNameTable,
-        input,
-        &EventContentTypeToDefaultFileNameEntry::type_name);
-    if (i_entry != std::ranges::end(EventContentTypeToDefaultFileNameTable)) {
-        unexpanded_input = i_entry->default_file_name;
+    auto const [i_existing, inserted] =
+        input_map.emplace(named_input, canonical_path);
+    if (!inserted && !equivalent(canonical_path, i_existing->second)) {
+        errx_f(
+            EX_USAGE,
+            "{} error: named input {} bound to {} but shadows existing binding "
+            "{}->{}",
+            context,
+            named_input,
+            canonical_path.string(),
+            named_input,
+            i_existing->second.string());
+    }
+}
+
+fs::path resolve_event_source_file(
+    ParsedEventSourceSpec const &ess, NamedInputMap &input_map,
+    std::string_view context)
+{
+    auto const i_named_map_entry = input_map.find(ess.event_source_file);
+    if (i_named_map_entry != input_map.end()) {
+        if (!empty(ess.named_input)) {
+            // Injecting an alias, e.g.,
+            //   -i <name1>:path_to_file
+            //   -i <name2>:<name1>
+            try_insert_named_input(
+                ess.named_input, i_named_map_entry->second, input_map, context);
+        }
+        return i_named_map_entry->second;
     }
 
-    // Expand the ring file as the shell would, using wordexp(3)
+    std::string unexpanded_input = ess.event_source_file;
+    auto const *const i_default_entry = std::ranges::find(
+        EventContentTypeToDefaultFileNameTable,
+        ess.event_source_file,
+        &EventContentTypeToDefaultFileNameEntry::type_name);
+    if (i_default_entry !=
+        std::ranges::end(EventContentTypeToDefaultFileNameTable)) {
+        unexpanded_input = i_default_entry->default_file_name;
+    }
+
+    // Expand the source file as the shell would, using wordexp(3)
     wordexp_t exp;
     if (auto const rc = wordexp(
             unexpanded_input.c_str(), &exp, WRDE_SHOWERR | WRDE_UNDEF)) {
         errx_f(
-            EX_CONFIG, "wordexp(3) of `{}` returned {}", unexpanded_input, rc);
+            EX_CONFIG,
+            "{} error: wordexp(3) of `{}` returned {}",
+            context,
+            unexpanded_input,
+            rc);
     }
     else if (exp.we_wordc != 1) {
         errx_f(
             EX_CONFIG,
-            "wordexp(3) of `{}` expanded to {} files; expected 1",
+            "{} error: wordexp(3) of `{}` expanded to {} files; expected 1",
+            context,
             unexpanded_input,
             exp.we_wordc);
     }
@@ -183,73 +229,46 @@ fs::path resolve_input_spec(std::string const &input)
                 "event library error -- {}",
                 monad_event_ring_get_last_error());
         }
-        input_file = fs::path{event_ring_default_dir} / input_file;
+        // XXX: explain this complex selection logic...
+        fs::path const default_path_ring_file =
+            fs::path{event_ring_default_dir} / input_file;
+        bool const use_default_path =
+            exists(default_path_ring_file) || !exists(input_file);
+        if (use_default_path) {
+            input_file = default_path_ring_file;
+        }
     }
 
-    if (!is_regular_file(input_file)) {
+    if (!exists(input_file)) {
         // TODO(ken): .string() because both standard libraries are still
         //  missing P2845
         errc_f(
             EX_CONFIG,
             std::errc::no_such_file_or_directory,
-            "path `{}` is not an accessible event ring file",
+            "path `{}` is not an accessible event source file",
             input_file.string());
     }
-    return canonical(input_file);
-}
 
-fs::path resolve_ring_spec(
-    std::string const &ring_spec, NamedInputMap &named_input_map,
-    std::string_view resolve_context)
-{
-    if (empty(ring_spec)) {
-        errx_f(
-            EX_USAGE,
-            "no event ring specification provided to {}",
-            resolve_context);
+    // Canonicalize the file and insert it into the
+    fs::path const origin_path = canonical(input_file);
+    if (!empty(ess.named_input)) {
+        try_insert_named_input(
+            ess.named_input, origin_path, input_map, context);
     }
-    // <ring-spec> can introduce a new named input
-    auto const colon_index = ring_spec.find(':');
-    if (colon_index != std::string::npos) {
-        std::string const name = ring_spec.substr(0, colon_index);
-        fs::path const resolved =
-            resolve_input_spec(ring_spec.substr(colon_index + 1));
-        auto const [i_named, inserted] =
-            named_input_map.try_emplace(name, resolved);
-        if (!inserted && !equivalent(i_named->second, resolved)) {
-            errx_f(
-                EX_CONFIG,
-                "<ring-spec> `{}` introduced in {} resolves "
-                "to `{}` which shadows previous value `{}`",
-                ring_spec,
-                resolve_context,
-                resolved.string(),
-                i_named->second.string());
-        }
-        return resolved;
-    }
-    // Otherwise try to resolve <ring-spec> via lookup of a named input,
-    // or resolve it as an ordinary input
-    auto const i_named = named_input_map.find(ring_spec);
-    return i_named != end(named_input_map) ? i_named->second
-                                           : resolve_input_spec(ring_spec);
+    return origin_path;
 }
 
 void open_compressed_file(
     char const *zstd_file_path, std::span<char> file_magic,
-    EventSourceFile &source_file)
+    struct stat const &path_stat, int *fd)
 {
-    struct stat zstd_file_stat;
-    if (fstat(source_file.fd, &zstd_file_stat) == -1) {
-        err_f(EX_OSERR, "unable to stat zstd file `{}`", zstd_file_path);
-    }
-    size_t const compressed_size = static_cast<size_t>(zstd_file_stat.st_size);
+    size_t const compressed_size = static_cast<size_t>(path_stat.st_size);
     void *const compressed_base = mmap(
         nullptr,
-        static_cast<size_t>(zstd_file_stat.st_size),
+        static_cast<size_t>(path_stat.st_size),
         PROT_READ,
         MAP_SHARED,
-        source_file.fd,
+        *fd,
         0);
     if (compressed_base == MAP_FAILED) {
         err_f(
@@ -306,7 +325,7 @@ void open_compressed_file(
     munmap(compressed_base, compressed_size);
     std::memcpy(data(file_magic), decompressed_base, size(file_magic));
     munmap(decompressed_base, memfd_size);
-    std::swap(source_file.fd, memfd);
+    std::swap(*fd, memfd);
     (void)close(memfd);
 }
 
@@ -314,9 +333,9 @@ constexpr size_t MAGIC_SIZE = std::max(
     sizeof MONAD_EVCAP_FILE_MAGIC, sizeof MONAD_EVENT_RING_HEADER_VERSION);
 static_assert(MAGIC_SIZE >= sizeof ZSTD_MAGICNUMBER);
 
-std::span<monad_event_metadata const> get_metadata_entries(
-    monad_event_content_type content_type, fs::path const &path,
-    uint8_t const *file_hash)
+// The safe way to get a table entry, because the input data may be malformed
+MetadataTableEntry const &get_metadata_table_entry(
+    fs::path const &path, monad_event_content_type content_type)
 {
     if (std::to_underlying(content_type) >= std::size(MetadataTable)) {
         errx_f(
@@ -326,8 +345,7 @@ std::span<monad_event_metadata const> get_metadata_entries(
             std::to_underlying(content_type));
     }
 
-    // Get the metadata hash we're compiled with, or substitute the zero
-    // hash if the command line told us to
+    // Check that the schema hash has been initialized
     if (MetadataTable[content_type].schema_hash == nullptr) {
         errx_f(
             EX_CONFIG,
@@ -337,65 +355,48 @@ std::span<monad_event_metadata const> get_metadata_entries(
             std::to_underlying(content_type));
     }
 
-    // Check that our compile-time library has the same metadata version as
-    // this file
-    uint8_t const(&library_hash)[32] = *MetadataTable[content_type].schema_hash;
-    if (memcmp(&library_hash, file_hash, sizeof library_hash) != 0) {
-        using monad::as_hex;
-        errx_f(
-            EX_CONFIG,
-            "event content type {} [{}] has schema hash {:{#}} "
-            "in the library but {:{#}} in event ring file `{}`",
-            g_monad_event_content_type_names[content_type],
-            std::to_underlying(content_type),
-            as_hex(std::span{library_hash}),
-            as_hex(std::span{file_hash, 32}),
-            path.string());
-    }
-
-    return MetadataTable[content_type].entries;
+    return MetadataTable[std::to_underlying(content_type)];
 }
 
-std::unique_ptr<EventSource> try_load_event_ring_file(
-    EventSourceFile source_file, std::array<char, MAGIC_SIZE> magic,
-    bool loaded_from_zstd)
+std::unique_ptr<EventSourceFile>
+try_create_block_archive(fs::path const &origin_path)
+{
+    monad_bcap_block_archive *archive;
+    char const *const dirname = origin_path.c_str();
+    int const dirfd = open(dirname, O_DIRECTORY | O_PATH | O_CLOEXEC);
+    if (dirfd == -1) {
+        err_f(
+            EX_OSERR,
+            "unable to open(2) block archive directory `{}`",
+            dirname);
+    }
+    if (monad_bcap_block_archive_open(&archive, dirfd, dirname)) {
+        errx_f(
+            EX_SOFTWARE,
+            "blockcap library error -- {}",
+            monad_bcap_get_last_error());
+    }
+    return std::make_unique<BlockArchiveDirectory>(origin_path, dirfd, archive);
+}
+
+std::unique_ptr<EventSourceFile> try_create_event_ring_file(
+    fs::path const &origin_path, int ring_fd, bool loaded_from_zstd)
 {
     EventRingLiveness initial_liveness;
     if (loaded_from_zstd) {
         initial_liveness = EventRingLiveness::Snapshot;
     }
     else {
-        initial_liveness = event_ring_is_abandoned(source_file.fd)
+        initial_liveness = event_ring_is_abandoned(ring_fd)
                                ? EventRingLiveness::Abandoned
                                : EventRingLiveness::Live;
-    }
-
-    if (std::memcmp(
-            data(magic),
-            MONAD_EVENT_RING_HEADER_VERSION,
-            sizeof MONAD_EVENT_RING_HEADER_VERSION) != 0) {
-        MONAD_ASSERT(
-            std::memcmp(data(magic), "RING", 4) == 0,
-            "caller is supposed to check this");
-        // This starts with "RING", so it's a different version of the file
-        // format that we're compiled to support
-        std::string_view const file_magic{
-            data(magic), sizeof MONAD_EVENT_RING_HEADER_VERSION};
-        std::string_view const library_magic{
-            std::bit_cast<char *>(&MONAD_EVENT_RING_HEADER_VERSION),
-            sizeof MONAD_EVENT_RING_HEADER_VERSION};
-        errx_f(
-            EX_CONFIG,
-            "event ring library is version {}, file version is {}",
-            library_magic,
-            file_magic);
     }
 
     int mmap_extra_flags = MAP_POPULATE;
     if (initial_liveness != EventRingLiveness::Snapshot) {
         bool fs_supports_hugetlb;
         if (monad_check_path_supports_map_hugetlb(
-                source_file.origin_path.c_str(), &fs_supports_hugetlb) != 0) {
+                origin_path.c_str(), &fs_supports_hugetlb) != 0) {
             errx_f(
                 EX_SOFTWARE,
                 "event library error -- {}",
@@ -410,48 +411,39 @@ std::unique_ptr<EventSource> try_load_event_ring_file(
             &event_ring,
             PROT_READ,
             mmap_extra_flags,
-            source_file.fd,
+            ring_fd,
             0,
-            source_file.origin_path.c_str()) != 0) {
+            origin_path.c_str()) != 0) {
         errx_f(
             EX_SOFTWARE,
             "event library error -- {}",
             monad_event_ring_get_last_error());
     }
 
-    auto const metadata_entries = get_metadata_entries(
-        event_ring.header->content_type,
-        source_file.origin_path,
-        event_ring.header->schema_hash);
+    auto const content_type = event_ring.header->content_type;
+    MetadataTableEntry const &meta_entry =
+        get_metadata_table_entry(origin_path, content_type);
 
-    return std::make_unique<MappedEventRing>(
-        std::move(source_file), initial_liveness, event_ring, metadata_entries);
-}
-
-std::unique_ptr<EventSource> try_load_event_capture_file(
-    EventSourceFile source_file, std::array<char, MAGIC_SIZE> magic)
-{
-    monad_evcap_reader *evcap_reader;
-    if (std::memcmp(
-            data(magic),
-            MONAD_EVCAP_FILE_MAGIC,
-            sizeof MONAD_EVCAP_FILE_MAGIC) != 0) {
-        MONAD_ASSERT(
-            std::memcmp(data(magic), "EVCAP_", 6) == 0,
-            "caller is supposed to check this");
-        std::string_view const file_magic{
-            data(magic), sizeof MONAD_EVCAP_FILE_MAGIC};
-        std::string_view const library_magic{
-            std::bit_cast<char *>(&MONAD_EVCAP_FILE_MAGIC),
-            sizeof MONAD_EVCAP_FILE_MAGIC};
+    if (monad_event_ring_check_content_type(
+            &event_ring, content_type, *meta_entry.schema_hash) != 0) {
         errx_f(
             EX_CONFIG,
-            "event capture library is version {}, file version is {}",
-            library_magic,
-            file_magic);
+            "event ring library error while loading {}:\n{}",
+            origin_path.string(),
+            monad_event_ring_get_last_error());
     }
-    if (monad_evcap_reader_create(
-            &evcap_reader, source_file.fd, source_file.origin_path.c_str()) !=
+
+    return std::make_unique<MappedEventRing>(
+        origin_path, ring_fd, initial_liveness, event_ring);
+}
+
+std::unique_ptr<EventSourceFile>
+try_create_event_capture_file(fs::path const &origin_path, int fd)
+{
+    monad_evcap_reader *evcap_reader;
+    monad_evcap_section_desc const *sd = nullptr;
+
+    if (monad_evcap_reader_create(&evcap_reader, fd, origin_path.c_str()) !=
         0) {
         errx_f(
             EX_SOFTWARE,
@@ -459,103 +451,110 @@ std::unique_ptr<EventSource> try_load_event_capture_file(
             monad_evcap_reader_get_last_error());
     }
 
-    monad_evcap_section_desc const *sd = nullptr;
     while (monad_evcap_reader_next_section(
                evcap_reader, MONAD_EVCAP_SECTION_SCHEMA, &sd) != nullptr) {
-        if (memcmp(
-                sd->schema.ring_magic,
+        auto const content_type = sd->schema.content_type;
+        MetadataTableEntry const &meta_entry =
+            get_metadata_table_entry(origin_path, content_type);
+        if (monad_evcap_reader_check_schema(
+                evcap_reader,
                 MONAD_EVENT_RING_HEADER_VERSION,
-                sizeof MONAD_EVENT_RING_HEADER_VERSION) != 0) {
-            MONAD_ABORT("write a nicer message here"); // XXX
+                content_type,
+                *meta_entry.schema_hash) != 0) {
+            errx_f(
+                EX_SOFTWARE,
+                "evcap library error for {} -- {}",
+                origin_path.string(),
+                monad_evcap_reader_get_last_error());
         }
-        (void)get_metadata_entries(
-            sd->schema.content_type,
-            source_file.origin_path,
-            sd->schema.schema_hash);
     }
 
-    return std::make_unique<EventCaptureFile>(
-        std::move(source_file), evcap_reader);
+    return std::make_unique<EventCaptureFile>(origin_path, fd, evcap_reader);
 }
 
 // Helper function which can open regular or zstd-compressed event ring files
 // and map them into the local process' address space; it can also open event
 // capture files; the process will exit if the open fails
-std::unique_ptr<EventSource>
-try_load_event_source(fs::path const &event_file_path)
+std::unique_ptr<EventSourceFile>
+try_create_event_source_file(fs::path const &path, struct stat const &path_stat)
 {
     std::array<char, MAGIC_SIZE> magic;
-    char const *const event_file_cstr = event_file_path.c_str();
-    EventSourceFile source_file = {
-        .origin_path = event_file_path, .fd = open(event_file_cstr, O_RDONLY)};
+    char const *const path_cstr = path.c_str();
 
-    if (source_file.fd == -1) {
-        err_f(
-            EX_OSERR,
-            "unable to open(2) event source file `{}`",
-            event_file_cstr);
+    if (path_stat.st_mode & S_IFDIR) {
+        return try_create_block_archive(path);
+    }
+    if ((path_stat.st_mode & S_IFREG) != S_IFREG) {
+        errx_f(
+            EX_USAGE,
+            "file `{}` is not a block archive directory "
+            "or a regular file",
+            path.string());
+    }
+
+    int fd = open(path_cstr, O_RDONLY);
+    if (fd == -1) {
+        err_f(EX_OSERR, "unable to open(2) event source file `{}`", path_cstr);
     }
 
     // Read the first few bytes so we can figure out if this is a regular event
     // ring file, a compressed one, a capture file, etc.
-    if (ssize_t const nr = read(source_file.fd, data(magic), size(magic));
-        nr == -1) {
+    if (ssize_t const nr = read(fd, data(magic), size(magic)); nr == -1) {
         err_f(
             EX_CONFIG,
             "could not read magic number from event source file `{}`",
-            event_file_cstr);
+            path_cstr);
     }
     else if (static_cast<size_t>(nr) < size(magic)) {
         errx_f(
             EX_CONFIG,
             "file `{}` does not appear to be an event ring file, snapshot, or "
             "capture",
-            event_file_cstr);
+            path_cstr);
     }
 
     bool const is_zstd_compressed =
-        *std::bit_cast<unsigned const *>(data(magic)) == ZSTD_MAGICNUMBER;
+        *reinterpret_cast<unsigned const *>(data(magic)) == ZSTD_MAGICNUMBER;
     if (is_zstd_compressed) {
         // This is a zstd-compressed file. Call a helper function to open it,
         // which will create a memfd to hold the decompressed contents; this
         // will become the new fd (it will close the original compressed fd)
-        open_compressed_file(event_file_cstr, magic, source_file);
+        open_compressed_file(path_cstr, magic, path_stat, &fd);
     }
 
     if (std::memcmp(data(magic), "RING", 4) == 0) {
-        return try_load_event_ring_file(
-            std::move(source_file), magic, is_zstd_compressed);
+        return try_create_event_ring_file(path, fd, is_zstd_compressed);
     }
     if (std::memcmp(data(magic), "EVCAP_", 6) == 0) {
-        return try_load_event_capture_file(std::move(source_file), magic);
+        return try_create_event_capture_file(path, fd);
     }
     errx_f(
         EX_CONFIG,
         "file `{}` does not appear to be an event source file",
-        event_file_cstr);
+        path_cstr);
 }
 
-EventSource *get_or_create_event_source(
-    fs::path const &event_path, std::unordered_set<ino_t> const &force_live_set,
-    EventSourceMap &event_sources)
+EventSourceFile *get_or_create_event_source_file(
+    fs::path const &path, std::unordered_set<ino_t> const &force_live_set,
+    EventSourceFileMap &event_source_files)
 {
-    struct stat event_stat;
-    if (stat(event_path.c_str(), &event_stat) == -1) {
-        err_f(EX_OSERR, "stat(2) of `{}` failed", event_path.string());
+    struct stat path_stat;
+    if (stat(path.c_str(), &path_stat) == -1) {
+        err_f(EX_OSERR, "stat(2) of `{}` failed", path.string());
     }
-    auto i_event_source = event_sources.find(event_stat.st_ino);
-    if (i_event_source == end(event_sources)) {
-        std::tie(i_event_source, std::ignore) = event_sources.emplace(
-            event_stat.st_ino, try_load_event_source(event_path));
-        if (force_live_set.contains(event_stat.st_ino) &&
-            i_event_source->second->get_type() ==
-                EventSource::Type::EventRing) {
+    auto i_source_file = event_source_files.find(path_stat.st_ino);
+    if (i_source_file == end(event_source_files)) {
+        std::tie(i_source_file, std::ignore) = event_source_files.emplace(
+            path_stat.st_ino, try_create_event_source_file(path, path_stat));
+        if (force_live_set.contains(path_stat.st_ino) &&
+            i_source_file->second->get_type() ==
+                EventSourceFile::Type::EventRing) {
             auto *const mr =
-                static_cast<MappedEventRing *>(i_event_source->second.get());
+                static_cast<MappedEventRing *>(i_source_file->second.get());
             (void)mr->set_force_live(true);
         }
     }
-    return i_event_source->second.get();
+    return i_source_file->second.get();
 }
 
 OutputFile *get_or_create_output_file(
@@ -629,23 +628,23 @@ void assign_command_to_thread(
 }
 
 void expect_content_type(
-    EventSource const *const source,
+    EventSourceFile const *const source_file,
     monad_event_content_type expected_content_type)
 {
     // Ensure that the source is either:
     //
     //   1. An event ring file with the expected type
     //
-    //   2. An event capture file with a RING_METADATA section of that type
-    EventSource::Type const source_type = source->get_type();
-    if (source_type == EventSource::Type::EventRing) {
+    //   2. An event capture file with a SCHEMA section of that type
+    EventSourceFile::Type const file_type = source_file->get_type();
+    if (file_type == EventSourceFile::Type::EventRing) {
         MappedEventRing const *const mr =
-            static_cast<MappedEventRing const *>(source);
+            static_cast<MappedEventRing const *>(source_file);
         if (auto const actual_content_type = mr->get_header()->content_type;
             actual_content_type != expected_content_type) {
             errx_f(
                 EX_CONFIG,
-                "expected event ring file {} to have type {} [{}]"
+                "expected event ring file {} to have content type {} [{}]"
                 "but found type {} [{}]",
                 mr->describe(),
                 g_monad_event_content_type_names[expected_content_type],
@@ -654,12 +653,11 @@ void expect_content_type(
                 std::to_underlying(actual_content_type));
         }
     }
-    else {
-        MONAD_ASSERT(source_type == EventSource::Type::CaptureFile);
-        EventCaptureFile const *const capture =
-            static_cast<EventCaptureFile const *>(source);
+    else if (file_type == EventSourceFile::Type::EventCaptureFile) {
+        EventCaptureFile const *const capture_file =
+            static_cast<EventCaptureFile const *>(source_file);
         monad_evcap_section_desc const *sd = nullptr;
-        monad_evcap_reader const *evcap_reader = capture->get_reader();
+        monad_evcap_reader const *evcap_reader = capture_file->get_reader();
         bool has_expected_content_type = false;
 
         while (monad_evcap_reader_next_section(
@@ -674,10 +672,27 @@ void expect_content_type(
                 EX_CONFIG,
                 "expected event capture file {} to have a "
                 "metadata section with type {} [{}] but one was not found",
-                capture->describe(),
+                capture_file->describe(),
                 g_monad_event_content_type_names[expected_content_type],
                 std::to_underlying(expected_content_type));
         }
+    }
+    else if (file_type == EventSourceFile::Type::BlockArchiveDirectory) {
+        constexpr monad_event_content_type ActualContentType =
+            MONAD_EVENT_CONTENT_TYPE_EXEC;
+        if (expected_content_type != ActualContentType) {
+            errx_f(
+                EX_CONFIG,
+                "expected content type {} [{}] but loaded a finalized "
+                "block archive source, while only supports type {} [{}]",
+                g_monad_event_content_type_names[expected_content_type],
+                std::to_underlying(expected_content_type),
+                g_monad_event_content_type_names[ActualContentType],
+                std::to_underlying(ActualContentType));
+        }
+    }
+    else {
+        MONAD_ABORT("unsupported file type");
     }
 }
 
@@ -688,27 +703,33 @@ CommandBuilder::CommandBuilder(
     std::span<std::string const> force_live_specs)
 {
     for (auto const &[name, spec] : named_input_specs) {
-        fs::path const ring_path = resolve_input_spec(spec);
-        auto const [i_existing, inserted] =
-            named_input_map_.try_emplace(name, ring_path);
-        if (!inserted && !equivalent(i_existing->second, ring_path)) {
-            errx_f(
-                EX_USAGE,
-                "input spec `{}` mapped to `{}`, then later to `{}`",
-                name,
-                i_existing->second.string(),
-                ring_path.string());
-        }
+        ParsedEventSourceSpec const phony_parsed_spec = {
+            .named_input = name,
+            .event_source_file = spec,
+            .capture_spec = {},
+        };
+        (void)resolve_event_source_file(
+            phony_parsed_spec, named_input_map_, "input spec processing");
     }
 
     for (std::string const &f : force_live_specs) {
         struct stat ring_stat;
-        fs::path const ring_path =
-            resolve_ring_spec(f, named_input_map_, "--force-live translation");
-        if (stat(ring_path.c_str(), &ring_stat) == -1) {
-            err_f(EX_OSERR, "stat(2) of `{}` failed", ring_path.string());
+        if (auto ex = parse_event_source_spec(f)) {
+            // XXX: errx_f if `ex->capture_spec` is not empty?
+            fs::path const ring_path = resolve_event_source_file(
+                *ex, named_input_map_, "--force-live translation");
+            if (stat(ring_path.c_str(), &ring_stat) == -1) {
+                err_f(EX_OSERR, "stat(2) of `{}` failed", ring_path.string());
+            }
+            force_live_set_.insert(ring_stat.st_ino);
         }
-        force_live_set_.insert(ring_stat.st_ino);
+        else {
+            errx_f(
+                EX_USAGE,
+                "parse error in --force-live spec `{}`: {}",
+                f,
+                ex.error());
+        }
     }
 }
 
@@ -718,7 +739,7 @@ CommandBuilder::build_blockstat_command(BlockStatCommandOptions const &opts)
     Command *const command = build_basic_command(
         Command::Type::BlockStat, opts.common_options, /*set_output=*/true);
     expect_content_type(
-        command->event_sources[0], MONAD_EVENT_CONTENT_TYPE_EXEC);
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EXEC);
     return command;
 }
 
@@ -744,38 +765,89 @@ CommandBuilder::build_execstat_command(ExecStatCommandOptions const &opts)
         opts.common_options,
         /*set_output=*/true);
     expect_content_type(
-        command->event_sources[0], MONAD_EVENT_CONTENT_TYPE_EXEC);
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EXEC);
     return command;
 }
 
-Command *CommandBuilder::build_header_command(HeaderCommandOptions const &opts)
+Command *
+CommandBuilder::build_headstat_command(HeadStatCommandOptions const &opts)
 {
-    std::vector<EventSource *> event_sources;
+    std::vector<EventSourceSpec> source_specs;
 
-    for (std::string const &spec : opts.inputs) {
-        fs::path event_ring_path =
-            resolve_ring_spec(spec, named_input_map_, "execstat subcommand");
-        event_sources.push_back(get_or_create_event_source(
-            std::move(event_ring_path),
-            force_live_set_,
-            topology_.event_sources));
+    for (std::string const &input : opts.inputs) {
+        if (auto ex_spec = parse_event_source_spec(input)) {
+            fs::path const event_ring_path = resolve_event_source_file(
+                *ex_spec, named_input_map_, "headstat subcommand");
+            EventSourceFile *const source_file =
+                get_or_create_event_source_file(
+                    event_ring_path,
+                    force_live_set_,
+                    topology_.event_source_files);
+            if (!source_file->is_interactive()) {
+                std::println(
+                    stderr,
+                    "{}: headstat subcommand ignoring non-interactive file: {}",
+                    __progname,
+                    source_file->describe());
+                continue;
+            }
+            source_specs.emplace_back(
+                source_file, std::nullopt, std::nullopt, std::nullopt);
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "parse error in headstat event source `{}`: {}",
+                input,
+                ex_spec.error());
+        }
     }
 
     OutputFile *const output = get_or_create_output_file(
         opts.common_options.output_spec, topology_.output_file_map);
     auto command = std::make_unique<Command>(
-        Command::Type::Header, event_sources, output, &opts);
+        Command::Type::HeadStat, source_specs, output, &opts);
 
-    if (opts.stats_interval) {
-        std::string const target_thread = empty(opts.common_options.thread)
-                                              ? "hdr_stat"
-                                              : opts.common_options.thread;
-        assign_command_to_thread(
-            target_thread,
-            command.get(),
-            header_stats_thread_main,
-            topology_.thread_map);
+    std::string const target_thread = empty(opts.common_options.thread)
+                                          ? "hdr_stat"
+                                          : opts.common_options.thread;
+    assign_command_to_thread(
+        target_thread,
+        command.get(),
+        headstat_thread_main,
+        topology_.thread_map);
+
+    return topology_.commands.emplace_back(std::move(command)).get();
+}
+
+Command *CommandBuilder::build_info_command(InfoCommandOptions const &opts)
+{
+    std::vector<EventSourceSpec> source_specs;
+
+    for (std::string const &input : opts.inputs) {
+        if (auto ex_spec = parse_event_source_spec(input)) {
+            fs::path const event_ring_path = resolve_event_source_file(
+                *ex_spec, named_input_map_, "info subcommand");
+            EventSourceFile *const source_file =
+                get_or_create_event_source_file(
+                    event_ring_path,
+                    force_live_set_,
+                    topology_.event_source_files);
+            source_specs.emplace_back(
+                source_file, std::nullopt, std::nullopt, std::nullopt);
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "parse error in info event source `{}`: {}",
+                input,
+                ex_spec.error());
+        }
     }
+    OutputFile *const output = get_or_create_output_file(
+        opts.common_options.output_spec, topology_.output_file_map);
+    auto command = std::make_unique<Command>(
+        Command::Type::Info, source_specs, output, &opts);
     return topology_.commands.emplace_back(std::move(command)).get();
 }
 
@@ -795,7 +867,17 @@ CommandBuilder::build_recordexec_command(RecordExecCommandOptions const &opts)
         opts.common_options,
         /*set_output=*/false);
     expect_content_type(
-        command->event_sources[0], MONAD_EVENT_CONTENT_TYPE_EXEC);
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EXEC);
+    if (opts.block_format == BlockRecordFormat::Archive) {
+        // In this case, output is expected to already exist and be a directory
+        if (!fs::is_directory(opts.common_options.output_spec)) {
+            errx_f(
+                EX_USAGE,
+                "recordexec configured in finalized block archive "
+                "mode, but {} is not an existing directory",
+                opts.common_options.output_spec);
+        }
+    }
     return command;
 }
 
@@ -810,27 +892,113 @@ Command *CommandBuilder::build_basic_command(
     Command::Type command_type, CommonCommandOptions const &common_opts,
     bool set_output)
 {
-    // TODO(ken): is there a way to do this kind of cross-option validation
-    //   with CLI11?
-    if (common_opts.start_seqno && common_opts.end_seqno &&
-        std::holds_alternative<uint64_t>(*common_opts.start_seqno) &&
-        *common_opts.end_seqno < std::get<uint64_t>(*common_opts.start_seqno)) {
+    std::optional<SequenceNumberSpec> opt_begin_seqno;
+    std::optional<SequenceNumberSpec> opt_end_seqno;
+    std::string const context =
+        describe(command_type) + std::string{" subcommand"};
+
+    // Parse --begin-seqno and --end-seqno, and do some basic checking of them
+    if (!empty(common_opts.begin_seqno)) {
+        if (auto ex = parse_sequence_number_spec(common_opts.begin_seqno)) {
+            opt_begin_seqno = *ex;
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "{} --begin-seqno parse error: {}",
+                context,
+                ex.error());
+        }
+    }
+    if (!empty(common_opts.end_seqno)) {
+        if (auto ex = parse_sequence_number_spec(common_opts.end_seqno)) {
+            opt_end_seqno = *ex;
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "{} --end-seqno parse error: {}",
+                context,
+                ex.error());
+        }
+    }
+    if (opt_begin_seqno && opt_end_seqno &&
+        opt_begin_seqno->type == SequenceNumberSpec::Type::Number &&
+        opt_end_seqno->type == SequenceNumberSpec::Type::Number &&
+        opt_end_seqno->seqno < opt_begin_seqno->seqno) {
         errc_f(
             EX_USAGE,
             std::errc::invalid_argument,
-            "{} command error: end sequence number {} occurs before start "
+            "{} error: end sequence number {} occurs before start "
             "sequence number {}",
-            describe(command_type),
-            *common_opts.end_seqno,
-            std::get<uint64_t>(*common_opts.start_seqno));
+            context,
+            opt_end_seqno->seqno,
+            opt_begin_seqno->seqno);
     }
 
-    fs::path const event_ring_path = resolve_ring_spec(
-        common_opts.ring_spec,
+    auto ex_parsed_source_spec =
+        parse_event_source_spec(common_opts.event_source_spec);
+    if (!ex_parsed_source_spec) {
+        errx_f(
+            EX_USAGE,
+            "{} error: unable to parse event source specification: {}",
+            context,
+            ex_parsed_source_spec.error());
+    }
+
+    // Parse the event source specification
+    ParsedEventSourceSpec const parsed_source_spec =
+        std::move(*ex_parsed_source_spec);
+
+    // Parse the trailing capture specification from the event source
+    std::optional<EventCaptureSpec> opt_capture_spec;
+    if (!empty(parsed_source_spec.capture_spec)) {
+        if (auto ex =
+                parse_event_capture_spec(parsed_source_spec.capture_spec)) {
+            opt_capture_spec = *ex;
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "{} capture specification parse error: {}",
+                context,
+                ex.error());
+        }
+    }
+
+    // Resolve the parsed event source specification to a canonical disk file
+    fs::path const origin_path = resolve_event_source_file(
+        parsed_source_spec,
         named_input_map_,
         describe(command_type) + std::string{" subcommand"});
-    EventSource *es = get_or_create_event_source(
-        std::move(event_ring_path), force_live_set_, topology_.event_sources);
+
+    EventSourceFile *const source_file = get_or_create_event_source_file(
+        origin_path, force_live_set_, topology_.event_source_files);
+
+    if (source_file->get_type() ==
+            EventSourceFile::Type::BlockArchiveDirectory &&
+        opt_capture_spec) {
+        opt_capture_spec->use_block_number = true;
+    }
+
+    // Create the EventSourceSpec that describes the source file and the
+    // dynamic range of inputs it supplies, then give it to the source file
+    // to validate (e.g., to check if the range parameters make sense)
+    EventSourceSpec const source_spec = {
+        .source_file = source_file,
+        .opt_capture_spec = opt_capture_spec,
+        .opt_begin_seqno = opt_begin_seqno,
+        .opt_end_seqno = opt_end_seqno};
+    if (std::string const error = source_file->validate(source_spec);
+        !empty(error)) {
+        errx_f(
+            EX_SOFTWARE,
+            "event source specification {} rejected by "
+            "source validation against {}: {}",
+            common_opts.event_source_spec,
+            source_file->describe(),
+            error);
+    }
 
     // Unless certain options (thread, output, etc.) are specified, they use
     // the values from the most recent command of this same type
@@ -857,7 +1025,7 @@ Command *CommandBuilder::build_basic_command(
                            common_opts.output_spec, topology_.output_file_map);
     }
     auto command = std::make_unique<Command>(
-        command_type, std::span{&es, 1uz}, output, &common_opts);
+        command_type, std::span{&source_spec, 1uz}, output, &common_opts);
     assign_command_to_thread(
         target_thread,
         command.get(),

@@ -17,27 +17,100 @@
 
 #include "options.hpp"
 
+#include <array>
 #include <concepts>
 #include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
-#include <iterator>
-#include <memory>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
-#include <utility>
 #include <vector>
 
-#include <sys/types.h>
-
+enum monad_event_content_type : uint16_t;
+enum monad_exec_event_type : uint16_t;
 extern std::sig_atomic_t g_should_exit;
 
 struct Command;
-class EventSource;
+struct EventIterator;
+
+class EventSourceFile;
+
+// Represents a block number or block ID
+struct BlockLabel
+{
+    enum class Type
+    {
+        BlockNumber,
+        BlockId,
+    };
+
+    Type type;
+
+    union
+    {
+        uint64_t block_number;
+        std::array<uint8_t, 32> block_id;
+    };
+};
+
+// Represents a directive to rewind to a consensus event using the
+// exec_iter_help API
+struct ConsensusEventSpec
+{
+    monad_exec_event_type consensus_type;
+    std::optional<BlockLabel> opt_block_label;
+};
+
+// Represents a directive to seek to a given sequence number, either directly
+// given as a number or represented as a ConsensusEventSpec search directive
+struct SequenceNumberSpec
+{
+    enum class Type
+    {
+        Number,
+        ConsensusEvent,
+    };
+
+    Type type;
+
+    union
+    {
+        uint64_t seqno;
+        ConsensusEventSpec consensus_event;
+    };
+};
+
+// Represents a subset of an event capture file or finalized block archive;
+// this range (which may be open on the right end, if no count is specified)
+// can represent either EVENT_BUNDLE sections in a capture file, or entire
+// single-block capture files in a block archive directory
+struct EventCaptureSpec
+{
+    uint64_t first_section;
+    std::optional<uint64_t> count;
+    bool use_block_number;
+};
+
+// Represents a fully-parsed event source specification, plus the sequence
+// number limit options that are usually present
+struct EventSourceSpec
+{
+    EventSourceFile *source_file;
+    std::optional<EventCaptureSpec> opt_capture_spec;
+    std::optional<SequenceNumberSpec> opt_begin_seqno;
+    std::optional<SequenceNumberSpec> opt_end_seqno;
+
+    [[nodiscard]] std::string describe() const;
+
+    [[nodiscard]] monad_event_content_type get_content_type() const;
+
+    void init_iterator(EventIterator *) const;
+};
 
 using ThreadEntrypointFunction = std::function<void(std::span<Command *const>)>;
 
@@ -60,10 +133,7 @@ struct OutputFile
     std::FILE *file;
 };
 
-using NamedInputMap = std::unordered_map<std::string, std::filesystem::path>;
 using ThreadMap = std::unordered_map<std::string, ThreadInput>;
-using EventSourceMap = std::unordered_map<ino_t, std::unique_ptr<EventSource>>;
-using OutputFileMap = std::unordered_map<ino_t, std::unique_ptr<OutputFile>>;
 
 struct Command
 {
@@ -73,14 +143,15 @@ struct Command
         Digest,
         Dump,
         ExecStat,
-        Header,
+        HeadStat,
+        Info,
         Record,
         RecordExec,
         Snapshot,
     };
 
     explicit Command(
-        Type t, std::span<EventSource *> s, OutputFile *o,
+        Type t, std::span<EventSourceSpec const> s, OutputFile *o,
         void const *parsed_command)
         : type{t}
         , event_sources{std::from_range, s}
@@ -112,8 +183,10 @@ struct Command
             return std::same_as<T, DumpCommandOptions> ? cast : nullptr;
         case Type::ExecStat:
             return std::same_as<T, ExecStatCommandOptions> ? cast : nullptr;
-        case Type::Header:
-            return std::same_as<T, HeaderCommandOptions> ? cast : nullptr;
+        case Type::HeadStat:
+            return std::same_as<T, HeadStatCommandOptions> ? cast : nullptr;
+        case Type::Info:
+            return std::same_as<T, InfoCommandOptions> ? cast : nullptr;
         case Type::Record:
             return std::same_as<T, RecordCommandOptions> ? cast : nullptr;
         case Type::RecordExec:
@@ -126,49 +199,14 @@ struct Command
     }
 
     Type type;
-    std::vector<EventSource *> event_sources;
+    std::vector<EventSourceSpec> event_sources;
     OutputFile *output;
     void const *origin;
     ThreadMap::const_iterator thread_map_location;
 };
 
-struct Topology
-{
-    std::vector<std::unique_ptr<Command>> commands;
-    EventSourceMap event_sources;
-    ThreadMap thread_map;
-    OutputFileMap output_file_map;
-};
-
-class CommandBuilder
-{
-public:
-    explicit CommandBuilder(
-        std::span<std::pair<std::string, std::string> const> named_input_specs,
-        std::span<std::string const> force_live_specs);
-
-    Topology finish();
-
-    Command *build_blockstat_command(BlockStatCommandOptions const &);
-    Command *build_digest_command(DigestCommandOptions const &);
-    Command *build_dump_command(DumpCommandOptions const &);
-    Command *build_execstat_command(ExecStatCommandOptions const &);
-    Command *build_header_command(HeaderCommandOptions const &);
-    Command *build_record_command(RecordCommandOptions const &);
-    Command *build_recordexec_command(RecordExecCommandOptions const &);
-    Command *build_snapshot_command(SnapshotCommandOptions const &);
-
-private:
-    Command *build_basic_command(
-        Command::Type, CommonCommandOptions const &, bool set_output);
-
-    Topology topology_;
-    NamedInputMap named_input_map_;
-    std::unordered_set<ino_t> force_live_set_;
-};
-
 void print_event_source_headers(
-    std::span<EventSource const *const>, bool print_full_section_table,
+    std::span<EventSourceSpec const>, bool print_full_section_table,
     std::FILE *);
 
 void blockstat_thread_main(std::span<Command *const>);
@@ -179,7 +217,7 @@ void dump_thread_main(std::span<Command *const>);
 
 void execstat_thread_main(std::span<Command *const>);
 
-void header_stats_thread_main(std::span<Command *const>);
+void headstat_thread_main(std::span<Command *const>);
 
 void record_thread_main(std::span<Command *const>);
 

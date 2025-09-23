@@ -14,7 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "options.hpp"
 #include "stats.hpp"
 #include "util.hpp"
@@ -36,7 +37,6 @@
 #include <vector>
 
 #include <category/core/assert.h>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
@@ -121,24 +121,21 @@ struct State
 };
 
 bool on_payload_expired(
-    monad_event_descriptor const *event, EventSource::Iterator *source_iter,
-    std::FILE *out)
+    monad_event_descriptor const *event, EventIterator *iter, std::FILE *out)
 {
-    MONAD_DEBUG_ASSERT(
-        source_iter->source_type == EventSource::Type::EventRing);
-    monad_event_iterator const &ring_iter = source_iter->ring_pair.iter;
+    MONAD_DEBUG_ASSERT(iter->iter_type == EventIterator::Type::EventRing);
+    MappedEventRing const *const mr = iter->ring.get_mapped_event_ring();
     std::println(
         out,
         "ERROR: event {} payload lost! OFFSET: {}, WINDOW_START: {}",
         event->seqno,
         event->payload_buf_offset,
-        __atomic_load_n(
-            &ring_iter.control->buffer_window_start, __ATOMIC_ACQUIRE));
+        mr->get_buffer_window_start());
     return false;
 }
 
 bool process_event(
-    EventSource::Iterator *iter, monad_event_descriptor const *event,
+    EventIterator *iter, monad_event_descriptor const *event,
     void const *payload, BlockInfo &block_info)
 {
     auto const event_type =
@@ -530,7 +527,7 @@ void blockstat_thread_main(std::span<Command *const> commands)
     State state{};
 
     Command *const command = commands[0];
-    EventSource *const event_source = command->event_sources[0];
+    EventSourceSpec const &event_source = command->event_sources[0];
     std::FILE *const output = command->output->file;
     BlockStatCommandOptions const *const opts =
         command->get_options<BlockStatCommandOptions>();
@@ -548,13 +545,9 @@ void blockstat_thread_main(std::span<Command *const> commands)
         gas_efficiency_params.min_tx = opts->gas_efficiency_min_txn.value_or(0);
     }
 
-    EventSource::Iterator iter;
-    event_source->init_iterator(
-        &iter,
-        opts->common_options.start_seqno,
-        opts->common_options.end_seqno);
+    EventIterator iter;
+    event_source.init_iterator(&iter);
 
-    monad_event_content_type content_type;
     monad_event_descriptor event;
     std::byte const *payload;
     size_t not_ready_count = 0;
@@ -563,18 +556,27 @@ void blockstat_thread_main(std::span<Command *const> commands)
     state.current_aggregate.emplace_back();
     while (g_should_exit == 0 && ring_is_live) {
         using enum EventIteratorResult;
-        switch (iter.next(&content_type, &event, &payload)) {
+        switch (iter.next(&event, &payload)) {
+        // Loop-terminating cases
+        case Error:
+            std::println(
+                stderr,
+                "EventIterator::next error {} -- {}",
+                iter.error_code,
+                iter.last_error_msg);
+            [[fallthrough]];
         case AfterEnd:
             [[fallthrough]];
-        case Finished:
+        case End:
             ring_is_live = false;
             [[fallthrough]];
+
         case Skipped:
             continue;
 
         case NotReady:
             if ((++not_ready_count & NotReadyCheckMask) == 0) {
-                ring_is_live = !event_source->is_finalized();
+                ring_is_live = !event_source.source_file->is_finalized();
             }
             continue;
 
@@ -588,13 +590,10 @@ void blockstat_thread_main(std::span<Command *const> commands)
             not_ready_count = 0;
             continue;
 
-        case AfterStart:
+        case AfterBegin:
             [[fallthrough]]; // TODO(ken): warn that this happened?
         case Success:
             not_ready_count = 0;
-            if (content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
-                continue;
-            }
             if (process_event(
                     &iter, &event, payload, state.current_aggregate.back())) {
                 ++state.total_blocks_processed;
@@ -606,7 +605,7 @@ void blockstat_thread_main(std::span<Command *const> commands)
                         state,
                         long_txn_time_params,
                         gas_efficiency_params,
-                        event_source->is_interactive())) {
+                        event_source.source_file->is_interactive())) {
                     print_txn_sample(state.samples.back(), output);
                 }
                 std::fflush(output);
@@ -619,7 +618,7 @@ void blockstat_thread_main(std::span<Command *const> commands)
         // Flush the final sample
         auto const now = system_clock::now();
         std::optional<double> const opt_wall_seconds =
-            event_source->is_interactive()
+            event_source.source_file->is_interactive()
                 ? std::
                       optional{static_cast<double>((now - state.wall_start).count()) / 1'000'000'000.0}
                 : std::nullopt;

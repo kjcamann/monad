@@ -15,7 +15,8 @@
 
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "options.hpp"
 #include "util.hpp"
 
@@ -76,8 +77,8 @@ class SnapshotWriter
 {
 public:
     explicit SnapshotWriter(
-        EventSource const *event_source, uint8_t segment_shift)
-        : event_source_{event_source}
+        EventSourceFile const *source_file, uint8_t segment_shift)
+        : source_file_{source_file}
         , event_count_{0}
         , last_block_ref_{0}
     {
@@ -92,19 +93,20 @@ public:
         monad_vbuf_chain_init(&descriptor_vbuf_state_.chain);
         monad_vbuf_chain_init(&payload_vbuf_state_.chain);
 
-        EventSource::Type const source_type = event_source_->get_type();
-        if (source_type == EventSource::Type::EventRing) {
-            header_ = *static_cast<MappedEventRing const *>(event_source_)
+        EventSourceFile::Type const file_type = source_file_->get_type();
+        if (file_type == EventSourceFile::Type::EventRing) {
+            header_ = *static_cast<MappedEventRing const *>(source_file_)
                            ->get_header();
         }
         else {
             MONAD_ASSERT_PRINTF(
-                source_type == EventSource::Type::CaptureFile,
+                file_type == EventSourceFile::Type::EventCaptureFile,
                 "do not know how init header from source type %hhu",
-                std::to_underlying(source_type));
+                std::to_underlying(file_type));
             EventCaptureFile const *const capture =
-                static_cast<EventCaptureFile const *>(event_source_);
-            monad_evcap_reader *const evcap_reader = capture->get_reader();
+                static_cast<EventCaptureFile const *>(source_file_);
+            monad_evcap_reader const *const evcap_reader =
+                capture->get_reader();
             monad_evcap_section_desc const *sd = nullptr;
 
             uint8_t const *schema_hash = nullptr;
@@ -114,7 +116,7 @@ public:
                     errx_f(
                         EX_CONFIG,
                         "capture file {} contains multiple metadata sections",
-                        event_source_->describe());
+                        source_file_->describe());
                 }
                 memcpy(
                     header_.magic, sd->schema.ring_magic, sizeof header_.magic);
@@ -125,7 +127,7 @@ public:
                 errx_f(
                     EX_CONFIG,
                     "capture file {} had no schema section",
-                    event_source_->describe());
+                    source_file_->describe());
             }
             memcpy(
                 header_.schema_hash, schema_hash, sizeof header_.schema_hash);
@@ -144,9 +146,8 @@ public:
     }
 
     void append_event(
-        EventSource::Iterator const *source_iter,
-        monad_event_descriptor const *event, std::byte const *payload,
-        bool erase_timestamps)
+        EventIterator const *iter, monad_event_descriptor const *event,
+        std::byte const *payload, bool erase_timestamps)
     {
         uint64_t const buf_offset = get_payload_buf_virtual_offset();
         VBUF_CHECK(monad_vbuf_writer_memcpy(
@@ -155,16 +156,14 @@ public:
             event->payload_size,
             MONAD_EVENT_PAYLOAD_ALIGN,
             &payload_vbuf_state_.chain));
-        if (!source_iter->check_payload(event)) {
+        if (!iter->check_payload(event)) {
             errx_f(
                 EX_SOFTWARE,
                 "ERROR: event {} payload lost! OFFSET: {}, WINDOW_START: "
                 "{}",
                 event->seqno,
                 event->payload_buf_offset,
-                __atomic_load_n(
-                    &source_iter->ring_pair.iter.control->buffer_window_start,
-                    __ATOMIC_ACQUIRE));
+                iter->ring.get_mapped_event_ring()->get_buffer_window_start());
         }
 
         monad_event_descriptor event_copy = *event;
@@ -257,9 +256,9 @@ public:
             header_.size.payload_buf_size - next_payload_byte;
         skip_bytes(fd, payload_skip);
 
-        if (event_source_->get_type() == EventSource::Type::EventRing) {
+        if (source_file_->get_type() == EventSourceFile::Type::EventRing) {
             auto const *const mr =
-                static_cast<MappedEventRing const *>(event_source_);
+                static_cast<MappedEventRing const *>(source_file_);
             checked_write(
                 fd,
                 mr->get_event_ring()->context_area,
@@ -315,7 +314,7 @@ private:
         }
     }
 
-    EventSource const *event_source_;
+    EventSourceFile const *source_file_;
 
     snapshot_vbuf_state descriptor_vbuf_state_;
     snapshot_vbuf_state payload_vbuf_state_;
@@ -331,9 +330,9 @@ std::unique_ptr<std::byte[]> SnapshotWriter::Zero{new std::byte[PAGE_2MB]{}};
 struct EventSourceState
 {
     SnapshotWriter snap_writer;
-    EventSource::Iterator iter;
+    EventIterator iter;
     size_t not_ready_count;
-    EventSource *event_source;
+    EventSourceSpec const *event_source;
     bool finished;
     Command const *command;
 };
@@ -365,18 +364,16 @@ void snapshot_thread_main(std::span<Command *const> commands)
     for (size_t i = 0; Command *const c : commands) {
         auto const *const options = c->get_options<SnapshotCommandOptions>();
         EventSourceState &state = *new (&states[i++]) EventSourceState{
-            SnapshotWriter{c->event_sources[0], options->vbuf_segment_shift},
+            SnapshotWriter{
+                c->event_sources[0].source_file, options->vbuf_segment_shift},
             {},
             0,
             nullptr,
             false,
             nullptr};
-        state.event_source = c->event_sources[0];
+        state.event_source = &c->event_sources[0];
         state.command = c;
-        state.event_source->init_iterator(
-            &state.iter,
-            options->common_options.start_seqno,
-            options->common_options.end_seqno);
+        state.event_source->init_iterator(&state.iter);
     }
 
     size_t active_state_count = size(states);
@@ -387,17 +384,23 @@ void snapshot_thread_main(std::span<Command *const> commands)
             }
 
             using enum EventIteratorResult;
-            monad_event_content_type content_type;
             monad_event_descriptor event;
             std::byte const *payload;
-            switch (state.iter.next(&content_type, &event, &payload)) {
-            case AfterStart:
+            switch (state.iter.next(&event, &payload)) {
+            case Error:
                 errx_f(
                     EX_SOFTWARE,
-                    "event seqno {} occurs after start seqno {};"
+                    "EventIterator::next error {} -- {}",
+                    state.iter.error_code,
+                    state.iter.last_error_msg);
+
+            case AfterBegin:
+                errx_f(
+                    EX_SOFTWARE,
+                    "event seqno {} occurs after begin seqno {};"
                     "events missing",
                     event.seqno,
-                    *state.iter.start_seqno);
+                    *state.iter.begin_seqno);
 
             case AfterEnd:
                 errx_f(
@@ -407,14 +410,14 @@ void snapshot_thread_main(std::span<Command *const> commands)
                     event.seqno,
                     *state.iter.end_seqno);
 
-            case Finished:
+            case End:
                 --active_state_count;
                 state.finished = true;
                 continue;
 
             case NotReady:
                 if ((++state.not_ready_count & NotReadyCheckMask) == 0) {
-                    if (state.event_source->is_finalized()) {
+                    if (state.event_source->source_file->is_finalized()) {
                         --active_state_count;
                         state.finished = true;
                     }
@@ -444,9 +447,10 @@ void snapshot_thread_main(std::span<Command *const> commands)
     }
 
     for (EventSourceState const &state : states) {
+        EventSourceFile const *const file = state.event_source->source_file;
         if (state.command->get_options<SnapshotCommandOptions>()->kill_at_end &&
-            state.event_source->get_type() == EventSource::Type::EventRing) {
-            kill_event_ring_writers(state.event_source->get_source_file().fd);
+            file->get_type() == EventSourceFile::Type::EventRing) {
+            kill_event_ring_writers(file->get_file_descriptor());
         }
     }
 

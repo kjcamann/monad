@@ -14,7 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "options.hpp"
 #include "stats.hpp"
 #include "util.hpp"
@@ -32,8 +33,7 @@
 #include <vector>
 
 #include <category/core/assert.h>
-#include <category/core/event/event_iterator.h>
-#include <category/core/event/event_ring.h>
+#include <category/core/event/event_def.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 
@@ -304,18 +304,16 @@ struct State
 
 bool on_payload_expired(
     BlockInfo &current_block, monad_event_descriptor const *event,
-    EventSource::Iterator *source_iter, std::FILE *out)
+    EventIterator *iter, std::FILE *out)
 {
-    MONAD_DEBUG_ASSERT(
-        source_iter->source_type == EventSource::Type::EventRing);
-    monad_event_iterator const &ring_iter = source_iter->ring_pair.iter;
+    MONAD_DEBUG_ASSERT(iter->iter_type == EventIterator::Type::EventRing);
+    MappedEventRing const *const mr = iter->ring.get_mapped_event_ring();
     std::println(
         out,
         "ERROR: event {} payload lost! OFFSET: {}, WINDOW_START: {}",
         event->seqno,
         event->payload_buf_offset,
-        __atomic_load_n(
-            &ring_iter.control->buffer_window_start, __ATOMIC_ACQUIRE));
+        mr->get_buffer_window_start());
     current_block = BlockInfo{};
     return false;
 }
@@ -421,7 +419,7 @@ void flush_stats(BlockInfo const &block_info, BlockStats &stats)
 }
 
 bool process_event(
-    EventSource::Iterator *iter, monad_event_descriptor const *event,
+    EventIterator *iter, monad_event_descriptor const *event,
     void const *payload, State &state)
 {
     BlockInfo &current_block = state.current_block;
@@ -968,37 +966,43 @@ void execstat_thread_main(std::span<Command *const> commands)
     State state{};
     size_t num_blocks_processed = 0;
     Command *const command = commands[0];
-    EventSource *const event_source = command->event_sources[0];
+    EventSourceSpec const &event_source = command->event_sources[0];
     bool const tty_control_codes = use_tty_control_codes(
         command->get_options<ExecStatCommandOptions>()->tui_mode,
         command->output);
     std::FILE *const output = command->output->file;
-    CommonCommandOptions const *cc_opts = command->get_common_options();
 
     set_tdigest_params(state.stats);
 
-    monad_event_content_type content_type;
     monad_event_descriptor event;
     std::byte const *payload;
-    EventSource::Iterator iter;
-    event_source->init_iterator(
-        &iter, cc_opts->start_seqno, cc_opts->end_seqno);
+    EventIterator iter;
+    event_source.init_iterator(&iter);
     size_t not_ready_count = 0;
     bool ring_is_live = true;
     while (g_should_exit == 0 && ring_is_live) {
         using enum EventIteratorResult;
-        switch (iter.next(&content_type, &event, &payload)) {
+        switch (iter.next(&event, &payload)) {
+        // Loop-terminating cases
+        case Error:
+            std::println(
+                stderr,
+                "EventIterator::next error {} -- {}",
+                iter.error_code,
+                iter.last_error_msg);
+            [[fallthrough]];
         case AfterEnd:
             [[fallthrough]];
-        case Finished:
+        case End:
             ring_is_live = false;
             [[fallthrough]];
+
         case Skipped:
             continue;
 
         case NotReady:
             if ((++not_ready_count & NotReadyCheckMask) == 0) {
-                ring_is_live = !event_source->is_finalized();
+                ring_is_live = !event_source.source_file->is_finalized();
             }
             continue;
 
@@ -1012,13 +1016,10 @@ void execstat_thread_main(std::span<Command *const> commands)
             not_ready_count = 0;
             continue;
 
-        case AfterStart:
+        case AfterBegin:
             [[fallthrough]]; // TODO(ken): warn that this happened?
         case Success:
             not_ready_count = 0;
-            if (content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
-                continue;
-            }
             if (process_event(&iter, &event, payload, state)) {
                 ++num_blocks_processed;
                 if (tty_control_codes) {
