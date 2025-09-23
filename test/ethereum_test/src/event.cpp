@@ -18,8 +18,9 @@
 #include <category/core/assert.h>
 #include <category/core/cleanup.h>
 #include <category/core/config.hpp>
-#include <category/core/event/event_iterator.h>
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_recorder.hpp>
@@ -62,17 +63,17 @@ namespace
 MONAD_TEST_NAMESPACE_BEGIN
 
 void find_execution_events(
-    monad_event_ring const *event_ring, monad_event_iterator *iter,
-    ExecutionEvents *exec_events)
+    monad_event_ring_iter *iter, ExecutionEvents *exec_events)
 {
     monad_event_descriptor event;
 
 ConsumeMore:
-    ASSERT_EQ(monad_event_iterator_try_next(iter, &event), MONAD_EVENT_SUCCESS);
+    ASSERT_EQ(
+        monad_event_ring_iter_try_next(iter, &event), MONAD_EVENT_RING_SUCCESS);
     ASSERT_NE(event.event_type, MONAD_EXEC_EVM_ERROR);
-    ASSERT_TRUE(monad_event_ring_payload_check(event_ring, &event));
+    ASSERT_TRUE(monad_event_ring_payload_check(iter->event_ring, &event));
     void const *const payload =
-        monad_event_ring_payload_peek(event_ring, &event);
+        monad_event_ring_payload_peek(iter->event_ring, &event);
 
     switch (event.event_type) {
     case MONAD_EXEC_BLOCK_START:
@@ -80,7 +81,7 @@ ConsumeMore:
         exec_events->block_start = {
             event,
             reinterpret_cast<monad_exec_block_start const *>(payload),
-            event_ring};
+            iter->event_ring};
         break;
 
     case MONAD_EXEC_BLOCK_END:
@@ -88,7 +89,7 @@ ConsumeMore:
         exec_events->block_end = {
             event,
             reinterpret_cast<monad_exec_block_end const *>(payload),
-            event_ring};
+            iter->event_ring};
         return;
 
     case MONAD_EXEC_BLOCK_REJECT:
@@ -96,7 +97,7 @@ ConsumeMore:
         exec_events->block_reject_code = {
             event,
             reinterpret_cast<monad_exec_block_reject const *>(payload),
-            event_ring};
+            iter->event_ring};
         return;
 
     case MONAD_EXEC_TXN_REJECT:
@@ -104,21 +105,21 @@ ConsumeMore:
         exec_events->txn_reject_code = {
             event,
             reinterpret_cast<monad_exec_txn_reject const *>(payload),
-            event_ring};
+            iter->event_ring};
         return;
 
     case MONAD_EXEC_TXN_HEADER_START:
         exec_events->txn_inputs.emplace_back(
             event,
             reinterpret_cast<monad_exec_txn_header_start const *>(payload),
-            event_ring);
+            iter->event_ring);
         break;
 
     case MONAD_EXEC_TXN_EVM_OUTPUT:
         exec_events->txn_evm_outputs.emplace_back(
             event,
             reinterpret_cast<monad_exec_txn_evm_output const *>(payload),
-            event_ring);
+            iter->event_ring);
         break;
     }
 
