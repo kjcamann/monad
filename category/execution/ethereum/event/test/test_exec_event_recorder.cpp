@@ -16,7 +16,7 @@
 #include <category/core/assert.h>
 #include <category/core/bytes.hpp>
 #include <category/core/cleanup.h>
-#include <category/core/config.hpp>
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/execution/ethereum/core/address.hpp>
@@ -121,8 +121,10 @@ TEST(ExecEventRecorder, Basic)
     exec_recorder->commit(log_event);
 
     monad_event_descriptor event;
-    ASSERT_TRUE(monad_event_ring_try_copy(
-        exec_recorder->get_event_ring(), log_event.seqno, &event));
+    ASSERT_EQ(
+        monad_event_ring_try_copy(
+            exec_recorder->get_event_ring(), log_event.seqno, &event),
+        MONAD_EVENT_RING_SUCCESS);
     ASSERT_EQ(event.event_type, MONAD_EXEC_TXN_LOG);
     ASSERT_EQ(event.content_ext[MONAD_FLOW_TXN_ID], txn_num + 1);
 
@@ -150,10 +152,11 @@ TEST(ExecEventRecorder, Overflow)
     // giant buffer may not point to valid memory, but because we will have
     // copied up the maximum truncation size from this smaller buffer first,
     // the library won't try to access the giant buffer
+    truncated.resize(ExecutionEventRecorder::RECORD_ERROR_TRUNCATED_SIZE);
     for (unsigned i = 0;
          i < ExecutionEventRecorder::RECORD_ERROR_TRUNCATED_SIZE;
          ++i) {
-        truncated.push_back(static_cast<uint8_t>(i));
+        truncated[i] = static_cast<uint8_t>(i);
     }
 
     std::call_once(recorder_initialized, ensure_recorder_initialized);
@@ -185,8 +188,10 @@ TEST(ExecEventRecorder, Overflow)
     exec_recorder->commit(log_event);
 
     monad_event_descriptor event;
-    ASSERT_TRUE(monad_event_ring_try_copy(
-        exec_recorder->get_event_ring(), log_event.seqno, &event));
+    ASSERT_EQ(
+        monad_event_ring_try_copy(
+            exec_recorder->get_event_ring(), log_event.seqno, &event),
+        MONAD_EVENT_RING_SUCCESS);
     ASSERT_EQ(event.event_type, MONAD_EXEC_RECORD_ERROR);
     ASSERT_EQ(event.content_ext[MONAD_FLOW_TXN_ID], txn_num + 1);
 
