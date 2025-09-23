@@ -32,9 +32,10 @@ inline enum monad_event_ring_result monad_event_ring_try_copy(
 {
     if (MONAD_UNLIKELY(seqno == 0)) {
         // Zero is not a valid sequence number, but we return NOT_READY if they
-        // try to read it. This gives the logical defined behavior to reading
-        // from an iterator at the "current position," from an event ring which
-        // has not yet recorded anything
+        // try to read it. This gives reason defined behavior to reading from
+        // an iterator at the "current position," in an event ring which has
+        // not yet recorded anything (the iterator start out at "before the
+        // beginning")
         return MONAD_EVENT_NOT_READY;
     }
     struct monad_event_descriptor const *const ring_event =
