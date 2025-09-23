@@ -39,7 +39,7 @@
 #include <unistd.h>
 
 #if defined(__linux__)
-#include <syscall.h>
+    #include <syscall.h>
 #endif
 
 #include <category/core/event/event_iterator.h>
@@ -272,7 +272,7 @@ static void event_loop(
                 stderr,
                 "ERROR: event gap from %lu -> %lu, resetting iterator\n",
                 iter->read_last_seqno,
-                __atomic_load_n(&iter->control->last_seqno, __ATOMIC_ACQUIRE));
+                monad_event_ring_get_last_written_seqno(event_ring, false));
             monad_event_iterator_reset(iter);
             break;
 
@@ -284,8 +284,7 @@ static void event_loop(
     }
 }
 
-static void find_initial_iteration_point(
-    struct monad_event_iterator *iter)
+static void find_initial_iteration_point(struct monad_event_iterator *iter)
 {
     // This function is not strictly necessary, but it is probably useful for
     // most use cases. When an iterator is initialized via a call to

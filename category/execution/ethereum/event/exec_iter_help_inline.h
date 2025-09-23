@@ -39,10 +39,11 @@ static inline bool _monad_exec_ring_ensure_block(
     if (MONAD_UNLIKELY(
             (*event_p)->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0 &&
             (*event_p)->event_type != MONAD_EXEC_BLOCK_START)) {
-        if (MONAD_UNLIKELY(!monad_event_ring_try_copy(
-                event_ring,
-                (*event_p)->content_ext[MONAD_FLOW_BLOCK_SEQNO],
-                buf))) {
+        if (MONAD_UNLIKELY(
+                monad_event_ring_try_copy(
+                    event_ring,
+                    (*event_p)->content_ext[MONAD_FLOW_BLOCK_SEQNO],
+                    buf) != MONAD_EVENT_SUCCESS)) {
             return false;
         }
         *event_p = buf;
@@ -149,27 +150,26 @@ inline bool monad_exec_ring_block_id_matches(
 
     switch (event->event_type) {
     case MONAD_EXEC_BLOCK_START:
-        tag_matches = memcmp(
-                          block_id,
-                          &((struct monad_exec_block_start const *)payload)
-                              ->block_tag.id,
-                          sizeof *block_id) == 0;
-        break;
-
-    case MONAD_EXEC_BLOCK_QC:
-        tag_matches = memcmp(
-                          block_id,
-                          &((struct monad_exec_block_qc const *)payload)
-                              ->block_tag.id,
-                          sizeof *block_id) == 0;
-        break;
-
-    case MONAD_EXEC_BLOCK_FINALIZED:
         tag_matches =
             memcmp(
                 block_id,
-                &((struct monad_exec_block_tag const *)payload)->id,
+                &((struct monad_exec_block_start const *)payload)->block_tag.id,
                 sizeof *block_id) == 0;
+        break;
+
+    case MONAD_EXEC_BLOCK_QC:
+        tag_matches =
+            memcmp(
+                block_id,
+                &((struct monad_exec_block_qc const *)payload)->block_tag.id,
+                sizeof *block_id) == 0;
+        break;
+
+    case MONAD_EXEC_BLOCK_FINALIZED:
+        tag_matches = memcmp(
+                          block_id,
+                          &((struct monad_exec_block_tag const *)payload)->id,
+                          sizeof *block_id) == 0;
         break;
 
     default:
