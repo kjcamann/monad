@@ -56,6 +56,7 @@ struct monad_event_ring
     void *context_area;                         ///< Ring-specific storage
     uint64_t desc_capacity_mask;                ///< Descriptor capacity - 1
     uint64_t payload_buf_mask;                  ///< Payload buffer size - 1
+    void *user;                                 ///< User-specific data
 };
 
 /// Describes the size of an event ring's primary data structures
