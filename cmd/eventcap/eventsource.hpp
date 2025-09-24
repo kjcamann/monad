@@ -23,11 +23,9 @@
  * source using a single API
  */
 
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -38,6 +36,7 @@
 #include <category/core/event/evcap_reader.h>
 #include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_source.h>
 
 #include "metadata.hpp"
 
@@ -84,7 +83,7 @@ public:
     enum class Type : uint8_t
     {
         EventRing,
-        CaptureFile
+        CaptureFile,
     };
 
     virtual ~EventSource() = default;
@@ -116,6 +115,7 @@ public:
         , event_ring_{event_ring}
         , metadata_entries_{metadata_entries}
     {
+        event_ring_.user = this;
     }
 
     std::string describe() const override;
@@ -220,10 +220,11 @@ public:
         return evcap_reader_;
     }
 
-    monad_evcap_event_iterator
+    monad_evcap_iterator
     open_event_section(monad_evcap_section_desc const *) const;
 
-    MultiSectionIterator create_multi_section_iterator() const;
+    MultiSectionIterator
+        create_multi_section_iterator(monad_event_content_type) const;
 
     void init_iterator(
         Iterator *, std::optional<SequenceNumberSpec> start_seqno,
@@ -243,49 +244,35 @@ struct EventCaptureFile::MultiSectionIterator
     MultiSectionIterator(MultiSectionIterator &&);
     ~MultiSectionIterator();
 
-    bool next(
-        monad_event_content_type *, monad_event_descriptor const **event,
-        std::byte const **payload);
+    bool next(monad_event_descriptor const **event, std::byte const **payload);
 
-    bool read_seqno(
-        uint64_t const seqno, monad_event_content_type *,
-        monad_event_descriptor const **event, std::byte const **payload) const;
+    bool read_seqno(uint64_t const seqno, monad_event_descriptor const **event,
+                    std::byte const **payload) const;
 
     MultiSectionIterator &operator=(MultiSectionIterator const &) = delete;
     MultiSectionIterator &operator=(MultiSectionIterator &&);
 
     monad_evcap_section_desc const *current_section;
-    monad_evcap_event_iterator section_iter;
+    monad_evcap_iterator section_iter;
     EventCaptureFile const *capture;
-    uint64_t last_read_seqno;
 };
 
 // clang-format off
 
-/// Generalization of `monad_event_next_result` that can also communicate
-/// when an event iteration sequence has ended for various reasons and
-/// implements the --start-seqno and --end-seqno range filtering command line
-/// options; the return value of EventSource::Iterator::next
+/// Generalization of `monad_evsrc_iter_result` that also implements the
+/// --start-seqno and --end-seqno range filtering command line options; the
+/// return value of EventSource::Iterator::next
 enum class EventIteratorResult
 {
-    Success = MONAD_EVENT_SUCCESS,     ///< Event produced and iterator advanced
-    NotReady = MONAD_EVENT_NOT_READY,  ///< No events ready yet (ring only)
-    Gap = MONAD_EVENT_GAP,             ///< Sequence gap (ring only)
+    Success = MONAD_EVSRC_SUCCESS,     ///< Event produced and iterator advanced
+    NotReady = MONAD_EVSRC_NOT_READY,  ///< No events ready yet (ring only)
+    Gap = MONAD_EVSRC_GAP,             ///< Sequence gap (ring only)
+    NoMoreEvents =
+        MONAD_EVSRC_NO_MORE_EVENTS,    ///< Would move before begin or past end
+    Error = MONAD_EVSRC_ERROR,         ///< Error occurred (evcap only)
     Skipped,                           ///< Before --start-seqno, but copied out
-    Finished,                          ///< No more events in this iterator
     AfterStart,                        ///< First seen seqno > --start-seqno
     AfterEnd                           ///< Saw a seqno > --end-seqno
-};
-
-struct EventRingIteratorPair
-{
-    MappedEventRing const *ring;
-    monad_event_iterator iter;
-
-    monad_event_ring const *get_event_ring() const
-    {
-        return ring->get_event_ring();
-    }
 };
 
 // clang-format on
@@ -298,14 +285,21 @@ struct EventSource::Iterator
     Iterator();
     ~Iterator();
 
-    Type source_type;
+    enum class Type : uint8_t
+    {
+        EventRing,
+        CaptureSection,
+        CaptureMultiSection,
+    };
+
+    Type iter_type;
     bool finished;
-    monad_event_content_type content_type;
 
     union
     {
-        EventRingIteratorPair ring_pair;
-        EventCaptureFile::MultiSectionIterator capture_iter;
+        monad_event_iterator ring_iter;
+        monad_evcap_iterator evcap_iter;
+        EventCaptureFile::MultiSectionIterator multi_evcap_iter;
     };
 
     std::optional<uint64_t> start_seqno;
@@ -313,17 +307,14 @@ struct EventSource::Iterator
 
     /// Try to consume the next event in the stream and advance the iterator
     EventIteratorResult next(
-        monad_event_content_type *, monad_event_descriptor *event,
-        std::byte const **payload);
+        monad_event_descriptor *event, std::byte const **payload);
 
-    /// Read an event with this sequence number; this is the generalization of
-    /// the `monad_event_iterator_try_copy` function for ring iterators
-    /// and `monad_evcap_iterator_with_seqno` for capture iterators
-    bool read_seqno(
-        uint64_t const seqno, monad_event_content_type *,
-        monad_event_descriptor *event, std::byte const **payload) const;
+    /// Read an event with this sequence number
+    EventIteratorResult read_seqno(
+        uint64_t const seqno, monad_event_descriptor *event,
+        std::byte const **payload) const;
 
-    /// Check if a payload is still value (no-op for capture files)
+    /// Check if a payload is still valid (no-op for capture files)
     bool check_payload(monad_event_descriptor const *event) const;
 
     /// Return the last read sequence number
@@ -335,62 +326,83 @@ struct EventSource::Iterator
 
     /// Clear an event gap (no-op for capture files)
     std::pair<uint64_t, uint64_t> clear_gap(bool can_recover);
+
+    /// Create an event source iterator from this one
+    monad_evsrc_iterator_t to_evsrc();
+
+    monad_evsrc_const_iterator_t to_evsrc() const;
 };
 
 inline EventSource::Iterator::Iterator()
-    : source_type{Type::EventRing}
+    : iter_type{Type::EventRing}
     , finished{false}
-    , content_type{MONAD_EVENT_CONTENT_TYPE_NONE}
-    , ring_pair{}
+    , ring_iter{}
 {
 }
 
 inline EventSource::Iterator::~Iterator()
 {
-    if (source_type == Type::CaptureFile) {
-        capture_iter
+    switch (iter_type) {
+    case Type::CaptureSection:
+        monad_evcap_iterator_close(&evcap_iter);
+        break;
+    case Type::CaptureMultiSection:
+        multi_evcap_iter
             .EventCaptureFile::MultiSectionIterator::~MultiSectionIterator();
+        break;
+    default:
+        break;
     }
 }
 
 inline EventIteratorResult EventSource::Iterator::next(
-    monad_event_content_type *ct, monad_event_descriptor *event,
-    std::byte const **payload)
+    monad_event_descriptor *event, std::byte const **payload)
 {
     if (finished) {
-        return EventIteratorResult::Finished;
+        return EventIteratorResult::NoMoreEvents;
     }
 
     EventIteratorResult r;
     monad_event_descriptor const *mapped_event;
 
     // Get the next event descriptor and payload
-    switch (source_type) {
+    switch (iter_type) {
     case Type::EventRing:
         r = static_cast<EventIteratorResult>(
-            monad_event_iterator_try_next(&ring_pair.iter, event));
+            monad_event_iterator_try_next(&ring_iter, event));
         if (r == EventIteratorResult::Success) {
             *payload =
                 static_cast<std::byte const *>(monad_event_ring_payload_peek(
-                    ring_pair.get_event_ring(), event));
-            *ct = content_type;
+                    ring_iter.event_ring, event));
         }
         break;
 
-    case Type::CaptureFile:
-        if (capture_iter.next(ct, &mapped_event, payload)) [[likely]] {
+    case Type::CaptureSection:
+        if (monad_evcap_iterator_next(&evcap_iter, &mapped_event,
+                                      reinterpret_cast<void const **>(payload))) [[likely]] {
             *event = *mapped_event;
             r = EventIteratorResult::Success;
         }
         else {
             finished = true;
-            r = EventIteratorResult::Finished;
+            r = EventIteratorResult::NoMoreEvents;
+        }
+        break;
+
+    case Type::CaptureMultiSection:
+        if (multi_evcap_iter.next(&mapped_event, payload)) [[likely]] {
+            *event = *mapped_event;
+            r = EventIteratorResult::Success;
+        }
+        else {
+            finished = true;
+            r = EventIteratorResult::NoMoreEvents;
         }
         break;
 
     default:
         MONAD_ABORT_PRINTF(
-            "unknown source_type %hhu", std::to_underlying(source_type));
+            "unknown source_type %hhu", std::to_underlying(iter_type));
     }
 
     if (r != EventIteratorResult::Success) {
@@ -416,7 +428,7 @@ inline EventIteratorResult EventSource::Iterator::next(
     if (end_seqno) {
         if (event->seqno == *end_seqno) {
             finished = true;
-            return EventIteratorResult::Finished;
+            return EventIteratorResult::NoMoreEvents;
         }
         if (event->seqno > *end_seqno) {
             finished = true;
@@ -427,68 +439,71 @@ inline EventIteratorResult EventSource::Iterator::next(
     return r;
 }
 
-inline bool EventSource::Iterator::read_seqno(
-    uint64_t const seqno, monad_event_content_type *ct,
-    monad_event_descriptor *event, std::byte const **payload) const
+inline EventIteratorResult EventSource::Iterator::read_seqno(
+    uint64_t const seqno, monad_event_descriptor *event,
+    std::byte const **payload) const
 {
+    EventIteratorResult r;
     monad_event_descriptor const *mapped_event;
-    switch (source_type) {
+
+    switch (iter_type) {
     case Type::EventRing:
-        if (ct != nullptr) {
-            *ct = content_type;
-        }
-        if (monad_event_ring_try_copy(
-                ring_pair.get_event_ring(), seqno, event) ==
-            MONAD_EVENT_SUCCESS) {
+        r = static_cast<EventIteratorResult>(monad_event_ring_try_copy(ring_iter.event_ring, seqno, event));
+        if (r == EventIteratorResult::Success) {
             *payload =
                 static_cast<std::byte const *>(monad_event_ring_payload_peek(
-                    ring_pair.get_event_ring(), event));
-            return true;
+                    ring_iter.event_ring, event));
         }
-        return false;
-    case Type::CaptureFile:
-        if (capture_iter.read_seqno(seqno, ct, &mapped_event, payload)) {
+        return r;
+
+    case Type::CaptureSection:
+        if (monad_evcap_iterator_copy_seqno(&evcap_iter, seqno, &mapped_event, reinterpret_cast<void const **>(payload))) {
             *event = *mapped_event;
-            return true;
+            return EventIteratorResult::Success;
         }
-        return false;
+        return EventIteratorResult::Error;
+
+    case Type::CaptureMultiSection:
+        if (multi_evcap_iter.read_seqno(seqno, &mapped_event, payload)) {
+            *event = *mapped_event;
+            return EventIteratorResult::Success;
+        }
+        return EventIteratorResult::Error;
     }
-    return false;
+    std::unreachable();
 }
 
 inline bool
 EventSource::Iterator::check_payload(monad_event_descriptor const *event) const
 {
-    switch (source_type) {
+    switch (iter_type) {
     case Type::EventRing:
-        return monad_event_ring_payload_check(
-            ring_pair.get_event_ring(), event);
-    case Type::CaptureFile:
+        return monad_event_ring_payload_check(ring_iter.event_ring, event);
+    default:
         return true;
     }
-    return false;
 }
 
 inline uint64_t EventSource::Iterator::get_last_read_seqno() const
 {
-    switch (source_type) {
+    switch (iter_type) {
     case Type::EventRing:
-        return ring_pair.iter.read_last_seqno;
-    case Type::CaptureFile:
-        return capture_iter.last_read_seqno;
+        return ring_iter.read_last_seqno;
     default:
-        std::unreachable();
+        return 0; // TODO(ken): do something reasonable here
     }
 }
 
 inline uint64_t EventSource::Iterator::get_last_written_seqno() const
 {
-    switch (source_type) {
+    switch (iter_type) {
     case Type::EventRing:
         return monad_event_ring_get_last_written_seqno(
-            ring_pair.ring->get_event_ring(), false);
-    case Type::CaptureFile:
-        return capture_iter.section_iter.seqno_index.seqno_end;
+            ring_iter.event_ring, false);
+    case Type::CaptureSection:
+        return evcap_iter.seqno_index.seqno_end;
+    case Type::CaptureMultiSection:
+        return multi_evcap_iter.section_iter.seqno_index.seqno_end;
     default:
         std::unreachable();
     }
@@ -497,12 +512,40 @@ inline uint64_t EventSource::Iterator::get_last_written_seqno() const
 inline std::pair<uint64_t, uint64_t>
 EventSource::Iterator::clear_gap(bool can_recover)
 {
-    if (source_type == Type::EventRing) {
+    if (iter_type == Type::EventRing) {
         auto const p = std::make_pair(
-            ring_pair.iter.read_last_seqno,
-            monad_event_iterator_reset(&ring_pair.iter));
+            ring_iter.read_last_seqno,
+            monad_event_iterator_reset(&ring_iter));
         finished = !can_recover;
         return p;
     }
     return {};
+}
+
+inline monad_evsrc_iterator_t EventSource::Iterator::to_evsrc()
+{
+    switch (iter_type) {
+    case Type::EventRing:
+        return monad_evsrc_iterator_from_ring(&ring_iter);
+    case Type::CaptureSection:
+        return monad_evsrc_iterator_from_evcap(&evcap_iter);
+    case Type::CaptureMultiSection:
+        return monad_evsrc_iterator_from_evcap(&multi_evcap_iter.section_iter);
+    default:
+        std::unreachable();
+    }
+}
+
+inline monad_evsrc_const_iterator_t EventSource::Iterator::to_evsrc() const
+{
+    switch (iter_type) {
+    case Type::EventRing:
+        return monad_evsrc_iterator_from_ring_const(&ring_iter);
+    case Type::CaptureSection:
+        return monad_evsrc_iterator_from_evcap_const(&evcap_iter);
+    case Type::CaptureMultiSection:
+        return monad_evsrc_iterator_from_evcap_const(&multi_evcap_iter.section_iter);
+    default:
+        std::unreachable();
+    }
 }

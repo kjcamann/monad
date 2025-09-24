@@ -111,7 +111,6 @@ void MappedEventRing::init_iterator(
     monad_event_ring_header const *const header = get_header();
     monad_event_iterator &ring_iter = source_iter->ring_pair.iter;
     source_iter->source_type = EventSource::Type::EventRing;
-    source_iter->content_type = header->content_type;
     source_iter->finished = false;
     source_iter->ring_pair.ring = this;
 

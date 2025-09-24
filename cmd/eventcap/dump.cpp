@@ -19,7 +19,6 @@
 #include "options.hpp"
 #include "util.hpp"
 
-#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -37,8 +36,10 @@
 
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_source.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes_fmt.hpp>
+#include <category/execution/ethereum/event/exec_iter_help.h>
 
 namespace
 {
@@ -65,7 +66,7 @@ bool hexdump_event_payload(
     bool const overflow = event->payload_size > hexdump_buf_size;
     std::byte const *const payload_end =
         overflow
-            ? std::bit_cast<std::byte *>(hexdump_buf.get()) + hexdump_buf_size
+            ? reinterpret_cast<std::byte *>(hexdump_buf.get()) + hexdump_buf_size
             : payload_base + event->payload_size;
     char *o = hexdump_buf.get();
     for (std::byte const *line = payload_base; line < payload_end; line += 16) {
@@ -110,27 +111,12 @@ char *format_exec_event_user_array(
 {
     if (uint64_t const block_start_seqno =
             event->content_ext[MONAD_FLOW_BLOCK_SEQNO]) {
-        monad_event_descriptor block_start_event;
-        std::byte const *block_start_payload;
-        std::optional<uint64_t> block_number;
-        if (iter->read_seqno(
-                block_start_seqno,
-                nullptr,
-                &block_start_event,
-                &block_start_payload)) {
-            auto const *const bs =
-                reinterpret_cast<monad_exec_block_start const *>(
-                    block_start_payload);
-            block_number = bs->block_tag.block_number;
-            if (!iter->check_payload(&block_start_event)) {
-                block_number.reset();
-            }
-        }
-        if (block_number) {
-            o = std::format_to(o, " BLK: {}", *block_number);
+        uint64_t block_number;
+        if (monad_exec_get_block_number(iter->to_evsrc(), event, &block_number)) {
+            o = std::format_to(o, " BLK: {}", block_number);
         }
         else {
-            o = std::format_to(o, " BLK: N/A");
+            o = std::format_to(o, " BLK: <LOST>");
         }
     }
     if (uint64_t const txn_id = event->content_ext[MONAD_FLOW_TXN_ID]) {
@@ -140,9 +126,9 @@ char *format_exec_event_user_array(
 }
 
 bool print_event(
-    EventSource::Iterator const *iter, monad_event_content_type content_type,
-    monad_event_descriptor const *event, std::byte const *payload,
-    DumpCommandOptions const *dump_opts, std::FILE *out)
+    EventSource::Iterator const *iter, monad_event_descriptor const *event,
+    std::byte const *payload, DumpCommandOptions const *dump_opts,
+    std::FILE *out)
 {
     using std::chrono::seconds, std::chrono::nanoseconds;
     static std::chrono::sys_time<seconds> last_second{};
@@ -257,13 +243,12 @@ void dump_thread_main(std::span<Command *const> commands)
                 continue;
             }
 
-            monad_event_content_type content_type;
             monad_event_descriptor event;
             std::byte const *payload;
-            switch (state.iter.next(&content_type, &event, &payload)) {
+            switch (state.iter.next(&event, &payload)) {
             case AfterEnd:
                 [[fallthrough]];
-            case Finished:
+            case NoMoreEvents:
                 --active_state_count;
                 state.finished = true;
                 [[fallthrough]];
@@ -311,7 +296,7 @@ void dump_thread_main(std::span<Command *const> commands)
                 std::print(output, "{}. ", ring_index);
             }
             bool const payload_ok = print_event(
-                &state.iter, content_type, &event, payload, options, output);
+                &state.iter, &event, payload, options, output);
             if (!payload_ok) {
                 std::println(
                     stderr,
@@ -319,7 +304,7 @@ void dump_thread_main(std::span<Command *const> commands)
                     "{}",
                     event.seqno,
                     event.payload_buf_offset,
-                    state.iter.ring_pair.ring->get_buffer_window_start());
+                    state.iter.get_mapped_event_ring()->get_buffer_window_start());
                 (void)state.iter.clear_gap(true);
             }
         }

@@ -82,10 +82,9 @@ void digest_thread_main(std::span<Command *const> commands)
             }
 
             using enum EventIteratorResult;
-            monad_event_content_type content_type;
             monad_event_descriptor event;
             std::byte const *payload;
-            switch (state.iter.next(&content_type, &event, &payload)) {
+            switch (state.iter.next(&event, &payload)) {
             case AfterStart:
                 errx_f(
                     EX_SOFTWARE,
@@ -102,7 +101,7 @@ void digest_thread_main(std::span<Command *const> commands)
                     event.seqno,
                     *state.iter.end_seqno);
 
-            case Finished:
+            case NoMoreEvents:
                 --active_state_count;
                 state.finished = true;
                 continue;
