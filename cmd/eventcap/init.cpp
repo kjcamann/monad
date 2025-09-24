@@ -594,7 +594,7 @@ void expect_content_type(
     //
     //   1. An event ring file with the expected type
     //
-    //   2. An event capture file with a RING_METADATA section of that type
+    //   2. An event capture file with a SCHEMA section of that type
     EventSource::Type const source_type = source->get_type();
     if (source_type == EventSource::Type::EventRing) {
         MappedEventRing const *const mr =
