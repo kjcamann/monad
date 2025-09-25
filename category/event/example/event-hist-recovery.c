@@ -490,13 +490,15 @@ EventRingError:
 static struct block_range compute_missing_block_range(
     uint64_t last_finalized_block, struct monad_event_iterator *iter, int pidfd)
 {
-    struct block_range r = {.block_start = last_finalized_block};
     struct monad_event_descriptor event;
+    void const *payload;
     bool found_finalized;
+    monad_evsrc_iterator_t const evsrc_iter = EVSRC_ITER(iter);
+    struct block_range r = {.block_start = last_finalized_block};
     unsigned wait_count = 0;
 
     found_finalized = monad_exec_iter_consensus_prev(
-        EVSRC_ITER(iter), MONAD_EXEC_BLOCK_FINALIZED, &event);
+        evsrc_iter, MONAD_EXEC_BLOCK_FINALIZED, &event, &payload);
     while (!found_finalized) {
         // Unable to rewind to the previous BLOCK_FINALIZED event; this means
         // that execution has been restarted recently, and there is not yet a
@@ -514,11 +516,11 @@ static struct block_range compute_missing_block_range(
         sleep(1);
         monad_event_iterator_reset(iter);
         found_finalized = monad_exec_iter_consensus_prev(
-            EVSRC_ITER(iter), MONAD_EXEC_BLOCK_FINALIZED, &event);
+            evsrc_iter, MONAD_EXEC_BLOCK_FINALIZED, &event, &payload);
     }
 
     if (!monad_exec_get_block_number(
-            EVSRC_CONST_ITER(iter), &event, &r.block_end)) {
+            EVSRC_GET(evsrc_iter), &event, payload, &r.block_end)) {
         errx(EX_SOFTWARE, "unable to get block number for %lu", event.seqno);
     }
 
@@ -561,8 +563,8 @@ static struct block_range compute_missing_block_range(
 // only see finalized blocks, and no BLOCK_FINALIZED event will be seen, but
 // can be assumed to be implicitly emitted after BLOCK_END.
 static void print_event(
-    monad_evsrc_const_iterator_t iter,
-    struct monad_event_descriptor const *event, void const *payload, FILE *out)
+    monad_evsrc_t evsrc, struct monad_event_descriptor const *event,
+    void const *payload, FILE *out)
 {
     // This function is similar to the version in eventwatch.c, except that:
     //
@@ -597,9 +599,7 @@ static void print_event(
     // We can determine whether this event comes from a live event ring or
     // from a capture file from the evsrc iterator
     enum event_liveness const liveness =
-        monad_evsrc_iterator_get_type(iter) == MONAD_EVSRC_EVENT_RING
-            ? EVENT_LIVE
-            : EVENT_REPLAY;
+        evsrc.source_type == MONAD_EVSRC_EVENT_RING ? EVENT_LIVE : EVENT_REPLAY;
 
     struct monad_event_metadata const *event_md =
         &g_monad_exec_event_metadata[event->event_type];
@@ -631,7 +631,7 @@ static void print_event(
         event->payload_buf_offset);
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0) {
         uint64_t block_number;
-        if (monad_exec_get_block_number(iter, event, &block_number)) {
+        if (monad_exec_get_block_number(evsrc, event, payload, &block_number)) {
             o += sprintf(o, " BLK: %lu", block_number);
         }
         else {
@@ -656,7 +656,7 @@ static void print_event(
     o += sprintf(
         o,
         " EXPIRED?: %c",
-        monad_evsrc_iterator_check_payload(iter, event) ? 'N' : 'Y');
+        monad_evsrc_check_payload(evsrc, event) ? 'N' : 'Y');
     (void)payload;
 
     *o++ = '\n';
@@ -691,7 +691,9 @@ static void event_loop(
     // is this size or smaller, switch to the live event ring
     constexpr unsigned LIVE_RING_BLOCK_THRESHOLD = 10;
 
+    monad_evsrc_t event_source;
     struct monad_event_descriptor live_event;
+    void const *payload;
     uint64_t not_ready_count = 0;
     uint64_t last_finalized_block = cfg->last_finalized_block;
 
@@ -707,43 +709,56 @@ RecoverAgain:
             cfg->verbose > 0);
         for (uint64_t b = missing.block_start + 1; b <= missing.block_end;
              ++b) {
-            void const *payload;
+            struct monad_evcap_event_section event_section;
+            struct monad_evcap_iterator evcap_iter;
             struct monad_evcap_reader *evcap_reader;
             struct monad_evcap_section_desc const *block_sd;
-            struct monad_evcap_iterator evcap_iter;
             struct monad_event_descriptor const *evcap_event;
 
             // Try to open block b; we expect it to always be there, because
             // of the successful call to `ensure_missing_range_present`; this
             // gives back a reader for an "event capture" (evcap) file
             if (monad_bcap_block_archive_open_block(
-                    block_archive, b, &evcap_reader, &block_sd) != 0) {
+                    block_archive,
+                    b,
+                    nullptr,
+                    nullptr,
+                    0,
+                    &evcap_reader,
+                    &block_sd) != 0) {
                 errx(
                     EX_SOFTWARE,
                     "bcap library error -- %s",
                     monad_bcap_get_last_error());
             }
 
-            // Open an iterator to all the events in the evcap file, read and
-            // print all the events in them, then close the iterator. It is
-            // important to remember to close the iterator because it may hold
-            // dynamically allocated memory when sections of the event capture
-            // file are compressed
-            if (monad_evcap_reader_open_iterator(
-                    evcap_reader, block_sd, &evcap_iter) != 0) {
+            // Event capture files contain multiple sections, and this API call
+            // will "open" the section of the file containing the events, as
+            // described by the section description `block_sd` given to us by
+            // the archive layer.
+            //
+            // This is a potentially expensive step, because the section
+            // contents can be zstd-compressed. It is important to remember to
+            // close this section object because it will hold dynamically
+            // allocated memory whenever the section needed to be decompressed
+            if (monad_evcap_event_section_open(
+                    &event_section, evcap_reader, block_sd) != 0) {
                 errx(
                     EX_SOFTWARE,
                     "evcap_reader library error -- %s",
                     monad_evcap_reader_get_last_error());
             }
-            while (monad_evcap_iterator_copy(
+            event_source = EVSRC_GET(&event_section);
+
+            // Open an iterator to all the events in the section, and use it
+            // to read and print all the events in it
+            monad_evcap_event_section_open_iterator(
+                &event_section, &evcap_iter);
+            while (monad_evcap_iterator_next(
                 &evcap_iter, &evcap_event, &payload)) {
-                print_event(
-                    EVSRC_CONST_ITER(&evcap_iter), evcap_event, payload, out);
-                (void)monad_evcap_iterator_next(
-                    &evcap_iter, &evcap_event, nullptr);
+                print_event(event_source, evcap_event, payload, out);
             }
-            monad_evcap_iterator_close(&evcap_iter);
+            monad_evcap_event_section_close(&event_section);
             monad_evcap_reader_destroy(evcap_reader);
         }
 
@@ -760,7 +775,10 @@ RecoverAgain:
     // Rewind the live ring to the point where it will replay events after
     // the initial proposal of the last finalized block
     if (!monad_exec_iter_rewind_for_simple_replay(
-            EVSRC_ITER(&ring_iter), missing.block_start, &live_event)) {
+            EVSRC_ITER(&ring_iter),
+            missing.block_start,
+            &live_event,
+            &payload)) {
         // We were within the threshold, but somehow the rewind failed
         // TODO(ken): it is extremely unlikely this can ever happen, and we
         //  should think more about what the right to do is in this case
@@ -777,8 +795,9 @@ RecoverAgain:
         goto RecoverAgain;
     }
 
+    event_source = EVSRC_GET(event_ring);
     while (g_should_stop == 0) {
-        switch (monad_event_iterator_try_copy(&ring_iter, &live_event)) {
+        switch (monad_event_iterator_try_next(&ring_iter, &live_event)) {
         case MONAD_EVENT_NOT_READY:
             if ((not_ready_count++ & ((1U << 25) - 1)) == 0) {
                 // The above guard prevents us from calling process_has_exited
@@ -800,17 +819,15 @@ RecoverAgain:
             goto RecoverAgain;
 
         case MONAD_EVENT_SUCCESS:
-            print_event(
-                EVSRC_CONST_ITER(&ring_iter),
-                &live_event,
-                monad_event_ring_payload_peek(event_ring, &live_event),
-                out);
+            payload = monad_event_ring_payload_peek(event_ring, &live_event);
+            print_event(event_source, &live_event, payload, out);
             // Keep track of the last finalized block number, so we can recover
             // again when a gap occurs
             if (live_event.event_type == MONAD_EXEC_BLOCK_FINALIZED) {
                 if (monad_exec_get_block_number(
-                        EVSRC_CONST_ITER(&ring_iter),
+                        event_source,
                         &live_event,
+                        payload,
                         &last_finalized_block) == false) {
                     errx(
                         EX_SOFTWARE,
@@ -818,7 +835,6 @@ RecoverAgain:
                         live_event.seqno);
                 }
             }
-            monad_event_iterator_advance(&ring_iter, 1);
             break;
         }
         not_ready_count = 0;

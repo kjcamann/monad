@@ -15,7 +15,8 @@
 
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
 #include "options.hpp"
 #include "util.hpp"
 
@@ -59,9 +60,9 @@ void recordexec_thread_main(std::span<Command *const> commands)
     constexpr mode_t CreateMode =
         S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
 
-    EventSource::Iterator iter;
+    EventIterator iter;
     Command *const command = commands[0];
-    EventSource *const event_source = command->event_sources[0];
+    EventSourceSpec &event_source = command->event_sources[0];
 
     monad_bcap_builder *block_builder;
     monad_bcap_finalize_tracker *finalize_tracker;
@@ -145,44 +146,38 @@ void recordexec_thread_main(std::span<Command *const> commands)
     }
     (void)close(output_fd);
 
-    if (event_source->get_type() == EventSource::Type::CaptureFile &&
-        pack_writer != nullptr) {
-        EventCaptureFile const *const capture_file =
-            static_cast<EventCaptureFile const *>(event_source);
-        copy_all_schema_sections(
-            monad_bcap_pack_writer_get_evcap_writer(pack_writer),
-            capture_file,
-            MONAD_EVENT_CONTENT_TYPE_EXEC);
-    }
-
-    CommonCommandOptions const &cc_opts = options->common_options;
-
     // For recordexec, if no explicit start sequence number is specified, we
     // set it to most recently executed proposed block
-    std::optional<SequenceNumberSpec> start_seqno = cc_opts.start_seqno;
-    if (!start_seqno &&
-        event_source->get_type() == EventSource::Type::EventRing) {
-        start_seqno = SemanticSequenceNumber{
-            .consensus_type = MONAD_EXEC_BLOCK_START,
-            .block_label = std::monostate()};
+    auto &opt_begin_seqno = event_source.opt_begin_seqno;
+    if (!opt_begin_seqno && event_source.source_file->get_type() ==
+                                EventSourceFile::Type::EventRing) {
+        opt_begin_seqno = SequenceNumberSpec{
+            .type = SequenceNumberSpec::Type::ConsensusEvent,
+            .consensus_event = {.consensus_type = MONAD_EXEC_BLOCK_START}};
     }
-    event_source->init_iterator(&iter, start_seqno, cc_opts.end_seqno);
+    event_source.init_iterator(&iter);
     size_t not_ready_count = 0;
     bool ring_is_live = true;
     while (g_should_exit == 0 && ring_is_live) {
         using enum EventIteratorResult;
 
-        monad_event_content_type content_type;
         monad_event_descriptor event;
         std::byte const *payload;
-        switch (iter.next(&content_type, &event, &payload)) {
-        case AfterStart:
+        switch (iter.next(&event, &payload)) {
+        case Error:
             errx_f(
                 EX_SOFTWARE,
-                "event seqno {} occurs after start seqno {};"
+                "EventIterator::next error {} -- {}",
+                iter.error_code,
+                iter.last_error_msg);
+
+        case AfterBegin:
+            errx_f(
+                EX_SOFTWARE,
+                "event seqno {} occurs after begin seqno {};"
                 "events missing",
                 event.seqno,
-                *iter.start_seqno);
+                *iter.begin_seqno);
 
         case AfterEnd:
             errx_f(
@@ -192,13 +187,13 @@ void recordexec_thread_main(std::span<Command *const> commands)
                 event.seqno,
                 *iter.end_seqno);
 
-        case Finished:
+        case End:
             ring_is_live = false;
             continue;
 
         case NotReady:
             if ((++not_ready_count & NotReadyCheckMask) == 0) {
-                ring_is_live = !event_source->is_finalized();
+                ring_is_live = !event_source.source_file->is_finalized();
             }
             [[fallthrough]];
         case Skipped:
@@ -228,12 +223,7 @@ void recordexec_thread_main(std::span<Command *const> commands)
         // this function even for events we know aren't recorded, since the
         // block builder checks for sequence number gaps internally
         BC_CHECK(monad_bcap_builder_append_event(
-            block_builder,
-            content_type,
-            &event,
-            payload,
-            &append_result,
-            &proposal));
+            block_builder, &event, payload, &append_result, &proposal));
 
         if (event.event_type == MONAD_EXEC_BLOCK_FINALIZED) {
             monad_bcap_proposal_list abandon_chain;

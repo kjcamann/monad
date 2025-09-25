@@ -23,8 +23,8 @@
  * Although there is little harm in taking this dependency ourselves, third
  * party users of the SDK may not want to use this library. If they use an
  * SDK function which asserts, they will will need to provide this symbol
- * to the linker. This file serves as an example of how to do this, using
- * the C++23 <stacktrace>
+ * to the linker. This file serves as an example of how to do this using
+ * the C++23 <stacktrace>.
  */
 
 #include <version>
@@ -55,7 +55,7 @@ extern "C" void monad_stack_backtrace_capture_and_print(
     for (std::stacktrace_entry const &e : std::stacktrace::current()) {
         dprintf(
             fd,
-            "%s  %s @ %s:%u\n",
+            "%s%s @ %s:%u\n",
             indent_buffer,
             e.description().c_str(),
             e.source_file().c_str(),

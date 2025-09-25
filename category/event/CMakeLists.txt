@@ -163,9 +163,7 @@ option(MONAD_EVENT_BUILD_EXAMPLES
     "Build the example programs that show how to use the API" ON)
 
 if (MONAD_EVENT_BUILD_EXAMPLES)
-  add_executable(eventwatch
-      "example/eventwatch.c"
-      "example/shim-backtrace.c")
+  add_executable(eventwatch "example/eventwatch.c")
   target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
 

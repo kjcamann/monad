@@ -136,26 +136,28 @@ Error:
 
 void monad_bcap_block_archive_close(struct monad_bcap_block_archive *bca)
 {
-    (void)close(bca->dirfd);
-    free(bca);
+    if (bca != nullptr) {
+        (void)close(bca->dirfd);
+        free(bca);
+    }
 }
 
-int monad_bcap_block_archive_open_block(
-    struct monad_bcap_block_archive *bca, uint64_t finalized_block,
-    struct monad_evcap_reader **evcap_reader_p,
-    struct monad_evcap_section_desc const **event_bundle_sd_p)
+int monad_bcap_block_archive_open_block_fd(
+    struct monad_bcap_block_archive const *bca, uint64_t finalized_block,
+    int open_flags, int *fd_out, char *error_name_buf,
+    size_t error_name_buf_size)
 {
-    int rc;
-    int fd;
     char path_buf[32];
-    char error_name_buf[64];
-    struct monad_evcap_section_desc const *sd;
+    char local_error_name_buf[64];
+    int n_written;
+    int fd;
 
+    if (fd_out != nullptr) {
+        *fd_out = -1;
+    }
     // Form the path to the file, then open it
     ldiv_t const d =
         ldiv((long)finalized_block, (long)MONAD_BCAP_FILES_PER_SUBDIR);
-    *evcap_reader_p = nullptr;
-    sd = *event_bundle_sd_p = nullptr;
     // TODO(ken): MONAD_BCAP_FILES_PER_SUBDIR is constexpr, but then we
     //  hardcode a width of 4 in the format specifier, assuming we know the
     //  number of digits
@@ -164,16 +166,67 @@ int monad_bcap_block_archive_open_block(
         "%ld/%04ld.bcap",
         d.quot * (long)MONAD_BCAP_FILES_PER_SUBDIR,
         d.rem);
-    (void)sprintf(error_name_buf, "%s [block %lu]", path_buf, finalized_block);
-    fd = openat(bca->dirfd, path_buf, O_RDONLY);
+    if (error_name_buf == nullptr) {
+        error_name_buf = local_error_name_buf;
+        error_name_buf_size = sizeof local_error_name_buf;
+    }
+    n_written = snprintf(
+        error_name_buf,
+        error_name_buf_size,
+        "%s [block %lu]",
+        path_buf,
+        finalized_block);
+    if (n_written > 0 && (size_t)n_written >= error_name_buf_size) {
+        error_name_buf[error_name_buf_size - 1] = '\0';
+    }
+    fd = openat(bca->dirfd, path_buf, open_flags);
     if (fd == -1) {
         return FORMAT_ERRC(errno, "could not open %s", error_name_buf);
+    }
+    if (fd_out != nullptr) {
+        *fd_out = fd;
+    }
+    else {
+        (void)close(fd);
+    }
+    return 0;
+}
+
+int monad_bcap_block_archive_open_block(
+    struct monad_bcap_block_archive const *bca, uint64_t finalized_block,
+    int *fd_out, char *error_name_buf, size_t error_name_buf_size,
+    struct monad_evcap_reader **evcap_reader_p,
+    struct monad_evcap_section_desc const **event_bundle_sd_p)
+{
+    int rc;
+    int fd;
+    char local_error_name_buf[64];
+    struct monad_evcap_section_desc const *sd;
+
+    if (error_name_buf == nullptr) {
+        error_name_buf = local_error_name_buf;
+        error_name_buf_size = sizeof local_error_name_buf;
+    }
+    rc = monad_bcap_block_archive_open_block_fd(
+        bca,
+        finalized_block,
+        O_RDONLY,
+        &fd,
+        error_name_buf,
+        error_name_buf_size);
+    if (rc != 0) {
+        return rc;
     }
 
     // Create an event capture reader for the file, and check if the schema
     // is compatible with the current library
     rc = monad_evcap_reader_create(evcap_reader_p, fd, error_name_buf);
-    (void)close(fd);
+    if (fd_out != nullptr) {
+        *fd_out = fd;
+    }
+    else {
+        (void)close(fd);
+    }
     if (rc != 0) {
         return FORMAT_ERRC(
             rc,

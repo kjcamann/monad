@@ -50,14 +50,20 @@ add_executable(eventcap
   dump.cpp
   err_cxx.hpp
   eventcap.hpp
-  eventsource.cpp
-  eventsource.hpp
   execstat.cpp
-  header.cpp
+  file.cpp
+  file.hpp
+  headstat.cpp
+  info.cpp
   init.cpp
+  init.hpp
+  iterator.cpp
+  iterator.hpp
   main.cpp
   metadata.hpp
   options.hpp
+  parse.cpp
+  parse.hpp
   record.cpp
   recordexec.cpp
   snapshot.cpp

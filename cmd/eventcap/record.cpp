@@ -15,7 +15,9 @@
 
 #include "err_cxx.hpp"
 #include "eventcap.hpp"
-#include "eventsource.hpp"
+#include "file.hpp"
+#include "iterator.hpp"
+#include "metadata.hpp"
 #include "options.hpp"
 #include "util.hpp"
 
@@ -87,13 +89,14 @@ void record_thread_main(std::span<Command *const> commands)
     constexpr mode_t CreateMode =
         S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
 
-    EventSource::Iterator iter;
+    EventIterator iter;
     Command *const command = commands[0];
-    EventSource *const event_source = command->event_sources[0];
+    EventSourceSpec const &event_source = command->event_sources[0];
 
     monad_evcap_writer *evcap_writer;
     monad_evcap_dynamic_section *dyn_sec;
     monad_evcap_section_desc *event_bundle_sd;
+    monad_evcap_section_desc const *schema_sd;
     monad_vbuf_writer *event_vbuf_writer;
     monad_vbuf_writer *seqno_index_vbuf_writer = nullptr;
 
@@ -109,24 +112,21 @@ void record_thread_main(std::span<Command *const> commands)
     }
     EVCAP_CHECK(monad_evcap_writer_create(&evcap_writer, fd));
     (void)close(fd);
-    EventSource::Type const source_type = event_source->get_type();
-    if (source_type == EventSource::Type::EventRing) {
-        auto const *const mr =
-            static_cast<MappedEventRing const *>(event_source);
-        monad_event_ring_header const *const header = mr->get_header();
-        EVCAP_CHECK(monad_evcap_writer_add_schema_section(
-            evcap_writer, header->content_type, header->schema_hash));
-    }
-    else {
-        MONAD_ASSERT(source_type == EventSource::Type::CaptureFile);
-        auto const *const capture =
-            static_cast<EventCaptureFile const *>(event_source);
-        copy_all_schema_sections(
-            evcap_writer, capture, MONAD_EVENT_CONTENT_TYPE_NONE);
-    }
+
+    monad_event_content_type const content_type =
+        event_source.get_content_type();
+
+    EVCAP_CHECK(monad_evcap_writer_add_schema_section(
+        evcap_writer,
+        content_type,
+        *MetadataTable[content_type].schema_hash,
+        &schema_sd));
+
     EVCAP_CHECK(monad_evcap_writer_dyn_sec_open(
         evcap_writer, &dyn_sec, &event_bundle_sd));
     event_bundle_sd->type = MONAD_EVCAP_SECTION_EVENT_BUNDLE;
+    event_bundle_sd->event_bundle.schema_desc_offset =
+        schema_sd->descriptor_offset;
 
     monad_vbuf_writer_options const event_vbuf_writer_options = {
         .segment_shift = options->vbuf_segment_shift,
@@ -157,8 +157,7 @@ void record_thread_main(std::span<Command *const> commands)
             &seqno_index_vbuf_writer, &seqno_writer_options));
     }
 
-    CommonCommandOptions const &cc_opts = options->common_options;
-    event_source->init_iterator(&iter, cc_opts.start_seqno, cc_opts.end_seqno);
+    event_source.init_iterator(&iter);
     size_t not_ready_count = 0;
     bool ring_is_live = true;
     monad_vbuf_chain event_vbufs;
@@ -169,18 +168,24 @@ void record_thread_main(std::span<Command *const> commands)
     while (g_should_exit == 0 && ring_is_live) {
         using enum EventIteratorResult;
 
-        monad_event_content_type content_type;
         monad_event_descriptor event;
         std::byte const *payload;
 
-        switch (iter.next(&content_type, &event, &payload)) {
-        case AfterStart:
+        switch (iter.next(&event, &payload)) {
+        case Error:
             errx_f(
                 EX_SOFTWARE,
-                "event seqno {} occurs after start seqno {};"
+                "EventIterator::next error {} -- {}",
+                iter.error_code,
+                iter.last_error_msg);
+
+        case AfterBegin:
+            errx_f(
+                EX_SOFTWARE,
+                "event seqno {} occurs after begin seqno {};"
                 "events missing",
                 event.seqno,
-                *iter.start_seqno);
+                *iter.begin_seqno);
 
         case AfterEnd:
             errx_f(
@@ -190,13 +195,13 @@ void record_thread_main(std::span<Command *const> commands)
                 event.seqno,
                 *iter.end_seqno);
 
-        case Finished:
+        case End:
             ring_is_live = false;
             continue;
 
         case NotReady:
             if ((++not_ready_count & NotReadyCheckMask) == 0) {
-                ring_is_live = !event_source->is_finalized();
+                ring_is_live = !event_source.source_file->is_finalized();
             }
             [[fallthrough]];
         case Skipped:
@@ -240,11 +245,7 @@ void record_thread_main(std::span<Command *const> commands)
                     &seqno_vbufs));
             }
             EVCAP_CHECK(monad_evcap_vbuf_append_event(
-                event_vbuf_writer,
-                content_type,
-                &event,
-                payload,
-                &event_vbufs));
+                event_vbuf_writer, &event, payload, &event_vbufs));
             if (!iter.check_payload(&event)) {
                 errx_f(
                     EX_SOFTWARE, "payload expired for event {}", event.seqno);
