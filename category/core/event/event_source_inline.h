@@ -19,6 +19,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <category/core/event/evcap_reader.h>
 #include <category/core/event/event_iterator.h>
@@ -29,198 +30,43 @@ extern "C"
 {
 #endif
 
-constexpr uintptr_t MONAD_EVSRC_EVCAP_MASK = 0b1;
-
-union monad_evsrc_iterator_union
-{
-    struct monad_event_iterator *ring_iter;
-    struct monad_evcap_iterator *evcap_iter;
-};
-
-union monad_evsrc_const_iterator_union
-{
-    struct monad_event_iterator const *ring_iter;
-    struct monad_evcap_iterator const *evcap_iter;
-};
-
-inline enum monad_evsrc_type
-monad_evsrc_iterator_get_type(monad_evsrc_const_iterator_t c)
-{
-    return c.opaque & MONAD_EVSRC_EVCAP_MASK ? MONAD_EVSRC_EVCAP_SECTION
-                                             : MONAD_EVSRC_EVENT_RING;
-}
-
-static inline enum monad_evsrc_type monad_evsrc_decode_const_iter(
-    monad_evsrc_const_iterator_t iter,
-    union monad_evsrc_const_iterator_union *u)
-{
-    if (monad_evsrc_iterator_get_type(iter) == MONAD_EVSRC_EVCAP_SECTION) {
-        u->evcap_iter =
-            (struct monad_evcap_iterator const *)(iter.opaque &
-                                                  ~MONAD_EVSRC_EVCAP_MASK);
-        return MONAD_EVSRC_EVCAP_SECTION;
-    }
-    else {
-        u->ring_iter = (struct monad_event_iterator const *)(iter.opaque);
-        return MONAD_EVSRC_EVENT_RING;
-    }
-}
-
-static inline enum monad_evsrc_type monad_evsrc_decode_iter(
-    monad_evsrc_iterator_t iter, union monad_evsrc_iterator_union *u)
-{
-    if (monad_evsrc_iterator_get_type(EVSRC_CONST(iter)) ==
-        MONAD_EVSRC_EVCAP_SECTION) {
-        u->evcap_iter =
-            (struct monad_evcap_iterator *)(iter.opaque &
-                                            ~MONAD_EVSRC_EVCAP_MASK);
-        return MONAD_EVSRC_EVCAP_SECTION;
-    }
-    else {
-        u->ring_iter = (struct monad_event_iterator *)(iter.opaque);
-        return MONAD_EVSRC_EVENT_RING;
-    }
-}
-
 inline monad_evsrc_const_iterator_t
-monad_evsrc_to_const(monad_evsrc_iterator_t iter)
+monad_evsrc_iterator_to_const(monad_evsrc_iterator_t iter)
 {
-    monad_evsrc_const_iterator_t c = {iter.opaque};
-    return c;
+    monad_evsrc_const_iterator_t const_iter;
+    memcpy(&const_iter, &iter, sizeof iter);
+    return const_iter;
 }
 
-inline bool monad_evsrc_iterator_check_payload(
-    monad_evsrc_const_iterator_t iter,
-    struct monad_event_descriptor const *event)
+inline bool monad_evsrc_check_payload(
+    monad_evsrc_t evsrc, struct monad_event_descriptor const *event)
 {
-    union monad_evsrc_const_iterator_union u;
-
-    switch (monad_evsrc_decode_const_iter(iter, &u)) {
-    case MONAD_EVSRC_EVENT_RING:
-        return monad_event_ring_payload_check(u.ring_iter->event_ring, event);
-    case MONAD_EVSRC_EVCAP_SECTION:
-        return true;
-    default:
-        __builtin_unreachable();
-    }
+    return evsrc.source_type == MONAD_EVSRC_EVENT_RING
+               ? monad_event_ring_payload_check(evsrc.event_ring, event)
+               : true;
 }
 
-inline enum monad_evsrc_iter_result monad_evsrc_iterator_try_next(
-    monad_evsrc_iterator_t iter, struct monad_event_descriptor *event,
+inline enum monad_evsrc_result monad_evsrc_copy_seqno(
+    monad_evsrc_t evsrc, uint64_t seqno, struct monad_event_descriptor *event,
     void const **payload)
 {
-    union monad_evsrc_iterator_union u;
-    struct monad_event_descriptor const *evcap_event;
+    struct monad_event_descriptor const *evcap_event = nullptr;
     enum monad_event_ring_result r;
 
-    switch (monad_evsrc_decode_iter(iter, &u)) {
+    switch (evsrc.source_type) {
     case MONAD_EVSRC_EVENT_RING:
-        r = monad_event_iterator_try_next(u.ring_iter, event);
+        r = monad_event_ring_try_copy(evsrc.event_ring, seqno, event);
         if (payload != nullptr) {
             *payload =
-                r == MONAD_EVENT_SUCCESS && monad_event_ring_payload_check(
-                                                u.ring_iter->event_ring, event)
-                    ? monad_event_ring_payload_peek(
-                          u.ring_iter->event_ring, event)
+                r == MONAD_EVENT_SUCCESS &&
+                        monad_event_ring_payload_check(evsrc.event_ring, event)
+                    ? monad_event_ring_payload_peek(evsrc.event_ring, event)
                     : nullptr;
         }
-        return (enum monad_evsrc_iter_result)r;
+        return (enum monad_evsrc_result)r;
     case MONAD_EVSRC_EVCAP_SECTION:
-        if (monad_evcap_iterator_next(u.evcap_iter, &evcap_event, payload)) {
-            *event = *evcap_event;
-            return MONAD_EVSRC_SUCCESS;
-        }
-        return MONAD_EVSRC_NO_MORE_EVENTS;
-    default:
-        __builtin_unreachable();
-    }
-}
-
-inline enum monad_evsrc_iter_result monad_evsrc_iterator_try_prev(
-    monad_evsrc_iterator_t iter, struct monad_event_descriptor *event,
-    void const **payload)
-{
-    union monad_evsrc_iterator_union u;
-    struct monad_event_descriptor const *evcap_event;
-    enum monad_event_ring_result r;
-
-    switch (monad_evsrc_decode_iter(iter, &u)) {
-    case MONAD_EVSRC_EVENT_RING:
-        r = monad_event_iterator_try_prev(u.ring_iter, event);
-        if (payload != nullptr) {
-            *payload =
-                r == MONAD_EVENT_SUCCESS && monad_event_ring_payload_check(
-                                                u.ring_iter->event_ring, event)
-                    ? monad_event_ring_payload_peek(
-                          u.ring_iter->event_ring, event)
-                    : nullptr;
-        }
-        return (enum monad_evsrc_iter_result)r;
-    case MONAD_EVSRC_EVCAP_SECTION:
-        if (monad_evcap_iterator_prev(u.evcap_iter, &evcap_event, payload)) {
-            *event = *evcap_event;
-            return MONAD_EVSRC_SUCCESS;
-        }
-        return MONAD_EVSRC_NO_MORE_EVENTS;
-    default:
-        __builtin_unreachable();
-    }
-}
-
-inline enum monad_evsrc_iter_result monad_evsrc_iterator_try_copy(
-    monad_evsrc_const_iterator_t iter, struct monad_event_descriptor *event,
-    void const **payload)
-{
-    union monad_evsrc_const_iterator_union u;
-    struct monad_event_descriptor const *evcap_event;
-    enum monad_event_ring_result r;
-
-    switch (monad_evsrc_decode_const_iter(iter, &u)) {
-    case MONAD_EVSRC_EVENT_RING:
-        r = monad_event_iterator_try_copy(u.ring_iter, event);
-        if (payload != nullptr) {
-            *payload =
-                r == MONAD_EVENT_SUCCESS && monad_event_ring_payload_check(
-                                                u.ring_iter->event_ring, event)
-                    ? monad_event_ring_payload_peek(
-                          u.ring_iter->event_ring, event)
-                    : nullptr;
-        }
-        return (enum monad_evsrc_iter_result)r;
-    case MONAD_EVSRC_EVCAP_SECTION:
-        if (monad_evcap_iterator_copy(u.evcap_iter, &evcap_event, payload)) {
-            *event = *evcap_event;
-            return MONAD_EVSRC_SUCCESS;
-        }
-        return MONAD_EVSRC_NO_MORE_EVENTS;
-    default:
-        __builtin_unreachable();
-    }
-}
-
-inline enum monad_evsrc_iter_result monad_evsrc_iterator_copy_seqno(
-    monad_evsrc_const_iterator_t iter, uint64_t seqno,
-    struct monad_event_descriptor *event, void const **payload)
-{
-    union monad_evsrc_const_iterator_union u;
-    struct monad_event_descriptor const *evcap_event;
-    enum monad_event_ring_result r;
-
-    switch (monad_evsrc_decode_const_iter(iter, &u)) {
-    case MONAD_EVSRC_EVENT_RING:
-        r = monad_event_ring_try_copy(u.ring_iter->event_ring, seqno, event);
-        if (payload != nullptr) {
-            *payload =
-                r == MONAD_EVENT_SUCCESS && monad_event_ring_payload_check(
-                                                u.ring_iter->event_ring, event)
-                    ? monad_event_ring_payload_peek(
-                          u.ring_iter->event_ring, event)
-                    : nullptr;
-        }
-        return (enum monad_evsrc_iter_result)r;
-    case MONAD_EVSRC_EVCAP_SECTION:
-        if (monad_evcap_iterator_copy_seqno(
-                u.evcap_iter, seqno, &evcap_event, payload)) {
+        if (monad_evcap_event_section_copy_seqno(
+                evsrc.event_section, seqno, &evcap_event, payload) == 0) {
             *event = *evcap_event;
             return MONAD_EVSRC_SUCCESS;
         }
@@ -230,17 +76,154 @@ inline enum monad_evsrc_iter_result monad_evsrc_iterator_copy_seqno(
     }
 }
 
+inline void monad_evsrc_close(monad_evsrc_t evsrc)
+{
+    switch (evsrc.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        return;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        monad_evcap_event_section_close(
+            (struct monad_evcap_event_section *)evsrc.event_section);
+    default:
+        __builtin_unreachable();
+    }
+}
+
+inline enum monad_evsrc_result monad_evsrc_iterator_try_next(
+    monad_evsrc_iterator_t iter, struct monad_event_descriptor *event,
+    void const **payload)
+{
+    struct monad_event_descriptor const *evcap_event;
+    enum monad_event_ring_result r;
+
+    switch (iter.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        r = monad_event_iterator_try_next(iter.ring_iter, event);
+        if (payload != nullptr) {
+            struct monad_event_ring const *const event_ring =
+                iter.ring_iter->event_ring;
+            *payload = r == MONAD_EVENT_SUCCESS &&
+                               monad_event_ring_payload_check(event_ring, event)
+                           ? monad_event_ring_payload_peek(event_ring, event)
+                           : nullptr;
+        }
+        return (enum monad_evsrc_result)r;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        if (monad_evcap_iterator_next(iter.evcap_iter, &evcap_event, payload)) {
+            *event = *evcap_event;
+            return MONAD_EVSRC_SUCCESS;
+        }
+        return MONAD_EVSRC_END;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+inline enum monad_evsrc_result monad_evsrc_iterator_try_prev(
+    monad_evsrc_iterator_t iter, struct monad_event_descriptor *event,
+    void const **payload)
+{
+    struct monad_event_descriptor const *evcap_event;
+    enum monad_event_ring_result r;
+
+    switch (iter.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        r = monad_event_iterator_try_prev(iter.ring_iter, event);
+        if (payload != nullptr) {
+            struct monad_event_ring const *const event_ring =
+                iter.ring_iter->event_ring;
+            *payload = r == MONAD_EVENT_SUCCESS &&
+                               monad_event_ring_payload_check(event_ring, event)
+                           ? monad_event_ring_payload_peek(event_ring, event)
+                           : nullptr;
+        }
+        return (enum monad_evsrc_result)r;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        if (monad_evcap_iterator_prev(iter.evcap_iter, &evcap_event, payload)) {
+            *event = *evcap_event;
+            return MONAD_EVSRC_SUCCESS;
+        }
+        return MONAD_EVSRC_END;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+inline enum monad_evsrc_result monad_evsrc_iterator_try_copy(
+    monad_evsrc_const_iterator_t iter, struct monad_event_descriptor *event,
+    void const **payload)
+{
+    struct monad_event_descriptor const *evcap_event;
+    enum monad_event_ring_result r;
+
+    switch (iter.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        r = monad_event_iterator_try_copy(iter.ring_iter, event);
+        if (payload != nullptr) {
+            struct monad_event_ring const *const event_ring =
+                iter.ring_iter->event_ring;
+            *payload = r == MONAD_EVENT_SUCCESS &&
+                               monad_event_ring_payload_check(event_ring, event)
+                           ? monad_event_ring_payload_peek(event_ring, event)
+                           : nullptr;
+        }
+        return (enum monad_evsrc_result)r;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        if (monad_evcap_iterator_copy(iter.evcap_iter, &evcap_event, payload)) {
+            *event = *evcap_event;
+            return MONAD_EVSRC_SUCCESS;
+        }
+        return MONAD_EVSRC_END;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+inline monad_evsrc_t
+monad_evsrc_iterator_get_source(monad_evsrc_iterator_t iter)
+{
+    monad_evsrc_t evsrc;
+
+    evsrc.source_type = iter.source_type;
+    switch (evsrc.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        evsrc.event_ring = iter.ring_iter->event_ring;
+        return evsrc;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        evsrc.event_section = iter.evcap_iter->event_section;
+        return evsrc;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+inline monad_evsrc_t
+monad_evsrc_const_iterator_get_source(monad_evsrc_const_iterator_t iter)
+{
+    monad_evsrc_t evsrc;
+
+    evsrc.source_type = iter.source_type;
+    switch (evsrc.source_type) {
+    case MONAD_EVSRC_EVENT_RING:
+        evsrc.event_ring = iter.ring_iter->event_ring;
+        return evsrc;
+    case MONAD_EVSRC_EVCAP_SECTION:
+        evsrc.event_section = iter.evcap_iter->event_section;
+        return evsrc;
+    default:
+        __builtin_unreachable();
+    }
+}
+
 inline int
 monad_evsrc_iterator_set_seqno(monad_evsrc_iterator_t iter, uint64_t seqno)
 {
-    union monad_evsrc_iterator_union u;
-
-    switch (monad_evsrc_decode_iter(iter, &u)) {
+    switch (iter.source_type) {
     case MONAD_EVSRC_EVENT_RING:
-        monad_event_iterator_set_seqno(u.ring_iter, seqno);
+        monad_event_iterator_set_seqno(iter.ring_iter, seqno);
         return 0;
     case MONAD_EVSRC_EVCAP_SECTION:
-        return monad_evcap_iterator_set_seqno(u.evcap_iter, seqno) == 0
+        return monad_evcap_iterator_set_seqno(iter.evcap_iter, seqno) == 0
                    ? MONAD_EVSRC_SUCCESS
                    : MONAD_EVSRC_ERROR;
     default:
@@ -250,31 +233,27 @@ monad_evsrc_iterator_set_seqno(monad_evsrc_iterator_t iter, uint64_t seqno)
 
 inline uint64_t monad_evsrc_iterator_tell(monad_evsrc_const_iterator_t iter)
 {
-    union monad_evsrc_const_iterator_union u;
-
-    switch (monad_evsrc_decode_const_iter(iter, &u)) {
+    switch (iter.source_type) {
     case MONAD_EVSRC_EVENT_RING:
-        return u.ring_iter->read_last_seqno;
+        return iter.ring_iter->read_last_seqno;
     case MONAD_EVSRC_EVCAP_SECTION:
-        return (uint64_t)(u.evcap_iter->event_section_next -
-                          u.evcap_iter->event_section_base);
+        return (uint64_t)(iter.evcap_iter->event_section_next -
+                          iter.evcap_iter->event_section->section_base);
     default:
-        MONAD_ABORT("unknown event source type");
+        __builtin_unreachable();
     }
 }
 
 inline void
 monad_evsrc_iterator_seek(monad_evsrc_iterator_t iter, uint64_t position)
 {
-    union monad_evsrc_iterator_union u;
-
-    switch (monad_evsrc_decode_iter(iter, &u)) {
+    switch (iter.source_type) {
     case MONAD_EVSRC_EVENT_RING:
-        u.ring_iter->read_last_seqno = position;
+        iter.ring_iter->read_last_seqno = position;
         break;
     case MONAD_EVSRC_EVCAP_SECTION:
-        u.evcap_iter->event_section_next =
-            u.evcap_iter->event_section_base + position;
+        iter.evcap_iter->event_section_next =
+            iter.evcap_iter->event_section->section_base + position;
         break;
     default:
         __builtin_unreachable();
@@ -283,15 +262,13 @@ monad_evsrc_iterator_seek(monad_evsrc_iterator_t iter, uint64_t position)
 
 inline uint64_t monad_evsrc_iterator_reset(monad_evsrc_iterator_t iter)
 {
-    union monad_evsrc_iterator_union u;
     struct monad_event_descriptor const *evcap_event;
-    void const *payload;
 
-    switch (monad_evsrc_decode_iter(iter, &u)) {
+    switch (iter.source_type) {
     case MONAD_EVSRC_EVENT_RING:
-        return monad_event_iterator_reset(u.ring_iter);
+        return monad_event_iterator_reset(iter.ring_iter);
     case MONAD_EVSRC_EVCAP_SECTION:
-        return monad_evcap_iterator_copy(u.evcap_iter, &evcap_event, &payload)
+        return monad_evcap_iterator_copy(iter.evcap_iter, &evcap_event, nullptr)
                    ? evcap_event->seqno
                    : 0;
     default:
@@ -299,31 +276,40 @@ inline uint64_t monad_evsrc_iterator_reset(monad_evsrc_iterator_t iter)
     }
 }
 
-inline void monad_evsrc_iterator_close(monad_evsrc_iterator_t iter)
-{
-    union monad_evsrc_iterator_union u;
+/*
+ * Creation functions
+ */
 
-    switch (monad_evsrc_decode_iter(iter, &u)) {
-    case MONAD_EVSRC_EVENT_RING:
-        return;
-    case MONAD_EVSRC_EVCAP_SECTION:
-        return monad_evcap_iterator_close(u.evcap_iter);
-    default:
-        __builtin_unreachable();
-    }
+inline monad_evsrc_t
+monad_evsrc_from_ring(struct monad_event_ring const *event_ring)
+{
+    monad_evsrc_t const s = {
+        .source_type = MONAD_EVSRC_EVENT_RING, .event_ring = event_ring};
+    return s;
+}
+
+inline monad_evsrc_t
+monad_evsrc_from_evcap(struct monad_evcap_event_section const *event_section)
+{
+    monad_evsrc_t const s = {
+        .source_type = MONAD_EVSRC_EVCAP_SECTION,
+        .event_section = event_section};
+    return s;
 }
 
 inline monad_evsrc_iterator_t
 monad_evsrc_iterator_from_ring(struct monad_event_iterator *iter)
 {
-    monad_evsrc_iterator_t const i = {.opaque = (uintptr_t)iter};
+    monad_evsrc_iterator_t const i = {
+        .source_type = MONAD_EVSRC_EVENT_RING, .ring_iter = iter};
     return i;
 }
 
 inline monad_evsrc_const_iterator_t
 monad_evsrc_iterator_from_ring_const(struct monad_event_iterator const *iter)
 {
-    monad_evsrc_const_iterator_t const i = {.opaque = (uintptr_t)iter};
+    monad_evsrc_const_iterator_t const i = {
+        .source_type = MONAD_EVSRC_EVENT_RING, .ring_iter = iter};
     return i;
 }
 
@@ -331,7 +317,7 @@ inline monad_evsrc_iterator_t
 monad_evsrc_iterator_from_evcap(struct monad_evcap_iterator *iter)
 {
     monad_evsrc_iterator_t const i = {
-        .opaque = (uintptr_t)iter & MONAD_EVSRC_EVCAP_MASK};
+        .source_type = MONAD_EVSRC_EVCAP_SECTION, .evcap_iter = iter};
     return i;
 }
 
@@ -339,7 +325,7 @@ inline monad_evsrc_const_iterator_t
 monad_evsrc_iterator_from_evcap_const(struct monad_evcap_iterator const *iter)
 {
     monad_evsrc_const_iterator_t const i = {
-        .opaque = (uintptr_t)iter & MONAD_EVSRC_EVCAP_MASK};
+        .source_type = MONAD_EVSRC_EVCAP_SECTION, .evcap_iter = iter};
     return i;
 }
 

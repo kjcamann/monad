@@ -322,38 +322,35 @@ int monad_evcap_reader_check_schema(
                        content_type);
 }
 
-int monad_evcap_reader_open_iterator(
-    struct monad_evcap_reader const *ecr,
-    struct monad_evcap_section_desc const *event_sd,
-    struct monad_evcap_iterator *iter)
+int monad_evcap_event_section_open(
+    struct monad_evcap_event_section *es, struct monad_evcap_reader const *ecr,
+    struct monad_evcap_section_desc const *event_sd)
 {
     int rc;
 
-    memset(iter, 0, sizeof *iter);
+    memset(es, 0, sizeof *es);
     if (event_sd == nullptr) {
         return 0;
     }
     if (event_sd->type != MONAD_EVCAP_SECTION_EVENT_BUNDLE) {
         return FORMAT_ERRC(EINVAL, "wrong section type %u", event_sd->type);
     }
+    es->event_sd = event_sd;
     if (event_sd->compression != MONAD_EVCAP_COMPRESSION_NONE) {
         rc = decompress_section(
             event_sd,
             ecr->map_base + event_sd->content_offset,
-            (void **)&iter->event_section_base,
-            &iter->event_zstd_map_len);
+            (void **)&es->section_base,
+            &es->event_zstd_map_len);
         if (rc != 0) {
             return rc;
         }
-        iter->event_section_end =
-            iter->event_section_base + event_sd->content_length;
+        es->section_end = es->section_base + event_sd->content_length;
     }
     else {
-        iter->event_section_base = ecr->map_base + event_sd->content_offset;
-        iter->event_section_end =
-            iter->event_section_base + event_sd->file_length;
+        es->section_base = ecr->map_base + event_sd->content_offset;
+        es->section_end = es->section_base + event_sd->file_length;
     }
-    iter->event_section_next = iter->event_section_base;
 
     if (event_sd->event_bundle.seqno_index_desc_offset != 0) {
         struct monad_evcap_section_desc const *const seqno_sd =
@@ -363,40 +360,38 @@ int monad_evcap_reader_open_iterator(
             rc = decompress_section(
                 seqno_sd,
                 ecr->map_base + seqno_sd->content_offset,
-                (void **)&iter->seqno_index.offsets,
-                &iter->seqno_zstd_map_len);
+                (void **)&es->seqno_index.offsets,
+                &es->seqno_zstd_map_len);
             if (rc != 0) {
                 return rc;
             }
         }
         else {
-            iter->seqno_index.offsets =
+            es->seqno_index.offsets =
                 (uint64_t const *)(ecr->map_base + seqno_sd->content_offset);
         }
-        iter->seqno_index.seqno_start = event_sd->event_bundle.start_seqno;
-        iter->seqno_index.seqno_end =
-            iter->seqno_index.seqno_start + event_sd->event_bundle.event_count;
+        es->seqno_index.seqno_start = event_sd->event_bundle.start_seqno;
+        es->seqno_index.seqno_end =
+            es->seqno_index.seqno_start + event_sd->event_bundle.event_count;
     }
     return 0;
 }
 
-void monad_evcap_iterator_close(struct monad_evcap_iterator *iter)
+void monad_evcap_event_section_close(struct monad_evcap_event_section *es)
 {
-    if (iter == nullptr || iter->event_section_base == nullptr) {
+    if (es == nullptr || es->section_base == nullptr) {
         return;
     }
-    if (iter->event_zstd_map_len != 0) {
-        (void)munmap(
-            (void *)iter->event_section_base, iter->event_zstd_map_len);
+    if (es->event_zstd_map_len != 0) {
+        (void)munmap((void *)es->section_base, es->event_zstd_map_len);
     }
-    if (iter->seqno_zstd_map_len != 0) {
-        (void)munmap(
-            (void *)iter->seqno_index.offsets, iter->seqno_zstd_map_len);
+    if (es->seqno_zstd_map_len != 0) {
+        (void)munmap((void *)es->seqno_index.offsets, es->seqno_zstd_map_len);
     }
-    memset(iter, 0, sizeof *iter);
+    memset(es, 0, sizeof *es);
 }
 
-int _monad_evcap_iterator_set_error(
+int _monad_evcap_set_inline_error(
     char const *function, char const *file, unsigned line, int rc,
     char const *format, ...)
 {

@@ -183,8 +183,14 @@ int monad_bcap_block_archive_open(
 
 void monad_bcap_block_archive_close(struct monad_bcap_block_archive *);
 
+int monad_bcap_block_archive_open_block_fd(
+    struct monad_bcap_block_archive const *, uint64_t finalized_block,
+    int open_flags, int *fd_out, char *error_name_buf,
+    size_t error_name_buf_size);
+
 int monad_bcap_block_archive_open_block(
-    struct monad_bcap_block_archive *, uint64_t finalized_block,
+    struct monad_bcap_block_archive const *, uint64_t finalized_block,
+    int *fd_out, char *error_name_buf, size_t error_name_buf_size,
     struct monad_evcap_reader **, struct monad_evcap_section_desc const **);
 
 int monad_bcap_block_archive_add_block(
