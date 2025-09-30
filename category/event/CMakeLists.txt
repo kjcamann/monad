@@ -119,7 +119,11 @@ else()
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
 endif()
 
-target_link_libraries(monad_event PRIVATE zstd::libzstd)
+if(BUILD_SHARED_LIBS)
+  target_link_libraries(monad_event PRIVATE zstd::libzstd_shared)
+else()
+  target_link_libraries(monad_event PRIVATE zstd::libzstd_static)
+endif()
 
 if(libgmp_file)
   target_compile_definitions(monad_event PUBLIC MONAD_EVENT_HAS_LIBGMP)
