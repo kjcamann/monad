@@ -320,8 +320,8 @@ static void find_initial_iteration_point(
 
 int main(int argc, char **argv)
 {
-    char event_ring_path_buf[PATH_MAX];
-    char const *event_ring_path = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME;
+    char event_ring_pathbuf[PATH_MAX];
+    char const *event_ring_input = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME;
     int const pos_arg_idx = parse_options(argc, argv);
 
     if (argc - pos_arg_idx > 1) {
@@ -329,29 +329,20 @@ int main(int argc, char **argv)
         return EX_USAGE;
     }
     if (pos_arg_idx + 1 == argc) {
-        event_ring_path = argv[pos_arg_idx];
+        event_ring_input = argv[pos_arg_idx];
     }
 
-    if (strchr(event_ring_path, '/') == nullptr) {
-        // The event ring path does not contain a '/'; we assume this is a file
-        // name relative to the default hugetlbfs-resident event ring directory,
-        // which is computed by the function `monad_event_open_ring_dir_fd`
-        if (monad_event_open_ring_dir_fd(
-                nullptr, event_ring_path_buf, sizeof event_ring_path_buf) !=
-            0) {
-            goto Error;
-        }
-        strcat(event_ring_path_buf, "/");
-        if (strlcat(
-                event_ring_path_buf,
-                event_ring_path,
-                sizeof event_ring_path_buf) >= sizeof event_ring_path_buf) {
-            errx(
-                EX_USAGE,
-                "event ring file name `%s` is too long",
-                event_ring_path);
-        }
-        event_ring_path = event_ring_path_buf;
+    // Event ring shared memory files can be located anywhere, but there is a
+    // performance benefit to placing them on certain filesystems; consequently,
+    // there are several functions related to opening / creating event ring
+    // files at an optimal default location; a common pattern is to accept any
+    // filename, but with a default filename if nothing is specified (in this
+    // case, MONAD_EVENT_DEFAULT_EXEC_FILE_NAME); the below function will place
+    // "pure" file names (i.e., with no '/' in path) in the best subdirectory
+    if (monad_event_resolve_ring_file(
+            event_ring_input, event_ring_pathbuf, sizeof event_ring_pathbuf) !=
+        0) {
+        goto Error;
     }
 
     signal(SIGINT, handle_signal);

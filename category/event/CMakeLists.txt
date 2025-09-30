@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.23)
 project(monad_event LANGUAGES C CXX)
 
 option(MONAD_EVENT_DISABLE_LIBHUGETLBFS
-  "Disable the `monad_event_open_ring_dir_fd` API function (removes dependency on libhugetlbfs" OFF)
+  "Disable the default value in the `monad_event_open_ring_dir_fd` API function (removes dependency on libhugetlbfs" OFF)
 
 # libgmp is not required, but if it is available, it can be used by the C++20
 # std::formatter specialization of `monad_c_uint256_ne` to do basic integer
