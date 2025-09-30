@@ -130,7 +130,7 @@ int init_execution_event_recorder(EventRingConfig ring_config)
         // is interpreted as a filename in the default event ring directory,
         // as computed by `monad_event_open_ring_dir_fd`
         char event_ring_dir_path_buf[PATH_MAX];
-        int const rc = monad_event_open_ring_dir_fd(
+        int const rc = monad_event_open_hugetlbfs_dir_fd(
             nullptr, event_ring_dir_path_buf, sizeof event_ring_dir_path_buf);
         if (rc != 0) {
             LOG_ERROR(
