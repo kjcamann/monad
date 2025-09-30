@@ -40,6 +40,13 @@
 
 #if defined(__linux__)
     #include <syscall.h>
+constexpr bool PLATFORM_LINUX = true;
+#else
+constexpr bool PLATFORM_LINUX = false;
+    #define SYS_pidfd_open -1
+    #if defined(__clang__)
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    #endif
 #endif
 
 #include <category/core/event/event_iterator.h>
@@ -48,6 +55,8 @@
 #include <category/core/event/event_ring_util.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
+
+constexpr int PIDFD_SNAPSHOT = -2;
 
 static void usage(FILE *out)
 {
@@ -112,6 +121,9 @@ static bool process_has_exited(int pidfd)
         // pidfd being -1 means "disable the detection feature"
         return false;
     }
+    if (pidfd == PIDFD_SNAPSHOT) {
+        return true;
+    }
     struct pollfd pfd = {.fd = pidfd, .events = POLLIN};
     return poll(&pfd, 1, 0) == -1 || (pfd.revents & POLLIN) == POLLIN;
 }
@@ -146,7 +158,10 @@ static void hexdump_event_payload(
     }
 
     if (!monad_event_ring_payload_check(event_ring, event)) {
-        fprintf(stderr, "ERROR: event %lu payload lost!\n", event->seqno);
+        fprintf(
+            stderr,
+            "ERROR: event %lu payload expired!\n",
+            (unsigned long)event->seqno);
     }
     else {
         fwrite(hexdump_buf, (size_t)(o - hexdump_buf), 1, out);
@@ -190,9 +205,9 @@ static void print_event(
         event_md->c_name,
         event->event_type,
         event->event_type,
-        event->seqno,
+        (unsigned long)event->seqno,
         event->payload_size,
-        event->payload_buf_offset);
+        (unsigned long)event->payload_buf_offset);
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0) {
         // When `event->content_ext[MONAD_FLOW_BLOCK_SEQNO]` is non-zero, it
         // is set to the sequence number of the MONAD_EXEC_BLOCK_START event
@@ -211,14 +226,17 @@ static void print_event(
         uint64_t block_number;
         if (monad_exec_ring_get_block_number(
                 event_ring, event, &block_number)) {
-            o += sprintf(o, " BLK: %lu", block_number);
+            o += sprintf(o, " BLK: %lu", (unsigned long)block_number);
         }
         else {
             o += sprintf(o, " BLK: <LOST>");
         }
     }
     if (event->content_ext[MONAD_FLOW_TXN_ID] != 0) {
-        o += sprintf(o, " TXN: %lu", event->content_ext[MONAD_FLOW_TXN_ID] - 1);
+        o += sprintf(
+            o,
+            " TXN: %lu",
+            (unsigned long)(event->content_ext[MONAD_FLOW_TXN_ID] - 1));
     }
     *o++ = '\n';
     fwrite(event_buf, (size_t)(o - event_buf), 1, out);
@@ -271,8 +289,9 @@ static void event_loop(
             fprintf(
                 stderr,
                 "ERROR: event gap from %lu -> %lu, resetting iterator\n",
-                iter->read_last_seqno,
-                __atomic_load_n(&iter->control->last_seqno, __ATOMIC_ACQUIRE));
+                (unsigned long)iter->read_last_seqno,
+                (unsigned long)__atomic_load_n(
+                    &iter->control->last_seqno, __ATOMIC_ACQUIRE));
             monad_event_iterator_reset(iter);
             break;
 
@@ -348,31 +367,79 @@ int main(int argc, char **argv)
 
     signal(SIGINT, handle_signal);
 
-    // The first step is to open and event ring file and mmap its shared memory
-    // segments into our process' address space. If this is successful, we'll
-    // be able to create one or more iterators over that ring's events.
-    struct monad_event_ring exec_ring;
-    int const ring_fd = open(event_ring_pathbuf, O_RDONLY);
+    // The first step is to open an event ring file, so that we can mmap its
+    // shared memory segments into our process' address space.
+    int ring_fd = open(event_ring_pathbuf, O_RDONLY);
     if (ring_fd == -1) {
         err(EX_CONFIG,
             "open of event ring path `%s` failed",
             event_ring_pathbuf);
     }
+
+    // We could pass the `ring_fd` file descriptor to monad_event_ring_mmap now,
+    // but we first call the helper function monad_event_is_snapshot_file. This
+    // function checks if `ring_fd` appears to be an event ring "snapshot."
+    //
+    // A "snapshot file" is just the zstd-compressed contents of an event ring
+    // shared memory file, exactly as it appeared at the moment when a snapshot
+    // of it was taken. It is no longer being written to, therefore it can be
+    // highly compressed (which is the sole distinction between a "normal" event
+    // ring file and a snapshot).
+    //
+    // Snapshots allows the user to replay a fixed set of known events, and are
+    // useful during software testing and development; this example supports
+    // both live event rings and snapshots to make sure users know about them.
+    bool is_snapshot;
+    if (monad_event_is_snapshot_file(
+            ring_fd, event_ring_pathbuf, &is_snapshot) != 0) {
+        goto Error; // Cannot determine if snapshot is fatal
+    }
+    if (is_snapshot) {
+        // We have a snapshot; use monad_event_decompress_snapshot_fd to
+        // decompress it, so that it can be mapped into our address space like
+        // like a normal event ring file. We then close the original `ring_fd`
+        // and replace it with the decompressed temporary file.
+        //
+        // After this, the API (and the library implementation itself) make no
+        // distinction between a "normal" event ring and a decompressed snapshot
+        // (and are not even aware of the difference). Thus, a decompressed
+        // snapshot is indistugishable from a "live" event ring file whose
+        // writer process (the execution daemon) has died and left behind an
+        // orphaned file on the system. The latter should not happen often, but
+        // if the execution daemon dies ungracefully (e.g., by SIGKILL) the
+        // event ring file won't be cleaned up and will be a "zombie".
+        //
+        // Thus we need to reference the `is_snapshot` boolean again later,
+        // because we sometimes treat snapshots a bit differently. The biggest
+        // difference is how we treat an event ring that has not produced events
+        // for a while. In the snapshot case, that means we're done and should
+        // exit the program or test. For a live event ring, we need to run some
+        // kind of logic to decide if it's worth waiting around for new events
+        // to be produced, or whether we should assume the execution daemon has
+        // crashed or hung.
+        int snapshot_fd;
+        if (monad_event_decompress_snapshot_fd(
+                ring_fd, 0, event_ring_pathbuf, &snapshot_fd) != 0) {
+            goto Error;
+        }
+        (void)close(ring_fd);
+        ring_fd = snapshot_fd;
+    }
+
+    // Map the shared memory segments of the event ring into our address space.
+    // If this is successful, we'll be able to create one or more iterators
+    // over that ring's events.
+    struct monad_event_ring exec_ring;
     if (monad_event_ring_mmap(
-            &exec_ring,
-            PROT_READ,
-            MAP_HUGETLB,
-            ring_fd,
-            0,
-            event_ring_pathbuf) != 0) {
+            &exec_ring, PROT_READ, 0, ring_fd, 0, event_ring_pathbuf) != 0) {
         goto Error;
     }
 
     // Our mmap was successful; this program assumes that we'll be looking
     // at the event ring that holds core execution events. The execution
-    // process can expose other kinds of event rings for other purposes (e..g,
+    // process can expose other kinds of event rings for other purposes (e.g.,
     // performance tracing). Make sure we're looking at the right kind of
-    // ring.
+    // event content.
     if (monad_event_ring_check_content_type(
             &exec_ring,
             MONAD_EVENT_CONTENT_TYPE_EXEC,
@@ -384,28 +451,34 @@ int main(int argc, char **argv)
     // opened the event ring for writing. For the execution event ring, we
     // expect there will only be one writer (the execution daemon). We'll use
     // this to open a pidfd_open(2) descriptor referring to the execution
-    // process to detect when it dies.
-#if defined(__linux__)
-    pid_t writer_pid;
-    size_t n_pids = 1;
-    if (monad_event_ring_find_writer_pids(ring_fd, &writer_pid, &n_pids) != 0) {
-        goto Error;
-    }
-    if (n_pids == 0) {
-        errno = EOWNERDEAD;
-        err(EX_SOFTWARE,
-            "writer of event ring `%s` has exited",
-            event_ring_pathbuf);
-    }
-    int pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
-    if (pidfd == -1) {
-        err(EX_OSERR, "pidfd_open of writer pid %d failed", writer_pid);
-    }
-#else
+    // process to detect when it dies. If this is a snapshot we won't do any
+    // of this, since there is no writer.
     int pidfd = -1;
-#endif
+    if (is_snapshot) {
+        pidfd = PIDFD_SNAPSHOT;
+    }
+    else if (PLATFORM_LINUX) {
+        pid_t writer_pid;
+        size_t n_pids = 1;
+        if (monad_event_ring_find_writer_pids(ring_fd, &writer_pid, &n_pids) !=
+            0) {
+            goto Error;
+        }
+        if (n_pids == 0) {
+            errno = EOWNERDEAD;
+            err(EX_SOFTWARE,
+                "writer of zombie event ring `%s` has exited",
+                event_ring_pathbuf);
+        }
+        pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
+        if (pidfd == -1) {
+            err(EX_OSERR, "pidfd_open of writer pid %d failed", writer_pid);
+        }
+    }
 
-    // We no longer need the event ring file descriptor
+    // After we have mmap'ed the event ring file's shared memory segments into
+    // our address space and (optionally) created the pidfd, we no longer need
+    // to keep the file descriptor open
     (void)close(ring_fd);
 
     // Create an iterator to read from the event ring
@@ -414,8 +487,15 @@ int main(int argc, char **argv)
         goto Error;
     }
 
-    // Move the iterator to the start of the most recently produced block
-    find_initial_iteration_point(&iter);
+    // If this is a snapshot, move the iterator to the start of the event ring;
+    // if this is a live event ring, move the iterator to the start of the most
+    // recently produced block
+    if (is_snapshot) {
+        monad_event_iterator_set_seqno(&iter, 1);
+    }
+    else {
+        find_initial_iteration_point(&iter);
+    }
 
     // Read events from the ring until SIGINT or the monad process exits
     event_loop(&exec_ring, &iter, pidfd, stdout);
