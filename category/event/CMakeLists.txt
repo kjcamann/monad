@@ -22,8 +22,15 @@ cmake_minimum_required(VERSION 3.23)
 
 project(monad_event LANGUAGES C CXX)
 
-option(MONAD_EVENT_DISABLE_LIBHUGETLBFS
-  "Disable the `monad_event_open_ring_dir_fd` API function (removes dependency on libhugetlbfs" OFF)
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  set(MONAD_EVENT_HUGETLBFS_DEFAULT ON)
+else()
+  set(MONAD_EVENT_HUGETLBFS_DEFAULT OFF)
+endif()
+
+option(MONAD_EVENT_USE_LIBHUGETLBFS
+  "Disable the default value in the `monad_event_open_hugetlbfs_dir_fd` API function (removes dependency on libhugetlbfs"
+  ${MONAD_EVENT_HUGETLBFS_DEFAULT})
 
 # libgmp is not required, but if it is available, it can be used by the C++20
 # std::formatter specialization of `monad_c_uint256_ne` to do basic integer
@@ -99,14 +106,14 @@ target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERN
 target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 
-if(MONAD_EVENT_DISABLE_LIBHUGETLBFS)
-  target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
-else()
+if(MONAD_EVENT_USE_LIBHUGETLBFS)
   find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
   target_sources(monad_event PRIVATE
     "../core/mem/hugetlb_path.c"
     "../core/mem/hugetlb_path.h")
   target_link_libraries(monad_event PRIVATE hugetlbfs)
+else()
+  target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
 endif()
 
 if(libgmp_file)
