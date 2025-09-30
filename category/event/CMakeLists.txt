@@ -32,6 +32,8 @@ option(MONAD_EVENT_USE_LIBHUGETLBFS
   "Disable the default value in the `monad_event_open_hugetlbfs_dir_fd` API function (removes dependency on libhugetlbfs"
   ${MONAD_EVENT_HUGETLBFS_DEFAULT})
 
+find_package(zstd REQUIRED)
+
 # libgmp is not required, but if it is available, it can be used by the C++20
 # std::formatter specialization of `monad_c_uint256_ne` to do basic integer
 # to UTF-8 conversion via gmp_snprintf by default
@@ -102,6 +104,7 @@ endif()
 target_include_directories(monad_event PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
     $<INSTALL_INTERFACE:include>)
+
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERNAL)
 target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
@@ -115,6 +118,8 @@ if(MONAD_EVENT_USE_LIBHUGETLBFS)
 else()
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
 endif()
+
+target_link_libraries(monad_event PRIVATE zstd::libzstd)
 
 if(libgmp_file)
   target_compile_definitions(monad_event PUBLIC MONAD_EVENT_HAS_LIBGMP)
