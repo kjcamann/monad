@@ -32,6 +32,8 @@ option(MONAD_EVENT_USE_LIBHUGETLBFS
   "Disable the default value in the `monad_event_open_hugetlbfs_dir_fd` API function (removes dependency on libhugetlbfs"
   ${MONAD_EVENT_HUGETLBFS_DEFAULT})
 
+find_package(zstd REQUIRED)
+
 add_library(
   monad_event
   "../core/assert.c"
@@ -92,6 +94,12 @@ if(MONAD_EVENT_USE_LIBHUGETLBFS)
   target_link_libraries(monad_event PRIVATE hugetlbfs)
 else()
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
+endif()
+
+if(BUILD_SHARED_LIBS)
+  target_link_libraries(monad_event PRIVATE zstd::libzstd_shared)
+else()
+  target_link_libraries(monad_event PRIVATE zstd::libzstd_static)
 endif()
 
 option(MONAD_EVENT_BUILD_EXAMPLE
