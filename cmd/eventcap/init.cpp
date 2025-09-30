@@ -174,7 +174,7 @@ fs::path resolve_input_spec(std::string const &input)
 
     if (!input_file.has_parent_path()) {
         char event_ring_default_dir[PATH_MAX];
-        if (monad_event_open_ring_dir_fd(
+        if (monad_event_open_hugetlbfs_dir_fd(
                 nullptr,
                 event_ring_default_dir,
                 sizeof event_ring_default_dir) != 0) {
