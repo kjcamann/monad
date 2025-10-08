@@ -15,6 +15,7 @@
 
 #include <category/execution/ethereum/dispatch_transaction.hpp>
 #include <category/execution/ethereum/execute_transaction.hpp>
+#include <category/execution/ethereum/state3/state.hpp>
 #include <category/vm/evm/explicit_traits.hpp>
 
 MONAD_NAMESPACE_BEGIN
@@ -27,9 +28,10 @@ Result<Receipt> dispatch_transaction(
     BlockHeader const &header, BlockHashBuffer const &block_hash_buffer,
     BlockState &block_state, BlockMetrics &block_metrics,
     boost::fibers::promise<void> &prev, CallTracerBase &call_tracer,
-    RevertTransactionFn const &revert_transaction)
+    RevertTransactionFn const &revert_transaction,
+    std::unique_ptr<State> &captured_state)
 {
-    return ExecuteTransaction<traits>{
+    ExecuteTransaction<traits> exec_fn{
         chain,
         i,
         transaction,
@@ -41,7 +43,10 @@ Result<Receipt> dispatch_transaction(
         block_metrics,
         prev,
         call_tracer,
-        revert_transaction}();
+        revert_transaction};
+    auto r = exec_fn();
+    captured_state = exec_fn.take_captured_state();
+    return r;
 }
 
 EXPLICIT_EVM_TRAITS(dispatch_transaction)

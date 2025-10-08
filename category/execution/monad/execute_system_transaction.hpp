@@ -22,6 +22,8 @@
 
 #include <evmc/evmc.h>
 
+#include <memory>
+
 MONAD_NAMESPACE_BEGIN
 
 template <Traits traits>
@@ -36,6 +38,7 @@ class ExecuteSystemTransaction
     BlockMetrics &block_metrics_;
     boost::fibers::promise<void> &prev_;
     CallTracerBase &call_tracer_;
+    std::unique_ptr<State> captured_state_;
 
 public:
     ExecuteSystemTransaction(
@@ -51,6 +54,8 @@ public:
 
     Result<void> execute_staking_syscall(
         State &state, byte_string_view data, uint256_t const &);
+
+    std::unique_ptr<State> take_captured_state();
 };
 
 MONAD_NAMESPACE_END

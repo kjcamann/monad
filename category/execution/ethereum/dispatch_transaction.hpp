@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -52,6 +53,7 @@ Result<Receipt> dispatch_transaction(
     BlockHeader const &header, BlockHashBuffer const &block_hash_buffer,
     BlockState &block_state, BlockMetrics &block_metrics,
     boost::fibers::promise<void> &prev, CallTracerBase &call_tracer,
-    RevertTransactionFn const &revert_transaction);
+    RevertTransactionFn const &revert_transaction,
+    std::unique_ptr<State> &captured_state);
 
 MONAD_NAMESPACE_END
