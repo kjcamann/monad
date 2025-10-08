@@ -60,16 +60,16 @@ using BOOST_OUTCOME_V2_NAMESPACE::success;
 template <Traits traits>
 ExecuteSystemTransaction<traits>::ExecuteSystemTransaction(
     Chain const &chain, uint64_t const i, Transaction const &tx,
-    Address const &sender, BlockHeader const &header, BlockState &block_state,
-    BlockMetrics &block_metrics, boost::fibers::promise<void> &prev,
-    CallTracerBase &call_tracer)
+    Address const &sender, BlockHeader const &header,
+    BlockMetrics &block_metrics, State &state,
+    boost::fibers::promise<void> &prev, CallTracerBase &call_tracer)
     : chain_{chain}
     , i_{i}
     , tx_{tx}
     , sender_{sender}
     , header_{header}
-    , block_state_{block_state}
     , block_metrics_{block_metrics}
+    , state_{state}
     , prev_{prev}
     , call_tracer_{call_tracer}
 {
@@ -92,27 +92,26 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
             chain_.get_chain_id()));
     }
 
+    BlockState &block_state = state_.get_block_state();
     {
         TRACE_TXN_EVENT(StartExecution);
 
-        State state{block_state_, Incarnation{header_.number, i_ + 1}};
-        state.set_original_nonce(sender_, tx_.nonce);
-
+        state_.set_original_nonce(sender_, tx_.nonce);
         call_tracer_.reset();
 
-        auto result = execute(state);
+        auto result = execute(state_);
 
         {
             TRACE_TXN_EVENT(StartStall);
             prev_.get_future().wait();
         }
 
-        if (block_state_.can_merge(state)) {
+        if (block_state.can_merge(state_)) {
             if (result.has_error()) {
                 return std::move(result.error());
             }
-            auto const receipt = execute_final(state);
-            block_state_.merge(state);
+            auto const receipt = execute_final(state_);
+            block_state.merge(state_);
             return receipt;
         }
     }
@@ -120,18 +119,17 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
     {
         TRACE_TXN_EVENT(StartRetry);
 
-        State state{block_state_, Incarnation{header_.number, i_ + 1}};
-
+        state_.clear();
         call_tracer_.reset();
 
-        auto result = execute(state);
+        auto result = execute(state_);
 
-        MONAD_ASSERT(block_state_.can_merge(state));
+        MONAD_ASSERT(block_state.can_merge(state_));
         if (result.has_error()) {
             return std::move(result.error());
         }
-        auto const receipt = execute_final(state);
-        block_state_.merge(state);
+        auto const receipt = execute_final(state_);
+        block_state.merge(state_);
         return receipt;
     }
 }
