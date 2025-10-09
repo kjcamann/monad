@@ -21,31 +21,19 @@
  * Utilities for manually aligning sizes and addresses
  */
 
-// TODO(ken): <stdbit.h> is not in C++ until C++26 (P3370), for now we have
-//  to work around this until we're ready to support -std=c++26 when this
-//  C header is included by C++ translation units
-#ifdef __cplusplus
-    #include <bit>
-#else
+#if __has_include(<stdbit.h>)
     #include <stdbit.h>
+#elif __has_builtin(__builtin_stdc_has_single_bit)
+    #define stdc_has_single_bit(x) (__builtin_stdc_has_single_bit (x))
 #endif
 
 #include <stddef.h>
 
 #include <category/core/assert.h>
 
-#ifdef __cplusplus
-[[gnu::always_inline]] static inline size_t
-monad_round_size_to_align(size_t const size, size_t const align)
-{
-    MONAD_DEBUG_ASSERT(std::has_single_bit(align));
-    return (size + align - 1) & ~(align - 1);
-}
-#else
 [[gnu::always_inline]] static inline size_t
 monad_round_size_to_align(size_t const size, size_t const align)
 {
     MONAD_DEBUG_ASSERT(stdc_has_single_bit(align));
     return (size + align - 1) & ~(align - 1);
 }
-#endif

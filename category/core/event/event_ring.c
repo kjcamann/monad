@@ -14,11 +14,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <errno.h>
-#include <stdbit.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#if __has_include(<stdbit.h>)
+    #include <stdbit.h>
+#elif __has_builtin(__builtin_stdc_has_single_bit)
+    #define stdc_has_single_bit(x) (__builtin_stdc_has_single_bit (x))
+#endif
 
 #include <fcntl.h>
 #include <sys/mman.h>
