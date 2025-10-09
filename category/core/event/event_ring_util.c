@@ -21,13 +21,18 @@
 #include <string.h>
 
 #include <fcntl.h>
-#include <linux/limits.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include <zstd.h>
+
+#if __has_include(<linux/limits.h>)
+#include <linux/limits.h>
+#else
+#define PATH_MAX 4096
+#endif
 
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_ring_util.h>
