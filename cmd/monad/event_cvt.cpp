@@ -581,27 +581,23 @@ void ExpectedDataRecorder::record_execution(
         txn_json["sender"] = fmt::to_string(senders[i]);
         txn_json["receipt"] = std::move(receipt_json);
         txn_json["txn_gas_used"] = receipt.gas_used - cumulative_gas_used;
-        if (impl_->update_version == UpdateVersion::V1) {
-            nlohmann::json call_frames_array_json = nlohmann::json::array();
-            for (CallFrame const &call_frame : txn_call_frames) {
-                call_frames_array_json.push_back(to_alloy_json(call_frame));
-            }
-            txn_json["call_frames"] = std::move(call_frames_array_json);
-            txn_json["account_accesses"] = state_to_json(txn_states[i]);
+        nlohmann::json call_frames_array_json = nlohmann::json::array();
+        for (CallFrame const &call_frame : txn_call_frames) {
+            call_frames_array_json.push_back(to_alloy_json(call_frame));
         }
+        txn_json["call_frames"] = std::move(call_frames_array_json);
+        txn_json["account_accesses"] = state_to_json(txn_states[i]);
 
         cumulative_gas_used = receipt.gas_used;
         txn_array_json.push_back(std::move(txn_json));
     }
 
     std::unordered_map<Address, BlockAccountInfo> block_account_map;
-    if (impl_->update_version == UpdateVersion::V1) {
-        update_block_account_info(prologue, block_account_map);
-        for (State const &s : txn_states) {
-            update_block_account_info(s, block_account_map);
-        }
-        update_block_account_info(epilogue, block_account_map);
+    update_block_account_info(prologue, block_account_map);
+    for (State const &s : txn_states) {
+        update_block_account_info(s, block_account_map);
     }
+    update_block_account_info(epilogue, block_account_map);
 
     monad_exec_block_tag block_tag = {
         .id = bft_block_id, .block_number = output_header.number};
@@ -616,11 +612,9 @@ void ExpectedDataRecorder::record_execution(
     j["eth_header"] = to_alloy_json(output_header);
     j["eth_block_hash"] = fmt::to_string(eth_block_hash);
     j["transactions"] = std::move(txn_array_json);
-    if (impl_->update_version == UpdateVersion::V1) {
-        j["prologue_account_accesses"] = state_to_json(prologue);
-        j["epilogue_account_accesses"] = state_to_json(epilogue);
-        j["all_account_accesses"] = to_json(block_account_map);
-    }
+    j["prologue_account_accesses"] = state_to_json(prologue);
+    j["epilogue_account_accesses"] = state_to_json(epilogue);
+    j["all_account_accesses"] = to_json(block_account_map);
 
     if (impl_->array_size++ > 0) {
         std::print(impl_->file, ",");
