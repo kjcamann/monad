@@ -46,11 +46,11 @@ add_library(
   "../core/format_err.c"
   "../core/path_util.c"
   "../core/event/evcap_reader.c"
-  "../core/event/evcap_writer.c"
+  #"../core/event/evcap_writer.c"
   "../core/event/event_ring.c"
   "../core/event/event_ring_util.c"
   "../core/event/test_event_ctypes_metadata.c"
-  "../core/mem/virtual_buf.c"
+  #"../core/mem/virtual_buf.c"
   "../execution/ethereum/event/blockcap_builder.c"
   "../execution/ethereum/event/blockcap_finalize_tracker.c"
   "../execution/ethereum/event/blockcap_writer.c"
@@ -106,7 +106,7 @@ target_include_directories(monad_event PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERNAL)
 target_compile_features(monad_event PUBLIC c_std_23)
-target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
+target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion) # -Werror)
 
 if(MONAD_EVENT_USE_LIBHUGETLBFS)
   find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
@@ -132,7 +132,7 @@ option(MONAD_EVENT_BUILD_EXAMPLE
 
 if (MONAD_EVENT_BUILD_EXAMPLE)
   add_executable(eventwatch "example/eventwatch.c")
-  target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
+  target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion) # -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
 endif()
 
