@@ -43,11 +43,6 @@
 constexpr bool PLATFORM_LINUX = true;
 #else
 constexpr bool PLATFORM_LINUX = false;
-
-long syscall(long, ...)
-{
-    return ENOSYS;
-}
 #endif
 
 #include <category/core/event/event_iterator.h>
