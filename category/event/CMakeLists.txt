@@ -93,6 +93,26 @@ else()
   target_sources(monad_event PRIVATE "../core/event/event_ring_util_posix.c")
 endif()
 
+if(APPLE)
+  add_library(monad_event_os_compat
+      "os-compat/memfd_create.c"
+      "os-compat/posix_fallocate.c")
+  target_sources(monad_event_os_compat PUBLIC
+    FILE_SET event_headers_os_compat
+    TYPE HEADERS
+    BASE_DIRS "./os-compat"
+    FILES
+    "./os-compat/fcntl.h"
+    "./os-compat/stdbit.h"
+    "./os-compat/stdbit-builtin.h"
+    "./os-compat/sys/mman.h")
+  target_compile_features(monad_event_os_compat PUBLIC c_std_23)
+  target_include_directories(monad_event_os_compat PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/os-compat>
+    $<INSTALL_INTERFACE:include>)
+  target_link_libraries(monad_event PUBLIC monad_event_os_compat)
+endif()
+
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERNAL)
 target_compile_features(monad_event PUBLIC c_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
@@ -129,9 +149,16 @@ if (MONAD_EVENT_BUILD_EXAMPLE)
   target_link_libraries(eventwatch PRIVATE monad_event)
 endif()
 
-install(TARGETS monad_event
-        EXPORT monad_exec_events_sdk
-        FILE_SET event_headers DESTINATION include/category)
+if(APPLE)
+  install(TARGETS monad_event monad_event_os_compat
+          EXPORT monad_exec_events_sdk
+          FILE_SET event_headers DESTINATION include/category
+          FILE_SET event_headers_os_compat DESTINATION include)
+else()
+  install(TARGETS monad_event
+          EXPORT monad_exec_events_sdk
+          FILE_SET event_headers DESTINATION include/category)
+endif()
 
 install(EXPORT monad_exec_events_sdk
         FILE monad_exec_events_sdk.cmake
