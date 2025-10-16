@@ -22,8 +22,9 @@
 #include <category/core/byte_string.hpp>
 #include <category/core/bytes.hpp>
 #include <category/core/config.hpp>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
+#include <category/core/event/event_source.h>
 #include <category/core/fiber/priority_pool.hpp>
 #include <category/core/int.hpp>
 #include <category/core/keccak.hpp>
@@ -536,15 +537,15 @@ void BlockchainTest::TestBody()
             if (auto const *const exec_recorder = g_exec_event_recorder.get()) {
                 // Event recording is enabled; rewind the iterator to the
                 // BLOCK_START event for the given block number
-                monad_event_iterator iter;
+                monad_event_ring_iter iter;
                 monad_event_ring const *const exec_ring =
                     exec_recorder->get_event_ring();
                 ASSERT_EQ(monad_event_ring_init_iterator(exec_ring, &iter), 0);
                 ASSERT_TRUE(monad_exec_iter_block_number_prev(
                     &iter,
-                    exec_ring,
                     curr_block_number,
                     MONAD_EXEC_BLOCK_START,
+                    nullptr,
                     nullptr));
                 find_execution_events(
                     exec_recorder->get_event_ring(), &iter, &exec_events);
