@@ -32,7 +32,6 @@ RUN apt update && apt install -y \
   libcap-dev \
   libcli11-dev \
   libgmp-dev \
-  libtbb-dev \
   libzstd-dev
 
 FROM base AS build_and_test
