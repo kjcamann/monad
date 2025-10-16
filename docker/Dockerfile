@@ -2,7 +2,7 @@
 
 FROM ubuntu:25.04 AS base
 
-RUN apt update && apt upgrade -y
+RUN apt-get update && apt-get upgrade -y
 
 COPY scripts/ubuntu-build/ /opt
 
@@ -60,7 +60,7 @@ RUN ./scripts/check-clang-tidy.sh
 
 FROM base AS vm_fuzz
 
-RUN apt update && apt install -y tmux
+RUN apt-get install -y tmux
 
 COPY . src
 WORKDIR src
