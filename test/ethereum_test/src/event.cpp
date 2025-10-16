@@ -18,8 +18,8 @@
 #include <category/core/assert.h>
 #include <category/core/cleanup.h>
 #include <category/core/config.hpp>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_recorder.hpp>
@@ -62,13 +62,14 @@ namespace
 MONAD_TEST_NAMESPACE_BEGIN
 
 void find_execution_events(
-    monad_event_ring const *event_ring, monad_event_iterator *iter,
+    monad_event_ring const *event_ring, monad_event_ring_iter *iter,
     ExecutionEvents *exec_events)
 {
     monad_event_descriptor event;
 
 ConsumeMore:
-    ASSERT_EQ(monad_event_iterator_try_next(iter, &event), MONAD_EVENT_SUCCESS);
+    ASSERT_EQ(
+        monad_event_ring_iter_try_next(iter, &event), MONAD_EVENT_RING_SUCCESS);
     ASSERT_NE(event.event_type, MONAD_EXEC_EVM_ERROR);
     ASSERT_TRUE(monad_event_ring_payload_check(event_ring, &event));
     void const *const payload =
