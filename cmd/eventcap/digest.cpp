@@ -35,7 +35,6 @@
 #include <openssl/evp.h>
 #include <openssl/types.h>
 
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/hex.hpp>
 

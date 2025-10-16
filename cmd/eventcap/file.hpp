@@ -28,7 +28,7 @@
 #include <utility>
 
 #include <category/core/event/evcap_reader.h>
-#include <category/core/event/event_iterator.h>
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_ring.h>
 
 struct monad_bcap_block_archive;

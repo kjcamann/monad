@@ -112,7 +112,7 @@ char *format_exec_event_user_array(
     if (event->content_ext[MONAD_FLOW_BLOCK_SEQNO] != 0) {
         uint64_t block_number;
         if (monad_exec_get_block_number(
-                iter->to_evsrc(), event, payload, &block_number)) {
+                iter->get_evsrc_any(), event, payload, &block_number)) {
             o = std::format_to(o, " BLK: {}", block_number);
         }
         else {

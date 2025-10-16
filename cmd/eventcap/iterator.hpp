@@ -33,8 +33,8 @@
 
 #include <category/core/assert.h>
 #include <category/core/event/evcap_reader.h>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_source.h>
 
 class BlockArchiveDirectory;
@@ -78,7 +78,7 @@ struct EventIterator
 
     struct EventRingImpl
     {
-        monad_event_iterator iter;
+        monad_event_ring_iter iter;
 
         MappedEventRing const *get_mapped_event_ring() const
         {
@@ -88,7 +88,7 @@ struct EventIterator
 
     struct CaptureSectionImpl
     {
-        monad_evcap_iterator iter;
+        monad_evcap_event_iter iter;
         EventCaptureFile const *capture_file;
         monad_evcap_event_section cur_section;
         std::optional<uint64_t> section_limit;
@@ -148,7 +148,7 @@ struct EventIterator
     /// Clear an event gap (no-op for capture files)
     std::pair<uint64_t, uint64_t> clear_gap(bool can_recover);
 
-    monad_evsrc_t to_evsrc() const;
+    monad_evsrc_any const *get_evsrc_any() const;
 };
 
 inline EventIteratorResult
@@ -165,7 +165,7 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
     switch (iter_type) {
     case Type::EventRing:
         r = static_cast<EventIteratorResult>(
-            monad_event_iterator_try_next(&ring.iter, event));
+            monad_event_ring_iter_try_next(&ring.iter, event));
         if (r == EventIteratorResult::Success) [[likely]] {
             *payload = static_cast<std::byte const *>(
                 monad_event_ring_payload_peek(ring.iter.event_ring, event));
@@ -174,7 +174,7 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
 
     case Type::EventCaptureSection:
     EventCaptureTryAgain:
-        if (monad_evcap_iterator_next(
+        if (monad_evcap_event_iter_next(
                 &evcap.iter,
                 &mapped_event,
                 reinterpret_cast<void const **>(payload))) [[likely]] {
@@ -194,7 +194,7 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
 
     case Type::BlockArchive:
     BlockArchiveTryAgain:
-        if (monad_evcap_iterator_next(
+        if (monad_evcap_event_iter_next(
                 &archive.open_section.iter,
                 &mapped_event,
                 reinterpret_cast<void const **>(payload))) [[likely]] {
@@ -314,7 +314,7 @@ inline uint64_t EventIterator::get_last_read_seqno() const
 {
     switch (iter_type) {
     case Type::EventRing:
-        return ring.iter.read_last_seqno;
+        return ring.iter.cur_seqno - 1;
     default:
         return 0; // TODO(ken): do something reasonable here
     }
@@ -339,22 +339,22 @@ inline std::pair<uint64_t, uint64_t> EventIterator::clear_gap(bool can_recover)
 {
     if (iter_type == Type::EventRing) {
         auto const p = std::make_pair(
-            ring.iter.read_last_seqno, monad_event_iterator_reset(&ring.iter));
+            ring.iter.cur_seqno, monad_event_ring_iter_reset(&ring.iter));
         finished = !can_recover;
         return p;
     }
     return {};
 }
 
-inline monad_evsrc_t EventIterator::to_evsrc() const
+inline monad_evsrc_any const *EventIterator::get_evsrc_any() const
 {
     switch (iter_type) {
     case Type::EventRing:
-        return EVSRC_GET(ring.iter.event_ring);
+        return monad_evsrc_any_from(&ring.iter);
     case Type::EventCaptureSection:
-        return EVSRC_GET(&evcap.cur_section);
+        return monad_evsrc_any_from(&evcap.cur_section);
     case Type::BlockArchive:
-        return EVSRC_GET(&archive.open_section.cur_section);
+        return monad_evsrc_any_from(&archive.open_section.cur_section);
     default:
         std::unreachable();
     }

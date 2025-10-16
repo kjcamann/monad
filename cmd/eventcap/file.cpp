@@ -40,8 +40,8 @@
 #include <category/core/assert.h>
 #include <category/core/event/evcap_file.h>
 #include <category/core/event/evcap_reader.h>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
+#include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/core/event/event_source.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
@@ -97,11 +97,12 @@ std::string validate_consensus_seqno_arguments(
     return {};
 }
 
+template <typename Iter>
 std::optional<uint64_t>
-try_seek_seqno(monad_evsrc_iterator_t iter, SequenceNumberSpec const &sns)
+try_seek_seqno(Iter *iter, SequenceNumberSpec const &sns)
 {
     if (sns.type == SequenceNumberSpec::Type::Number) {
-        return monad_evsrc_iterator_set_seqno(iter, sns.seqno) == 0
+        return monad_evsrc_iter_set_seqno(iter, sns.seqno) == 0
                    ? std::optional{sns.seqno}
                    : std::nullopt;
     }
@@ -319,7 +320,7 @@ void MappedEventRing::init_iterator(
     EventIterator *iter, EventSourceSpec const &source_spec) const
 {
     monad_event_ring_header const *const header = get_header();
-    monad_event_iterator &ring_iter = iter->ring.iter;
+    monad_event_ring_iter &ring_iter = iter->ring.iter;
     iter->iter_type = EventIterator::Type::EventRing;
     iter->finished = false;
     iter->content_type = get_content_type(source_spec);
@@ -330,8 +331,8 @@ void MappedEventRing::init_iterator(
     MONAD_ASSERT(rc == 0);
 
     if (source_spec.opt_begin_seqno) {
-        iter->begin_seqno = try_seek_seqno(
-            EVSRC_ITER(&ring_iter), *source_spec.opt_begin_seqno);
+        iter->begin_seqno =
+            try_seek_seqno(&ring_iter, *source_spec.opt_begin_seqno);
     }
     else if (initial_liveness_ == EventRingLiveness::Abandoned) {
         // Abandoned ring and no --begin-seqno parameter; start as
@@ -340,23 +341,24 @@ void MappedEventRing::init_iterator(
         uint64_t const last_seqno =
             __atomic_load_n(&header->control.last_seqno, __ATOMIC_ACQUIRE);
         if (last_seqno < desc_capacity) {
-            ring_iter.read_last_seqno = 1;
+            monad_event_ring_iter_set_seqno(&ring_iter, 1);
         }
         else {
-            ring_iter.read_last_seqno = last_seqno + 1 - desc_capacity;
+            monad_event_ring_iter_set_seqno(
+                &ring_iter, last_seqno + 1 - desc_capacity);
         }
     }
     else if (initial_liveness_ == EventRingLiveness::Snapshot) {
-        // Snapshot ring and no --start-seqno parameter; start at zero
-        ring_iter.read_last_seqno = 1;
+        // Snapshot ring and no --start-seqno parameter; start at 1
+        monad_event_ring_iter_set_seqno(&ring_iter, 1);
     }
 
     if (source_spec.opt_end_seqno) {
-        monad_event_iterator dummy_iter;
+        monad_event_ring_iter dummy_iter;
         rc = monad_event_ring_init_iterator(&event_ring_, &dummy_iter);
         MONAD_ASSERT(rc == 0);
         iter->end_seqno =
-            try_seek_seqno(EVSRC_ITER(&dummy_iter), *source_spec.opt_end_seqno);
+            try_seek_seqno(&dummy_iter, *source_spec.opt_end_seqno);
     }
 
     if (iter->begin_seqno && iter->end_seqno &&
@@ -532,15 +534,15 @@ void EventCaptureFile::init_iterator(
     monad_evcap_event_section_open_iterator(
         &iter->evcap.cur_section, &iter->evcap.iter);
     if (source_spec.opt_begin_seqno) {
-        iter->begin_seqno = try_seek_seqno(
-            EVSRC_ITER(&iter->evcap.iter), *source_spec.opt_begin_seqno);
+        iter->begin_seqno =
+            try_seek_seqno(&iter->evcap.iter, *source_spec.opt_begin_seqno);
     }
     if (source_spec.opt_end_seqno) {
-        monad_evcap_iterator dummy_iter;
+        monad_evcap_event_iter dummy_iter;
         monad_evcap_event_section_open_iterator(
             &iter->evcap.cur_section, &dummy_iter);
         iter->end_seqno =
-            try_seek_seqno(EVSRC_ITER(&dummy_iter), *source_spec.opt_end_seqno);
+            try_seek_seqno(&dummy_iter, *source_spec.opt_end_seqno);
     }
 }
 
@@ -660,12 +662,12 @@ void BlockArchiveDirectory::init_iterator(
     monad_evcap_event_section_open_iterator(&cs.cur_section, &cs.iter);
     if (source_spec.opt_begin_seqno) {
         iter->begin_seqno =
-            try_seek_seqno(EVSRC_ITER(&cs.iter), *source_spec.opt_begin_seqno);
+            try_seek_seqno(&cs.iter, *source_spec.opt_begin_seqno);
     }
     if (source_spec.opt_end_seqno) {
-        monad_evcap_iterator dummy_iter;
+        monad_evcap_event_iter dummy_iter;
         monad_evcap_event_section_open_iterator(&cs.cur_section, &dummy_iter);
         iter->end_seqno =
-            try_seek_seqno(EVSRC_ITER(&dummy_iter), *source_spec.opt_end_seqno);
+            try_seek_seqno(&dummy_iter, *source_spec.opt_end_seqno);
     }
 }

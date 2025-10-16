@@ -37,7 +37,6 @@
 #include <vector>
 
 #include <category/core/assert.h>
-#include <category/core/event/event_iterator.h>
 #include <category/core/event/event_ring.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
