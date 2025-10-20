@@ -116,6 +116,8 @@ namespace fs = std::filesystem;
 event_cross_validation_test::UpdateVersion event_cvt_update_version;
 fs::path event_cvt_export_path;
 
+unsigned g_block_delay_millis;
+
 int main(int const argc, char const *argv[])
 try {
     cxx_runtime_terminate_handler = std::get_terminate();
@@ -226,6 +228,11 @@ try {
            event_cvt_export_path,
            "path to the event cross-validation test export file path")
         ->needs(event_cvt_version);
+    cli.add_option(
+           "--block-delay",
+           g_block_delay_millis,
+           "millisecond delay to add to blocks")
+        ->type_name("<millis>");
 
     auto *const group =
         cli.add_option_group("load", "methods to initialize the db");
