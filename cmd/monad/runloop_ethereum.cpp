@@ -50,6 +50,7 @@
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <signal.h>
@@ -59,6 +60,8 @@ namespace fs = std::filesystem;
 extern monad::event_cross_validation_test::UpdateVersion
     event_cvt_update_version;
 extern fs::path event_cvt_export_path;
+
+extern unsigned g_block_delay_millis;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -365,6 +368,10 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
         }
         parent_block_id = block_id;
         ++block_num;
+
+        if (unsigned const delay = g_block_delay_millis) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{delay});
+        }
     }
     if (batch_num_blocks > 0) {
         log_tps(
