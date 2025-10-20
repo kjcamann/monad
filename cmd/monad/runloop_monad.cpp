@@ -74,6 +74,8 @@ extern monad::event_cross_validation_test::UpdateVersion
     event_cvt_update_version;
 extern fs::path event_cvt_export_path;
 
+extern unsigned g_block_delay_millis;
+
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
 struct BlockCacheEntry
@@ -440,6 +442,10 @@ Result<BlockExecOutput> propose_block(
         db.print_stats(),
         vm.print_and_reset_block_counts(),
         vm.print_compiler_stats());
+
+    if (unsigned const delay = g_block_delay_millis) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{delay});
+    }
 
     return exec_output;
 }
