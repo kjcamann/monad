@@ -129,6 +129,7 @@ try {
     bool no_compaction = false;
     bool trace_calls = false;
     std::string exec_event_ring_config;
+    std::string evmt_event_ring_config;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
     std::vector<fs::path> dbname_paths;
@@ -206,6 +207,19 @@ try {
                 }
                 return std::string{};
             });
+    CLI::Option const *const evmt_event_ring_option =
+        cli.add_option(
+               "--evmt-event-ring",
+               evmt_event_ring_config,
+               "EVM tracer event ring configuration string")
+            ->expected(0, 1)
+            ->type_name("<ring-name-or-path>[:<descriptor-shift>:<buf-shift>]")
+            ->check([](std::string const &s) {
+                if (auto const r = try_parse_event_ring_config(s); !r) {
+                    return r.error();
+                }
+                return std::string{};
+            });
 #ifdef ENABLE_EVENT_TRACING
     fs::path trace_log = fs::absolute("trace");
     cli.add_option("--trace_log", trace_log, "path to output trace file");
@@ -250,6 +264,25 @@ try {
                 exec_event_ring_config);
             return 1;
         }
+    }
+
+    if (evmt_event_ring_option->count() > 0) {
+        if (empty(evmt_event_ring_config)) {
+            // --evmt-event-ring was specified with no argument; this means
+            // to use the default file name, which will be interpreted
+            // relative a directory computed by monad_hugetlbfs_open_dir_fd
+            evmt_event_ring_config = "monad-evmt-events"; // XXX: defined somewhere
+        }
+        auto config = try_parse_event_ring_config(evmt_event_ring_config);
+        MONAD_ASSERT(config, "not validated by CLI11?");
+#if 0
+        if (init_execution_event_recorder(std::move(*config)) != 0) {
+            LOG_ERROR(
+                "cannot continue without execution event ring `{}`",
+                exec_event_ring_config);
+            return 1;
+        }
+#endif
     }
 
 #ifdef ENABLE_EVENT_TRACING
