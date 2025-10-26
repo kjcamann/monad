@@ -1,0 +1,95 @@
+[settings]
+doc = "Definitions of event payloads used with the EVMT event ring"
+depends = ["base_ctypes", "evm_ctypes"]
+lang.c.header_output_dir = "category/vm/event"
+lang.cxx_format.header_output_dir = "category/vm/event"
+
+[settings.event]
+event_ring_type = "evmt"
+
+[ext_info]
+doc = "Stored in event descriptor's `content_ext` array to tag the transaction of event"
+underlying_type = "u8"
+lang.c.prefix = "MONAD_EVMT_EXT"
+event_name = ""
+
+[ext_info.values]
+txn_seqno = 0
+msg_call_seqno = 1
+gas_left = 2
+
+[block_start]
+doc = "Event recorded at the start of block processing"
+
+[block_start.fields]
+exec_block_seqno = {type = "u64", doc = "Sequence no. of exec ring BLOCK_START"}
+
+[block_end]
+doc = "Marker event recorded at the end of block processing"
+empty_marker = true
+
+[block_end.fields]
+exec_block_seqno = {type = "u64", doc = "Sequence no. of exec ring BLOCK_START"}
+
+[txn_start]
+doc = "Event recorded at the start of transaction processing"
+
+[txn_start.fields]
+exec_txn_seqno = {type = "u64", doc = "Sequence no. of exec ring TXN_PERF_EVM_ENTER"}
+
+[txn_reject]
+doc = """Event recorded when a transaction is rejected (i.e., is invalid)
+
+This corresponds to a value in the `TransactionError` enumeration in `validate_transaction.hpp`, in the execution repo source code.
+"""
+alias = {underlying_type = "u32", strong = false}
+
+[txn_evm_enter]
+doc = "Event recorded after validation of transaction is complete"
+
+[txn_evm_enter.fields]
+intrinsic_gas = {type = "evm_intrinsic_gas", doc = "g*: intrinsic gas used to enter the EVM"}
+
+[txn_evm_exit]
+doc = "Event recorded immediatey after EVM execution is complete"
+alias = {underlying_type = "evm_result", strong = false}
+
+[msg_call_enter]
+doc = "Event recorded to introduce the scope of a message call"
+alias = {underlying_type = "evm_msg_call", strong = false}
+
+[msg_call_exit]
+doc = "Event recorded to exit the scope of a message call"
+alias = {underlying_type = "evm_result", strong = false}
+
+[txn_stall]
+doc = "Event recorded before a transaction fiber sleeps on the merge synchronization primitive"
+empty_marker = true
+
+[txn_restart]
+doc = "Marker event recorded when a transaction must re-execute because of a merge conflict"
+empty_marker = true
+
+[txn_end]
+doc = "Event recorded when transaction processing finished"
+
+[txn_end.fields]
+exec_gas_refund = {type = "u64", doc = "Raw gas refund returned from EVM"}
+txn_gas_refund = {type = "u64", doc = "g*: remaining gas plus adjusted refund"}
+gas_used = {type = "u64", doc = "As in receipt, but disaggregated"}
+
+[evm_error]
+doc = "Error occurred in execution process (not a validation error)"
+
+[evm_error.fields]
+domain_id = {type = "u64", doc="Boost.Outcome domain id of error"}
+status_code = {type = "i64", doc="Boost.Outcome status code of error"}
+
+[vm_decode]
+doc = "Event emitted when an EVM instruction is executed"
+
+[vm_decode.fields]
+pc = {type = "u64", doc = "Program counter"}
+opcode = {type = "u8", doc = "EVM opcode"}
+input_stack_length = {type = "u8", doc = "Length of trailing `input_stack` array", trailing_array_element_type = "b256"}
+push_value_length = {type = "u8", doc = "Length of trailing `push_value` array", trailing_array_element_type = "u8"}

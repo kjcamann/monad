@@ -1,0 +1,41 @@
+[settings]
+doc = "Basic Ethereum types (e.g., addresses) which behave as builtins"
+lang.rust.use_decls = [
+    "alloy_primitives::{Address, B256, U256}"
+]
+
+[address]
+doc = "Ethereum address"
+[address.external]
+c = "monad_c_address"
+rust = "Address"
+
+[b64]
+doc = "Unaligned 64 bits (e.g., uint8_t[8])"
+[b64.external]
+c = "monad_c_b64"
+rust = "[u8; 8]"
+
+[hash32]
+doc = "32 byte hash values"
+[hash32.external]
+c = "monad_c_bytes32"
+rust = "B256"
+
+[b256]
+doc = "32 byte values"
+[b256.external]
+c = "monad_c_bytes32"
+rust = "B256"
+
+[u256]
+doc = "Native endian big integers, 256 bits"
+[u256.external]
+c = "monad_c_uint256_ne"
+rust = "U256"
+
+[bloom256]
+doc = "256-byte Bloom filter"
+[bloom256.external]
+c = "monad_c_bloom256"
+rust = "[u8; 256]"

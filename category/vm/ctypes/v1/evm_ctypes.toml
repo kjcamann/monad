@@ -1,0 +1,44 @@
+[settings]
+doc = "C layout-compatible types describing EVM structures"
+depends = ["base_ctypes"]
+lang.c.header_output_dir = "category/vm/runtime"
+lang.c.extra_includes = ["#include <category/vm/runtime/base_ctypes.h>"]
+lang.cxx_format.header_output_dir = "category/vm/runtime"
+lang.cxx_format.extra_includes = [
+  "#include <category/vm/runtime/base_ctypes_fmt.hpp>"
+]
+
+[evm_intrinsic_gas]
+doc = """Components of intrinsic gas (g_0)"""
+
+[evm_intrinsic_gas.fields]
+base = {type = "u64", doc = "Base cost of transaction"}
+data = {type = "u64", doc = "Cost of calldata"}
+creation = {type = "u64", doc = "Cost of contract creation"}
+access_list = {type = "u64", doc = "Cost of EIP-2930 access list entries"}
+authorizations = {type = "u64", doc = "Cost of EIP-7702 authorizations"}
+
+[evm_msg_call]
+doc = "Inputs to an EVM message call"
+
+[evm_msg_call.fields]
+opcode = {type = "u8", doc = "EVM opcode associated with this call"}
+depth = {type = "u32", doc = "Nesting level of call"}
+gas = {type = "u64", doc = "g: amount of gas available for call"}
+code_address = {type = "address", doc = "c: address of account containing code"}
+sender = {type = "address", doc = "s: address of account sending message"}
+recipient = {type = "address", doc = "r: account of storage/balance/nonce changes"}
+value = {type = "u256", doc = "v: value transferred to recipient balance"}
+create2_salt = {type = "b256", doc = "CREATE2 salt value"}
+input_data_length = {type = "u32", doc = "Length of trailing `input` array", trailing_array_element_type = "u8"}
+code_length = {type = "u32", doc = "Length of trailing `code` array", trailing_array_element_type = "u8"}
+
+[evm_result]
+doc = "Data returned by the EVM from a message call (and the entire transaction)"
+
+[evm_result.fields]
+status_code = {type = "i32", doc = "EVMC status code"}
+create_address = {type = "address", doc = "Address for created contract"}
+gas_left = {type = "u64", doc = "Remaining gas at result time"}
+gas_refund = {type = "u64", doc = "Refund computed by EVM"}
+output_data_length = {type = "u32", doc = "Length of trailing `output` array", trailing_array_element_type = "u8"}
