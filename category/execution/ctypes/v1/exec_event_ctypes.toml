@@ -76,6 +76,14 @@ empty_marker = true
 doc = "Performance marker event recorded when all transaction execution is finished"
 empty_marker = true
 
+[block_prologue_entries]
+doc = """The number of trailing account access events associated with the block prologue"""
+alias = {underlying_type = "u32", strong = false}
+
+[block_epilogue_entries]
+doc = """The number of trailing account access events associated with the block epilogue"""
+alias = {underlying_type = "u32", strong = false}
+
 [block_end]
 doc = "Event recorded upon successful block execution"
 
@@ -165,7 +173,9 @@ transaction's events.
 
 [txn_evm_output.fields]
 receipt = {type = "eth_txn_receipt", doc = "Incremental Ethereum receipt"}
+intrinsic_gas = {type = "eth_txn_intrinsic_gas", doc = "Intrisnic gas accounting"}
 call_frame_count = {type = "u32", doc = "Number of call frames"}
+account_access_count = {type = "u32", doc = "Number of account access events"}
 
 [txn_log]
 doc = "Event recorded when a transaction emits a LOG"
@@ -199,30 +209,13 @@ gas = {type = "u64", doc = "g: gas available for message execution"}
 gas_used = {type = "u64", doc = "Gas used by call"}
 evmc_status = {type = "i32", doc = "evmc_status_code of call"}
 depth = {type = "u64", doc = "I_e: depth of call context stack"}
+log_indicies_length = {type = "u64", doc = "Length of log index associations", trailing_array_element_type = "u32"}
 input_length = {type = "u64", doc = "Length of trailing call input", trailing_array_element_type = "u8"}
 return_length = {type = "u64", doc = "Length of trailing return data", trailing_array_element_type = "u8"}
 
 [txn_end]
 doc = "Event recorded to mark the end of events for this transaction"
 empty_marker = true
-
-[account_access_context]
-doc = "Context in which EVM accessed / modified an account"
-underlying_type = "u8"
-lang.c.prefix = "MONAD_ACCT_ACCESS"
-event_name = ""
-
-[account_access_context.values]
-block_prologue = 0
-transaction = 1
-block_epilogue = 2
-
-[account_access_list_header]
-doc = "Header event that precedes a variably-sized list of account_access objects"
-
-[account_access_list_header.fields]
-entry_count = {type = "u32", doc = "Number of account_access_entry events"}
-access_context = {type = "account_access_context", doc = "Context of account accesses"}
 
 [account_access]
 doc = "Event emitted when an account is read or written"
