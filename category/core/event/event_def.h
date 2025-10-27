@@ -40,6 +40,7 @@ typedef enum monad_event_content_type : uint16_t
     MONAD_EVENT_CONTENT_TYPE_NONE,  ///< An invalid value
     MONAD_EVENT_CONTENT_TYPE_TEST,  ///< Used in simple automated tests
     MONAD_EVENT_CONTENT_TYPE_EXEC,  ///< Core execution events
+    MONAD_EVENT_CONTENT_TYPE_EVMT,  ///< EVM tracing events
     MONAD_EVENT_CONTENT_TYPE_COUNT  ///< Total number of content types
 } monad_event_content_type_t;
 
