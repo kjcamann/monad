@@ -66,6 +66,7 @@ add_executable(eventcap
   parse.hpp
   record.cpp
   recordexec.cpp
+  recordtrace.cpp
   sectiondump.cpp
   snapshot.cpp
   stats.cpp

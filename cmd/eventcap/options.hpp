@@ -142,6 +142,16 @@ struct RecordExecCommandOptions
     BlockRecordFormat block_format;
 };
 
+// recordtrace subcommand
+struct RecordTraceCommandOptions
+{
+    CommonCommandOptions common_options;
+    std::vector<std::string> trace_source_specs;
+    uint8_t vbuf_segment_shift;
+    std::optional<uint8_t> event_zstd_level;
+    std::optional<uint8_t> seqno_zstd_level;
+};
+
 // sectiondump subcommand
 struct SectionDumpCommandOptions
 {
