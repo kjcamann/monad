@@ -50,6 +50,9 @@ target_sources(monad-vm-runtime PRIVATE
     "uint256.hpp"
 )
 
+target_compile_definitions(
+  monad-vm-runtime PUBLIC MONAD_CXX_CTYPES_USE_EVMC_HPP)
+
 monad_compile_options(monad-vm-runtime)
 
 target_include_directories(monad-vm-runtime

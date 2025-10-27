@@ -114,7 +114,8 @@ TYPED_TEST(TraitsTest, irrevocable_gas_and_refund_new_contract)
         metrics,
         prev,
         noop_call_tracer,
-        noop_state_tracer)();
+        noop_state_tracer,
+        0)();
 
     ASSERT_TRUE(!receipt.has_error());
 
@@ -222,7 +223,8 @@ TYPED_TEST(TraitsTest, TopLevelCreate)
         metrics,
         prev,
         noop_call_tracer,
-        noop_state_tracer)();
+        noop_state_tracer,
+        0)();
 
     if constexpr (TestFixture::is_monad_trait()) {
         if constexpr (TestFixture::Trait::monad_rev() >= MONAD_TWO) {
@@ -378,7 +380,8 @@ TYPED_TEST(TraitsTest, refunds_delete)
             metrics,
             prev,
             noop_call_tracer,
-            noop_state_tracer)();
+            noop_state_tracer,
+            0)();
 
         ASSERT_TRUE(receipt.has_value());
         EXPECT_EQ(receipt.value().status, 1u);
@@ -433,7 +436,8 @@ TYPED_TEST(TraitsTest, refunds_delete)
             metrics,
             prev,
             noop_call_tracer,
-            noop_state_tracer)();
+            noop_state_tracer,
+            0)();
 
         ASSERT_TRUE(!receipt.has_error());
         EXPECT_EQ(receipt.value().status, 1u);
@@ -535,7 +539,8 @@ TYPED_TEST(TraitsTest, refunds_delete_then_set)
             metrics,
             prev,
             noop_call_tracer,
-            noop_state_tracer)();
+            noop_state_tracer,
+            0)();
 
         ASSERT_TRUE(!receipt.has_error());
         EXPECT_EQ(receipt.value().status, 1u);

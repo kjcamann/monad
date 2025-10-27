@@ -61,13 +61,14 @@ protected:
     std::vector<std::optional<Address>> const &authorities_;
     BlockHeader const &header_;
     uint64_t i_;
+    uint64_t exec_txn_seqno_;
     RevertTransactionFn revert_transaction_;
 
 public:
     ExecuteTransactionNoValidation(
         Chain const &, Transaction const &, Address const &,
         std::vector<std::optional<Address>> const &, BlockHeader const &,
-        uint64_t i,
+        uint64_t i, uint64_t exec_txn_seqno,
         RevertTransactionFn const & = [](Address const &, Transaction const &,
                                          uint64_t, State &) { return false; });
 
@@ -105,7 +106,7 @@ public:
         std::vector<std::optional<Address>> const &, BlockHeader const &,
         BlockHashBuffer const &, BlockState &, BlockMetrics &,
         boost::fibers::promise<void> &prev, CallTracerBase &,
-        trace::StateTracer &,
+        trace::StateTracer &, uint64_t exec_txn_seqno,
         RevertTransactionFn const & = [](Address const &, Transaction const &,
                                          uint64_t, State &) { return false; });
     ~ExecuteTransaction() = default;
