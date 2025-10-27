@@ -92,7 +92,9 @@ target_sources(monad_event PUBLIC
   "../core/event/evcap_writer_inline.h"
   "../core/event/event_def.h"
   "../core/event/event_metadata.h"
+  "../core/event/event_recorder.cpp"
   "../core/event/event_recorder.h"
+  "../core/event/event_recorder.hpp"
   "../core/event/event_recorder_inline.h"
   "../core/event/event_ring.h"
   "../core/event/event_ring_inline.h"
@@ -103,6 +105,8 @@ target_sources(monad_event PUBLIC
   "../core/event/event_source_inline.h"
   "../core/event/event_source_inline_c_generic.h"
   "../core/event/event_source_inline_cxx.hpp"
+  "../core/event/owned_event_ring.cpp"
+  "../core/event/owned_event_ring.hpp"
   "../core/event/test_event_ctypes.h"
   "../core/mem/align.h"
   "../core/mem/virtual_buf.h"
@@ -160,6 +164,7 @@ endif()
 
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE MONAD_EVENT_SDK_EXTERNAL)
 target_compile_features(monad_event PUBLIC c_std_23)
+target_compile_features(monad_event PUBLIC cxx_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 
 if(MONAD_EVENT_USE_LIBHUGETLBFS)

@@ -122,7 +122,9 @@ add_library(
   "event/evcap_writer_inline.h"
   "event/event_def.h"
   "event/event_metadata.h"
+  "event/event_recorder.cpp"
   "event/event_recorder.h"
+  "event/event_recorder.hpp"
   "event/event_recorder_inline.h"
   "event/event_ring.c"
   "event/event_ring.h"
@@ -135,6 +137,8 @@ add_library(
   "event/event_source_inline.h"
   "event/event_source_inline_c_generic.h"
   "event/event_source_inline_cxx.hpp"
+  "event/owned_event_ring.cpp"
+  "event/owned_event_ring.hpp"
   "event/test_event_ctypes.h"
   "event/test_event_ctypes_metadata.c"
   # fiber
