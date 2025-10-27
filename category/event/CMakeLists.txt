@@ -75,7 +75,8 @@ add_library(
   "../execution/ethereum/event/blockcap_finalize_tracker.c"
   "../execution/ethereum/event/blockcap_pack_writer.c"
   "../execution/ethereum/event/blockcap_shared.c"
-  "../execution/ethereum/event/exec_event_ctypes_metadata.c")
+  "../execution/ethereum/event/exec_event_ctypes_metadata.c"
+  "../vm/event/evmt_event_ctypes_metadata.c")
 
 target_sources(monad_event PUBLIC
   FILE_SET event_headers
@@ -123,7 +124,8 @@ target_sources(monad_event PUBLIC
   "../execution/ethereum/event/exec_iter_help_inline_c_generic.h"
   "../execution/ethereum/event/exec_iter_help_inline_cxx.hpp"
   "../execution/monad/core/fmt/monad_ctypes_fmt.hpp"
-  "../execution/monad/core/monad_ctypes.h")
+  "../execution/monad/core/monad_ctypes.h"
+  "../vm/event/evmt_event_ctypes.h")
 
 target_include_directories(monad_event PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
