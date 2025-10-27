@@ -33,6 +33,8 @@
 #include <category/execution/ethereum/transaction_gas.hpp>
 #include <category/execution/ethereum/tx_context.hpp>
 #include <category/execution/ethereum/validate_transaction.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_recorder.hpp>
 #include <category/vm/evm/delegation.hpp>
 #include <category/vm/evm/explicit_traits.hpp>
 #include <category/vm/evm/switch_traits.hpp>
@@ -80,7 +82,7 @@ template <Traits traits>
 ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     Chain const &chain, Transaction const &tx, Address const &sender,
     std::span<std::optional<Address> const> const authorities,
-    BlockHeader const &header, uint64_t const i,
+    BlockHeader const &header, uint64_t const i, uint64_t exec_txn_seqno,
     RevertTransactionFn const &revert_transaction)
     : chain_{chain}
     , tx_{tx}
@@ -88,6 +90,7 @@ ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     , authorities_{authorities}
     , header_{header}
     , i_{i}
+    , exec_txn_seqno_{exec_txn_seqno}
     , revert_transaction_{revert_transaction}
 {
 }
@@ -224,6 +227,15 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
 {
     monad_c_evm_intrinsic_gas const igas = intrinsic_gas_breakdown<traits>(tx_);
 
+    // Record TXN_EVM_ENTER
+    if (auto *const r = g_evmt_event_recorder.get()) {
+        ReservedEvent const txn_evm_enter =
+            r->reserve_evm_event<monad_evmt_txn_evm_enter>(
+                MONAD_EVMT_TXN_EVM_ENTER, exec_txn_seqno_, 0, tx_.gas_limit);
+        *txn_evm_enter.payload = {.intrinsic_gas = igas};
+        r->commit(txn_evm_enter);
+    }
+
     irrevocable_change<traits>(
         state,
         tx_,
@@ -277,6 +289,12 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
             : ::monad::call<traits>(&host, state, msg, revert_transaction);
 
     result.gas_refund += auth_refund;
+    record_evm_result(
+        MONAD_EVMT_TXN_EVM_EXIT,
+        exec_txn_seqno_,
+        0,
+        static_cast<uint64_t>(result.gas_left),
+        result);
     return result;
 }
 
@@ -290,10 +308,10 @@ ExecuteTransaction<traits>::ExecuteTransaction(
     BlockHeader const &header, BlockHashBuffer const &block_hash_buffer,
     BlockState &block_state, BlockMetrics &block_metrics,
     boost::fibers::promise<void> &prev, CallTracerBase &call_tracer,
-    trace::StateTracer &state_tracer,
+    trace::StateTracer &state_tracer, uint64_t exec_txn_seqno,
     RevertTransactionFn const &revert_transaction)
     : ExecuteTransactionNoValidation<
-          traits>{chain, tx, sender, authorities, header, i, revert_transaction}
+          traits>{chain, tx, sender, authorities, header, i, exec_txn_seqno, revert_transaction}
     , block_hash_buffer_{block_hash_buffer}
     , block_state_{block_state}
     , block_metrics_{block_metrics}
@@ -377,6 +395,19 @@ Receipt ExecuteTransaction<traits>::execute_final(
         state.destruct_touched_dead();
     }
 
+    if (EvmTraceEventRecorder *const r = g_evmt_event_recorder.get()) {
+        ReservedEvent const txn_end = r->reserve_evm_event<monad_evmt_txn_end>(
+            MONAD_EVMT_TXN_END,
+            this->exec_txn_seqno_,
+            0,
+            static_cast<uint64_t>(result.gas_left));
+        *txn_end.payload = monad_evmt_txn_end{
+            .exec_gas_refund = static_cast<uint64_t>(result.gas_refund),
+            .txn_gas_refund = gas_refund,
+            .gas_used = gas_used};
+        r->commit(txn_end);
+    }
+
     Receipt receipt{
         .status = result.status_code == EVMC_SUCCESS ? 1u : 0u,
         .gas_used = gas_used,
@@ -391,6 +422,8 @@ Receipt ExecuteTransaction<traits>::execute_final(
 template <Traits traits>
 Result<Receipt> ExecuteTransaction<traits>::operator()()
 {
+    record_evm_marker_event(
+        MONAD_EVMT_TXN_START, this->exec_txn_seqno_, 0, tx_.gas_limit);
     TRACE_TXN_EVENT(StartTxn);
 
     BOOST_OUTCOME_TRY(static_validate_transaction<traits>(
@@ -410,6 +443,12 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
         auto result = execute_impl2(state);
 
         {
+            uint64_t const gas_remaining =
+                result.has_value() ? static_cast<uint64_t>(
+                                         std::max(result.value().gas_left, 0L))
+                                   : 0;
+            record_evm_marker_event(
+                MONAD_EVMT_TXN_STALL, this->exec_txn_seqno_, 0, gas_remaining);
             TRACE_TXN_EVENT(StartStall);
             prev_.get_future().wait();
         }
@@ -432,6 +471,8 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
     }
     block_metrics_.inc_retries();
     {
+        record_evm_marker_event(
+            MONAD_EVMT_TXN_RESTART, this->exec_txn_seqno_, 0, tx_.gas_limit);
         TRACE_TXN_EVENT(StartRetry);
 
         State state{block_state_, Incarnation{header_.number, i_ + 1}};

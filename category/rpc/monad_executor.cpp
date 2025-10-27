@@ -382,6 +382,7 @@ namespace
             authorities,
             header,
             0,
+            0,
             make_revert_lambda<traits>(chain, header, chain_context),
         }(state, host);
 

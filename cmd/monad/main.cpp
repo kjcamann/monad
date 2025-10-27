@@ -46,6 +46,7 @@
 #include <category/mpt/ondisk_db_config.hpp>
 #include <category/statesync/statesync_server_network.hpp>
 #include <category/statesync/statesync_thread.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
 #include <category/vm/vm.hpp>
 
 #include <CLI/CLI.hpp>
@@ -130,6 +131,7 @@ try {
     bool as_eth_blocks = false;
     std::chrono::seconds block_db_timeout = std::chrono::seconds::zero();
     std::string exec_event_ring_config;
+    std::string evmt_event_ring_config;
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     std::optional<unsigned> ro_sq_thread_cpu;
     std::vector<fs::path> dbname_paths;
@@ -214,6 +216,19 @@ try {
                 }
                 return std::string{};
             });
+    CLI::Option const *const evmt_event_ring_option =
+        cli.add_option(
+               "--evmt-event-ring",
+               evmt_event_ring_config,
+               "EVM tracer event ring configuration string")
+            ->expected(0, 1)
+            ->type_name("<ring-name-or-path>[:<descriptor-shift>:<buf-shift>]")
+            ->check([](std::string const &s) {
+                if (auto const r = try_parse_event_ring_config(s); !r) {
+                    return r.error();
+                }
+                return std::string{};
+            });
 #ifdef ENABLE_EVENT_TRACING
     fs::path trace_log = fs::absolute("trace");
     cli.add_option("--trace_log", trace_log, "path to output trace file");
@@ -256,6 +271,22 @@ try {
             LOG_ERROR(
                 "cannot continue without execution event ring `{}`",
                 exec_event_ring_config);
+            return 1;
+        }
+    }
+
+    if (evmt_event_ring_option->count() > 0) {
+        if (empty(evmt_event_ring_config)) {
+            // --evmt-event-ring was specified with no argument; this means
+            // to use the default file name
+            evmt_event_ring_config = MONAD_EVENT_DEFAULT_EVMT_FILE_NAME;
+        }
+        auto config = try_parse_event_ring_config(evmt_event_ring_config);
+        MONAD_ASSERT(config, "not validated by CLI11?");
+        if (init_evm_trace_event_recorder(std::move(*config)) != 0) {
+            LOG_ERROR(
+                "cannot continue without EVM trace event ring `{}`",
+                evmt_event_ring_config);
             return 1;
         }
     }

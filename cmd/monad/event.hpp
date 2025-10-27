@@ -53,6 +53,9 @@ struct EventRingConfig
 constexpr uint8_t DEFAULT_EXEC_RING_DESCRIPTORS_SHIFT = 21;
 constexpr uint8_t DEFAULT_EXEC_RING_PAYLOAD_BUF_SHIFT = 29;
 
+constexpr uint8_t DEFAULT_EVMT_RING_DESCRIPTORS_SHIFT = 21;
+constexpr uint8_t DEFAULT_EVMT_RING_PAYLOAD_BUF_SHIFT = 29;
+
 /// Parse an event ring configuration string of the form
 /// `<file-path>[:<ring-shift>:<payload-buffer-shift>]`; if a parse
 /// error occurs, return a string describing the error
@@ -63,5 +66,10 @@ std::expected<EventRingConfig, std::string>
 /// object inside the libmonad_execution_ethereum object library) with the
 /// given configuration options
 int init_execution_event_recorder(EventRingConfig);
+
+/// Initialize the global recorder object for the EVM tracer event ring (an
+/// object inside the libmonad_vm_event library) with the given configuration
+/// options
+int init_evm_trace_event_recorder(EventRingConfig);
 
 MONAD_NAMESPACE_END

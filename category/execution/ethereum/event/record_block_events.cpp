@@ -21,6 +21,7 @@
 #include <category/execution/ethereum/event/exec_event_recorder.hpp>
 #include <category/execution/ethereum/event/record_block_events.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/vm/event/evmt_event_recorder.hpp>
 
 #include <bit>
 #include <cstring>
@@ -75,6 +76,12 @@ void record_block_start(
         block_start.payload->eth_block_input.extra_data.bytes,
         data(eth_block_header.extra_data),
         block_start.payload->eth_block_input.extra_data_length);
+    if (OwnedEventRing *const owned_event_ring = g_evmt_event_ring.get()) {
+        monad_event_ring_control const *const evmt_rctl =
+            &owned_event_ring->get_event_ring()->header->control;
+        block_start.event->content_ext[MONAD_FLOW_ACCOUNT_INDEX] =
+            __atomic_load_n(&evmt_rctl->last_seqno, __ATOMIC_ACQUIRE) + 1;
+    }
     exec_recorder->commit(block_start);
 }
 
