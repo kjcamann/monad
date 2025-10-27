@@ -423,4 +423,5 @@ char const *g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_COUNT] = {
     [MONAD_EVENT_CONTENT_TYPE_NONE] = "none",
     [MONAD_EVENT_CONTENT_TYPE_TEST] = "test",
     [MONAD_EVENT_CONTENT_TYPE_EXEC] = "exec",
+    [MONAD_EVENT_CONTENT_TYPE_EVMT] = "evmt",
 };
