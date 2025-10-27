@@ -164,6 +164,7 @@ TYPED_TEST(TraitsTest, execute_success)
             sender,
             authorities_empty,
             BlockHeader{.beneficiary = beneficiary},
+            0,
             0)(s, host);
     EXPECT_TRUE(result.status_code == EVMC_SUCCESS);
     ASSERT_TRUE(call_frames.size() == 1);
@@ -238,6 +239,7 @@ TYPED_TEST(TraitsTest, execute_reverted_insufficient_balance)
             sender,
             authorities_empty,
             BlockHeader{.beneficiary = beneficiary},
+            0,
             0)(s, host);
     EXPECT_TRUE(result.status_code == EVMC_INSUFFICIENT_BALANCE);
     ASSERT_TRUE(call_frames.size() == 1);
@@ -317,6 +319,7 @@ TYPED_TEST(TraitsTest, create_call_trace)
             sender,
             authorities_empty,
             BlockHeader{.beneficiary = beneficiary},
+            0,
             0)(s, host);
     EXPECT_TRUE(result.status_code == EVMC_SUCCESS);
     ASSERT_TRUE(call_frames.size() == 2);
@@ -430,6 +433,7 @@ TYPED_TEST(TraitsTest, selfdestruct_logs)
             sender,
             authorities_empty,
             BlockHeader{.beneficiary = beneficiary},
+            0,
             0)(s, host);
     EXPECT_TRUE(result.status_code == EVMC_SUCCESS);
 

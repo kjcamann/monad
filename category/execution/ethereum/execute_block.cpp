@@ -44,7 +44,9 @@
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/trace/event_trace.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/execution/ethereum/validate_transaction.hpp>
 #include <category/execution/monad/staking/execute_block_prelude.hpp>
+#include <category/vm/event/evmt_event_recorder.hpp>
 #include <category/vm/evm/explicit_traits.hpp>
 #include <category/vm/evm/switch_traits.hpp>
 #include <category/vm/evm/traits.hpp>
@@ -54,6 +56,7 @@
 #include <evmc/evmc.h>
 #include <intx/intx.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -105,6 +108,40 @@ void set_beacon_root(State &state, BlockHeader const &header)
             BEACON_ROOTS_ADDRESS, k1, to_bytes(to_big_endian(timestamp)));
         state.set_storage(
             BEACON_ROOTS_ADDRESS, k2, header.parent_beacon_block_root.value());
+    }
+}
+
+// BOOST_OUTCOME_TRY "unwinds" various kinds of validation errors (static
+// vs. stateful) so we record them here, at the point where the unwind stops
+void try_record_evm_trace_error_result(
+    Transaction const &tx, Result<Receipt>::error_type const &error,
+    uint64_t exec_enter_seqno)
+{
+    EvmTraceEventRecorder *const evmt_recorder = g_evmt_event_recorder.get();
+    if (evmt_recorder == nullptr) {
+        return;
+    }
+    // See the comments in record_txn_events.cpp for an explanation of what
+    // this does
+    static Result<Receipt>::error_type const ref_txn_error =
+        TransactionError::InsufficientBalance;
+    static auto const &txn_err_domain = ref_txn_error.domain();
+    auto const &error_domain = error.domain();
+    auto const error_value = error.value();
+    if (error_domain == txn_err_domain) {
+        ReservedEvent const txn_reject =
+            evmt_recorder->reserve_evm_event<monad_evmt_txn_reject>(
+                MONAD_EVMT_TXN_REJECT, exec_enter_seqno, 0, tx.gas_limit);
+        *txn_reject.payload = static_cast<uint32_t>(error_value);
+        evmt_recorder->commit(txn_reject);
+    }
+    else {
+        ReservedEvent const evm_error =
+            evmt_recorder->reserve_evm_event<monad_exec_evm_error>(
+                MONAD_EVMT_EVM_ERROR, exec_enter_seqno, 0, tx.gas_limit);
+        *evm_error.payload = monad_exec_evm_error{
+            .domain_id = error_domain.id(), .status_code = error_value};
+        evmt_recorder->commit(evm_error);
     }
 }
 
@@ -255,7 +292,8 @@ Result<std::vector<Receipt>> execute_block_transactions(
              &state_tracer = *state_tracers[i],
              &txn_exec_finished,
              &revert_transaction = revert_transaction] {
-                record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
+                uint64_t const exec_enter_seqno =
+                    record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_ENTER, i);
                 try {
                     results[i] = dispatch_transaction<traits>(
                         chain,
@@ -270,10 +308,13 @@ Result<std::vector<Receipt>> execute_block_transactions(
                         promises[i],
                         call_tracer,
                         state_tracer,
+                        exec_enter_seqno,
                         revert_transaction);
                     promises[i + 1].set_value();
                     if (results[i]->has_error()) {
                         record_txn_error_event(i, results[i]->error());
+                        try_record_evm_trace_error_result(
+                            transaction, results[i]->error(), exec_enter_seqno);
                     }
                     record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_EXIT, i);
                 }
