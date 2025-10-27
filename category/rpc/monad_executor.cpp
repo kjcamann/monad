@@ -300,8 +300,10 @@ namespace
 
         // TODO: properly initialize revert_transaction?
         EvmcHost<traits> host{call_tracer, tx_context, buffer, state};
-        auto execution_result = ExecuteTransactionNoValidation<traits>{
-            chain, enriched_txn, sender, authorities, header, 0}(state, host);
+        auto execution_result =
+            ExecuteTransactionNoValidation<traits>{
+                chain, enriched_txn, sender, authorities, header, 0, 0}(
+                state, host);
 
         // compute gas_refund and gas_used
         auto const gas_refund = compute_gas_refund<traits>(

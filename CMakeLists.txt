@@ -312,6 +312,7 @@ target_link_libraries(
          monad-vm
          monad-vm-core
          monad-vm-compiler
+         monad-vm-event
          monad-vm-evm
          monad-vm-interpreter
          monad-vm-runtime

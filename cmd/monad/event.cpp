@@ -23,6 +23,8 @@
 #include <category/core/event/owned_event_ring.hpp>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_recorder.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_recorder.hpp>
 
 #include <charconv>
 #include <concepts>
@@ -249,6 +251,10 @@ MONAD_NAMESPACE_BEGIN
 extern std::unique_ptr<OwnedEventRing> g_exec_event_ring;
 extern std::unique_ptr<ExecutionEventRecorder> g_exec_event_recorder;
 
+// As above, but for the EVM tracer
+extern std::unique_ptr<OwnedEventRing> g_exec_event_ring;
+extern std::unique_ptr<EvmTraceEventRecorder> g_evmt_event_recorder;
+
 // Parse a configuration string, which has the form
 //
 //   <ring-name-or-path>[:<descriptor-shift>:<buf-shift>]
@@ -313,6 +319,28 @@ int init_execution_event_recorder(EventRingConfig ring_config)
         return rc;
     }
     g_exec_event_recorder = std::make_unique<ExecutionEventRecorder>(recorder);
+    return 0;
+}
+
+int init_evm_trace_event_recorder(EventRingConfig ring_config)
+{
+    if (int const rc = init_owned_event_ring(
+            std::move(ring_config),
+            MONAD_EVENT_CONTENT_TYPE_EVMT,
+            g_monad_evmt_event_schema_hash,
+            DEFAULT_EVMT_RING_DESCRIPTORS_SHIFT,
+            DEFAULT_EVMT_RING_PAYLOAD_BUF_SHIFT,
+            g_evmt_event_ring)) {
+        return rc;
+    }
+    monad_event_recorder recorder;
+    if (int const rc = monad_event_ring_init_recorder(
+            g_evmt_event_ring->get_event_ring(), &recorder)) {
+        LOG_ERROR(
+            "event library error -- {}", monad_event_ring_get_last_error());
+        return rc;
+    }
+    g_evmt_event_recorder = std::make_unique<EvmTraceEventRecorder>(recorder);
     return 0;
 }
 
