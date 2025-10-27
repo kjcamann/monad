@@ -126,9 +126,19 @@ struct EventIterator
     mutable int error_code;
     mutable char const *last_error_msg;
 
+    /// Copy the next event, without advancing the iterator
+    EventIteratorResult
+    copy(monad_event_descriptor *event, std::byte const **payload);
+
     /// Try to consume the next event in the stream and advance the iterator
     EventIteratorResult
     next(monad_event_descriptor *event, std::byte const **payload);
+
+    /// Skip over the given number of events in the stream
+    EventIteratorResult advance(int64_t);
+
+    /// Try to set the iterator to given sequence number
+    EventIteratorResult set_seqno(uint64_t);
 
     /// Check if a payload is still valid (no-op for capture files)
     bool check_payload(monad_event_descriptor const *event) const;
@@ -147,7 +157,7 @@ struct EventIterator
 };
 
 inline EventIteratorResult
-EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
+EventIterator::copy(monad_event_descriptor *event, std::byte const **payload)
 {
     if (finished) {
         return EventIteratorResult::End;
@@ -156,11 +166,10 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
     EventIteratorResult r;
     monad_event_descriptor const *mapped_event;
 
-    // Get the next event descriptor and payload
     switch (iter_type) {
     case Type::EventRing:
         r = static_cast<EventIteratorResult>(
-            monad_event_ring_iter_try_next(&ring.iter, event));
+            monad_event_ring_iter_try_copy(&ring.iter, event));
         if (r == EventIteratorResult::Success) [[likely]] {
             *payload = static_cast<std::byte const *>(
                 monad_event_ring_payload_peek(ring.iter.event_ring, event));
@@ -169,7 +178,7 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
 
     case Type::EventCaptureSection:
     EventCaptureTryAgain:
-        r = static_cast<EventIteratorResult>(monad_evcap_event_iter_next(
+        r = static_cast<EventIteratorResult>(monad_evcap_event_iter_copy(
             &evcap.iter,
             &mapped_event,
             reinterpret_cast<void const **>(payload)));
@@ -190,7 +199,7 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
 
     case Type::BlockArchive:
     BlockArchiveTryAgain:
-        r = static_cast<EventIteratorResult>(monad_evcap_event_iter_next(
+        r = static_cast<EventIteratorResult>(monad_evcap_event_iter_copy(
             &archive.open_section.iter,
             &mapped_event,
             reinterpret_cast<void const **>(payload)));
@@ -247,6 +256,100 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
     }
 
     return r;
+}
+
+inline EventIteratorResult
+EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
+{
+    EventIteratorResult r = copy(event, payload);
+    if (r == EventIteratorResult::Success) {
+        r = advance(1);
+    }
+    return r;
+}
+
+inline EventIteratorResult EventIterator::advance(int64_t distance)
+{
+    int64_t moved;
+
+    switch (iter_type) {
+    case Type::EventRing:
+        (void)monad_event_ring_iter_advance(&ring.iter, distance);
+        return EventIteratorResult::Success;
+
+    case Type::EventCaptureSection:
+    EventCaptureTryAgain:
+        moved = monad_evcap_event_iter_advance(&evcap.iter, distance);
+        if (distance > 0 && moved < distance) {
+            distance -= moved;
+            if (auto const load_result = evcap.try_load_next_section(this)) {
+                finished = true;
+                return *load_result;
+            }
+            else {
+                goto EventCaptureTryAgain;
+            }
+        }
+        if (distance != moved) {
+            return EventIteratorResult::End;
+        }
+        return EventIteratorResult::Success;
+
+    case Type::BlockArchive:
+    BlockArchiveTryAgain:
+        moved = monad_evcap_event_iter_advance(
+            &archive.open_section.iter, distance);
+        if (distance > 0 && moved < distance) {
+            distance -= moved;
+            if (auto const load_result = archive.try_load_next_block(this)) {
+                finished = true;
+                return *load_result;
+            }
+            else {
+                goto BlockArchiveTryAgain;
+            }
+        }
+        if (distance != moved) {
+            return EventIteratorResult::End;
+        }
+        return EventIteratorResult::Success;
+
+    default:
+        MONAD_ABORT_PRINTF(
+            "unknown source_type %hhu", std::to_underlying(iter_type));
+    }
+}
+
+inline EventIteratorResult EventIterator::set_seqno(uint64_t seqno)
+{
+    switch (iter_type) {
+    case Type::EventRing:
+        monad_event_ring_iter_set_seqno(&ring.iter, seqno);
+        return EventIteratorResult::Success;
+
+    case Type::EventCaptureSection:
+        switch (monad_evcap_event_iter_set_seqno(&evcap.iter, seqno)) {
+        case MONAD_EVCAP_READ_SUCCESS:
+            return EventIteratorResult::Success;
+        case MONAD_EVCAP_READ_END:
+            return EventIteratorResult::End;
+        case MONAD_EVCAP_READ_NO_SEQNO:
+            this->error_code = ENOENT;
+            this->last_error_msg = "event section has no linked seqno section";
+            return EventIteratorResult::Error;
+        }
+        std::unreachable();
+
+    case Type::BlockArchive:
+        // XXX: could be supported in a limited way
+        this->error_code = EISDIR;
+        this->last_error_msg = "cannot set sequence number in block archive";
+        return EventIteratorResult::Error;
+
+    default:
+        MONAD_ABORT_PRINTF(
+            "unknown source_type %hhu", std::to_underlying(iter_type));
+    }
 }
 
 inline bool

@@ -33,6 +33,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <print>
 #include <span>
 #include <string>
 #include <string_view>
@@ -62,6 +63,7 @@
 #include <category/core/mem/align.h>
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/vm/event/evmt_event_ctypes.h>
 
 namespace fs = std::filesystem;
 
@@ -88,10 +90,14 @@ struct EventContentTypeToDefaultFileNameEntry
         {.type_name =
              g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_TEST],
          .default_file_name = MONAD_EVENT_DEFAULT_TEST_FILE_NAME},
-    [MONAD_EVENT_CONTENT_TYPE_EXEC] = {
+    [MONAD_EVENT_CONTENT_TYPE_EXEC] =
+        {.type_name =
+             g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC],
+         .default_file_name = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME},
+    [MONAD_EVENT_CONTENT_TYPE_EVMT] = {
         .type_name =
-            g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC],
-        .default_file_name = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME}};
+            g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EVMT],
+        .default_file_name = MONAD_EVENT_DEFAULT_EVMT_FILE_NAME}};
 
 #if defined(__clang__)
     #pragma GCC diagnostic pop
@@ -119,6 +125,8 @@ constexpr char const *describe(Command::Type t)
         return "record";
     case RecordExec:
         return "recordexec";
+    case RecordTrace:
+        return "recordtrace";
     case Snapshot:
         return "snapshot";
     }
@@ -143,6 +151,8 @@ constexpr ThreadEntrypointFunction get_thread_entrypoint(Command::Type t)
         return record_thread_main;
     case RecordExec:
         return recordexec_thread_main;
+    case RecordTrace:
+        return recordtrace_thread_main;
     case Snapshot:
         return snapshot_thread_main;
     default:
@@ -826,11 +836,11 @@ Command *CommandBuilder::build_info_command(InfoCommandOptions const &opts)
 
     for (std::string const &input : opts.inputs) {
         if (auto ex_spec = parse_event_source_spec(input)) {
-            fs::path const event_ring_path = resolve_event_source_file(
+            fs::path const event_source_path = resolve_event_source_file(
                 *ex_spec, named_input_map_, "info subcommand");
             EventSourceFile *const source_file =
                 get_or_create_event_source_file(
-                    event_ring_path,
+                    event_source_path,
                     force_live_set_,
                     topology_.event_source_files);
             source_specs.emplace_back(
@@ -876,6 +886,61 @@ CommandBuilder::build_recordexec_command(RecordExecCommandOptions const &opts)
                 "recordexec configured in finalized block archive "
                 "mode, but {} is not an existing directory",
                 opts.common_options.output_spec);
+        }
+    }
+    return command;
+}
+
+Command *
+CommandBuilder::build_recordtrace_command(RecordTraceCommandOptions const &opts)
+{
+    Command *const command = build_basic_command(
+        Command::Type::RecordTrace,
+        opts.common_options,
+        /*set_output=*/false);
+    expect_content_type(
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EXEC);
+    // Output is expected to already exist and be a directory
+    if (!fs::is_directory(opts.common_options.output_spec)) {
+        errx_f(
+            EX_USAGE,
+            "recordtrace writes to a finalized block archive, "
+            "but {} is not an existing directory",
+            opts.common_options.output_spec);
+    }
+    for (std::string const &trace_spec : opts.trace_source_specs) {
+        if (auto ex_spec = parse_event_source_spec(trace_spec)) {
+            // Parse the trailing capture specification from the event source
+            std::optional<EventCaptureSpec> opt_capture_spec;
+            if (!empty(ex_spec->capture_spec)) {
+                if (auto ex = parse_event_capture_spec(ex_spec->capture_spec)) {
+                    opt_capture_spec = *ex;
+                }
+                else {
+                    errx_f(
+                        EX_USAGE,
+                        "{} trace capture specification parse error: {}",
+                        trace_spec,
+                        ex.error());
+                }
+            }
+
+            fs::path const event_source_path = resolve_event_source_file(
+                *ex_spec, named_input_map_, "recordtrace subcommand");
+            EventSourceFile *const source_file =
+                get_or_create_event_source_file(
+                    event_source_path,
+                    force_live_set_,
+                    topology_.event_source_files);
+            command->event_sources.emplace_back(
+                source_file, opt_capture_spec, std::nullopt, std::nullopt);
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "parse error in info event source `{}`: {}",
+                trace_spec,
+                ex_spec.error());
         }
     }
     return command;

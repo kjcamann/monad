@@ -119,6 +119,7 @@ int main(int argc, char **argv)
     InfoCommandOptions info_command{};
     RecordCommandOptions record_command{};
     RecordExecCommandOptions recordexec_command{};
+    RecordTraceCommandOptions recordtrace_command{};
 
     DigestCommandOptions digest_var{};
     std::vector<DigestCommandOptions> digest_commands;
@@ -393,6 +394,49 @@ MiB/s payload consumption rate.)");
         ->check(CLI::Range(12, 32));
 
     /*
+     * recordtrace subcommand
+     */
+
+    CLI::App *const recordtrace = cli.add_subcommand(
+        "recordtrace", "Record trace events in a block-aware format");
+    recordtrace->alias("rt");
+    recordtrace_command.common_options.event_source_spec =
+        g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
+    add_common_options(
+        recordtrace, recordtrace_command.common_options, "recordtrace");
+    add_seqno_range_options(recordtrace, recordtrace_command.common_options);
+    recordtrace->get_option("--output")->required();
+    recordtrace
+        ->add_option(
+            "-r,--trace",
+            recordtrace_command.trace_source_specs,
+            "Trace event ring file")
+        ->type_name("<event-source-file>");
+    recordtrace
+        ->add_option(
+            "-z,--event-zstd-level",
+            recordtrace_command.event_zstd_level,
+            "zstd compression level for finalized block sections")
+        ->type_name("<zstd-level>")
+        ->check(CLI::Range(0, 22));
+    recordtrace
+        ->add_option(
+            "-i,--index-zstd-level",
+            recordtrace_command.seqno_zstd_level,
+            "zstd compression level for sequence number index")
+        ->type_name("<zstd-level>")
+        ->check(CLI::Range(0, 22));
+    recordtrace
+        ->add_option(
+            "--vbuf-shift",
+            recordtrace_command.vbuf_segment_shift,
+            "vbuf segment size shift (power of 2)")
+        ->default_val(26)
+        ->capture_default_str()
+        ->type_name("<vbuf-size-shift>")
+        ->check(CLI::Range(12, 32));
+
+    /*
      * snapshot subcommand
      */
 
@@ -485,6 +529,9 @@ The threading model behaves the same as the dump command.)");
     }
     if (recordexec->count() > 0) {
         builder.build_recordexec_command(recordexec_command);
+    }
+    if (recordtrace->count() > 0) {
+        builder.build_recordtrace_command(recordtrace_command);
     }
     for (SnapshotCommandOptions const &c : snapshot_commands) {
         builder.build_snapshot_command(c);

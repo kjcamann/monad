@@ -147,6 +147,7 @@ struct Command
         Info,
         Record,
         RecordExec,
+        RecordTrace,
         Snapshot,
     };
 
@@ -191,6 +192,8 @@ struct Command
             return std::same_as<T, RecordCommandOptions> ? cast : nullptr;
         case Type::RecordExec:
             return std::same_as<T, RecordExecCommandOptions> ? cast : nullptr;
+        case Type::RecordTrace:
+            return std::same_as<T, RecordTraceCommandOptions> ? cast : nullptr;
         case Type::Snapshot:
             return std::same_as<T, SnapshotCommandOptions> ? cast : nullptr;
         default:
@@ -222,5 +225,7 @@ void headstat_thread_main(std::span<Command *const>);
 void record_thread_main(std::span<Command *const>);
 
 void recordexec_thread_main(std::span<Command *const>);
+
+void recordtrace_thread_main(std::span<Command *const>);
 
 void snapshot_thread_main(std::span<Command *const>);

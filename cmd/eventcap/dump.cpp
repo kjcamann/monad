@@ -35,11 +35,14 @@
 
 #include <alloca.h>
 
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_metadata.h>
 #include <category/core/event/event_ring.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes_fmt.hpp>
 #include <category/execution/ethereum/event/exec_iter_help.h>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_ctypes_fmt.hpp>
 
 namespace
 {
@@ -105,7 +108,7 @@ bool hexdump_event_payload(
     return true;
 }
 
-char *format_exec_event_user_array(
+char *format_exec_event_content_ext_array(
     EventIterator const *iter, monad_event_descriptor const *event,
     std::byte const *payload, char *o)
 {
@@ -121,6 +124,22 @@ char *format_exec_event_user_array(
     }
     if (uint64_t const txn_id = event->content_ext[MONAD_FLOW_TXN_ID]) {
         o = std::format_to(o, " TXN: {}", txn_id - 1);
+    }
+    return o;
+}
+
+char *format_evmt_event_content_ext_array(
+    monad_event_descriptor const *event, char *o)
+{
+    if (uint64_t const txn_seqno = event->content_ext[MONAD_EVMT_EXT_TXN]) {
+        o = std::format_to(o, " TXN-SEQ: {}", txn_seqno);
+    }
+    if (uint64_t const call_seqno =
+            event->content_ext[MONAD_EVMT_EXT_MSG_CALL]) {
+        o = std::format_to(o, " MSG-CALL-SEQ: {}", call_seqno);
+    }
+    if (uint64_t const gas_left = event->content_ext[MONAD_EVMT_EXT_GAS]) {
+        o = std::format_to(o, " GAS: {}", gas_left);
     }
     return o;
 }
@@ -180,34 +199,55 @@ bool print_event(
     //   2. For all other rings, or if explicitly requested for debugging
     //      purposes, the hex value of each array element is printed
     if (dump_opts->always_dump_content_ext ||
-        iter->content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
+        (iter->content_type != MONAD_EVENT_CONTENT_TYPE_EXEC &&
+         iter->content_type != MONAD_EVENT_CONTENT_TYPE_EVMT)) {
         o = std::format_to(o, " CONTENT_EXT:");
         for (uint64_t const u : event->content_ext) {
             o = std::format_to(o, " {0:#08x}", u);
         }
     }
-    if (iter->content_type == MONAD_EVENT_CONTENT_TYPE_EXEC) {
-        o = format_exec_event_user_array(iter, event, payload, o);
+    switch (iter->content_type) {
+    case MONAD_EVENT_CONTENT_TYPE_EXEC:
+        o = format_exec_event_content_ext_array(iter, event, payload, o);
+        break;
+    case MONAD_EVENT_CONTENT_TYPE_EVMT:
+        o = format_evmt_event_content_ext_array(event, o);
+        break;
+    default:
+        break;
     }
     *o++ = '\n';
     std::fwrite(event_buf, static_cast<size_t>(o - event_buf), 1, out);
     bool payload_ok = true;
 
-    if (dump_opts->decode &&
-        iter->content_type == MONAD_EVENT_CONTENT_TYPE_EXEC &&
-        event->payload_size > 0) {
+    if (dump_opts->decode && event->payload_size > 0) {
         // TODO(ken): generalize a decode interface beyond the exec ring
         std::string buf;
         std::back_insert_iterator mbo{buf};
 
-        auto const event_type =
-            static_cast<monad_exec_event_type>(event->event_type);
-        mbo = category_labs::format_as(mbo, payload, event_type);
-        if (iter->check_payload(event)) {
-            std::println(out, "{}", buf);
+        switch (iter->content_type) {
+        case MONAD_EVENT_CONTENT_TYPE_EXEC:
+            mbo = category_labs::format_as(
+                mbo,
+                payload,
+                static_cast<monad_exec_event_type>(event->event_type));
+            break;
+        case MONAD_EVENT_CONTENT_TYPE_EVMT:
+            mbo = category_labs::format_as(
+                mbo,
+                payload,
+                static_cast<monad_evmt_event_type>(event->event_type));
+            break;
+        default:
+            break;
         }
-        else {
-            payload_ok = false;
+        if (!buf.empty()) {
+            if (iter->check_payload(event)) {
+                std::println(out, "{}", buf);
+            }
+            else {
+                payload_ok = false;
+            }
         }
     }
     if (dump_opts->hexdump) {

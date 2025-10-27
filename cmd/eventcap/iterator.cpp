@@ -54,23 +54,40 @@ EventIterator::~EventIterator()
 std::optional<EventIteratorResult>
 EventIterator::CaptureSectionImpl::try_load_next_section(EventIterator *i)
 {
-    monad_evcap_section_desc const *cur_event_sd = cur_section.event_sd;
+    monad_evcap_section_desc const *const cur_event_sd = cur_section.event_sd;
     monad_evcap_event_section_close(&cur_section);
     ++sections_consumed;
     if (section_limit && sections_consumed == *section_limit) {
         return EventIteratorResult::End;
     }
 
+    // Look for the next event bundle section with the same schema type; if we
+    // don't find one, the iteration ends
+    monad_evcap_section_desc const *scan_event_sd;
     monad_evcap_reader const *const evcap_reader = capture_file->get_reader();
-    if (monad_evcap_reader_next_section(
-            evcap_reader, MONAD_EVCAP_SECTION_EVENT_BUNDLE, &cur_event_sd) ==
-        nullptr) {
-        // No more event sections
-        return EventIteratorResult::End;
+    monad_evcap_section_desc const *const cur_schema_sd =
+        monad_evcap_reader_load_linked_section_desc(
+            evcap_reader, cur_event_sd->event_bundle.schema_desc_offset);
+    while (monad_evcap_reader_next_section(
+        evcap_reader, MONAD_EVCAP_SECTION_EVENT_BUNDLE, &scan_event_sd)) {
+        monad_evcap_section_desc const *const scan_schema_sd =
+            monad_evcap_reader_load_linked_section_desc(
+                evcap_reader, scan_event_sd->event_bundle.schema_desc_offset);
+        // XXX: we either do a full comparison here (check all fields) or an
+        // even shallower one (just check that the file offset is the same),
+        // if we're going to guarantee that there is only one present
+        if (scan_schema_sd->schema.content_type ==
+            cur_schema_sd->schema.content_type) {
+            break;
+        }
     }
 
+    if (scan_event_sd == nullptr) {
+        // No matching event sections
+        return EventIteratorResult::End;
+    }
     i->error_code = monad_evcap_event_section_open(
-        &cur_section, evcap_reader, cur_event_sd);
+        &cur_section, evcap_reader, scan_event_sd);
     if (i->error_code != 0) {
         i->last_error_msg = monad_evcap_reader_get_last_error();
         return EventIteratorResult::Error;
