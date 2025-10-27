@@ -82,7 +82,7 @@ void record_txn_events(
     }
 
     // TXN_HEADER_START
-    ReservedExecEvent const txn_header_start =
+    ReservedEvent const txn_header_start =
         exec_recorder->reserve_txn_event<monad_exec_txn_header_start>(
             MONAD_EXEC_TXN_HEADER_START,
             txn_num,
@@ -93,7 +93,7 @@ void record_txn_events(
 
     // TXN_ACCESS_LIST_ENTRY
     for (uint32_t index = 0; AccessEntry const &e : transaction.access_list) {
-        ReservedExecEvent const access_list_entry =
+        ReservedEvent const access_list_entry =
             exec_recorder->reserve_txn_event<monad_exec_txn_access_list_entry>(
                 MONAD_EXEC_TXN_ACCESS_LIST_ENTRY,
                 txn_num,
@@ -110,7 +110,7 @@ void record_txn_events(
     // TXN_AUTH_LIST_ENTRY
     for (uint32_t index = 0;
          AuthorizationEntry const &e : transaction.authorization_list) {
-        ReservedExecEvent const auth_list_entry =
+        ReservedEvent const auth_list_entry =
             exec_recorder->reserve_txn_event<monad_exec_txn_auth_list_entry>(
                 MONAD_EXEC_TXN_AUTH_LIST_ENTRY, txn_num);
         *auth_list_entry.payload = monad_exec_txn_auth_list_entry{
@@ -145,14 +145,14 @@ void record_txn_events(
         auto const &error_domain = receipt_result.error().domain();
         auto const error_value = receipt_result.error().value();
         if (error_domain == txn_err_domain) {
-            ReservedExecEvent const txn_reject =
+            ReservedEvent const txn_reject =
                 exec_recorder->reserve_txn_event<monad_exec_txn_reject>(
                     MONAD_EXEC_TXN_REJECT, txn_num);
             *txn_reject.payload = static_cast<uint32_t>(error_value);
             exec_recorder->commit(txn_reject);
         }
         else {
-            ReservedExecEvent const evm_error =
+            ReservedEvent const evm_error =
                 exec_recorder->reserve_txn_event<monad_exec_evm_error>(
                     MONAD_EXEC_EVM_ERROR, txn_num);
             *evm_error.payload = monad_exec_evm_error{
@@ -164,7 +164,7 @@ void record_txn_events(
 
     // TXN_EVM_OUTPUT
     Receipt const &receipt = receipt_result.value();
-    ReservedExecEvent const txn_evm_output =
+    ReservedEvent const txn_evm_output =
         exec_recorder->reserve_txn_event<monad_exec_txn_evm_output>(
             MONAD_EXEC_TXN_EVM_OUTPUT, txn_num);
     *txn_evm_output.payload = monad_exec_txn_evm_output{
@@ -177,7 +177,7 @@ void record_txn_events(
 
     // TXN_LOG
     for (uint32_t index = 0; auto const &log : receipt.logs) {
-        ReservedExecEvent const txn_log =
+        ReservedEvent const txn_log =
             exec_recorder->reserve_txn_event<monad_exec_txn_log>(
                 MONAD_EXEC_TXN_LOG,
                 txn_num,
@@ -199,7 +199,7 @@ void record_txn_events(
         std::span const return_bytes{
             call_frame.output.data(), call_frame.output.size()};
 
-        ReservedExecEvent const txn_call_frame =
+        ReservedEvent const txn_call_frame =
             exec_recorder->reserve_txn_event<monad_exec_txn_call_frame>(
                 MONAD_EXEC_TXN_CALL_FRAME,
                 txn_num,
