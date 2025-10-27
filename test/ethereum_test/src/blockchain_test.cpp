@@ -540,12 +540,11 @@ void BlockchainTest::TestBody()
             ExecutionEvents exec_events{};
             bool check_exec_events = false; // Won't do gtest checks if disabled
 
-            if (auto const *const exec_recorder = g_exec_event_recorder.get()) {
+            if (OwnedEventRing const *const r = g_exec_event_ring.get()) {
                 // Event recording is enabled; rewind the iterator to the
                 // BLOCK_START event for the given block number
                 monad_event_ring_iter iter;
-                monad_event_ring const *const exec_ring =
-                    exec_recorder->get_event_ring();
+                monad_event_ring const *const exec_ring = r->get_event_ring();
                 ASSERT_EQ(monad_event_ring_init_iterator(exec_ring, &iter), 0);
                 ASSERT_TRUE(monad_exec_iter_block_number_prev(
                     &iter,
