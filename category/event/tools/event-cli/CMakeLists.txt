@@ -61,6 +61,7 @@ add_executable(event-cli
   parse.hpp
   record.cpp
   recordexec.cpp
+  recordtrace.cpp
   sectiondump.cpp
   snapshot.cpp
   stats.cpp

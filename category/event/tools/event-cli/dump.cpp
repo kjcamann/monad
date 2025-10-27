@@ -41,6 +41,8 @@
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes_fmt.hpp>
 #include <category/execution/ethereum/event/exec_iter_help.h>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_ctypes_fmt.hpp>
 
 #if !USE_CHRONO_TIME_ZONE
     #include <time.h>
@@ -130,6 +132,22 @@ char *format_exec_event_content_ext_array(
     return o;
 }
 
+char *format_evmt_event_content_ext_array(
+    monad_event_descriptor const *event, char *o)
+{
+    if (uint64_t const txn_seqno = event->content_ext[MONAD_EVMT_EXT_TXN]) {
+        o = std::format_to(o, " TXN-SEQ: {}", txn_seqno);
+    }
+    if (uint64_t const call_seqno =
+            event->content_ext[MONAD_EVMT_EXT_MSG_CALL]) {
+        o = std::format_to(o, " MSG-CALL-SEQ: {}", call_seqno);
+    }
+    if (uint64_t const gas_left = event->content_ext[MONAD_EVMT_EXT_GAS]) {
+        o = std::format_to(o, " GAS: {}", gas_left);
+    }
+    return o;
+}
+
 bool print_event(
     EventIterator const *iter, monad_event_descriptor const *event,
     std::byte const *payload, DumpCommandOptions const *dump_opts,
@@ -189,7 +207,8 @@ bool print_event(
     //   2. For all other rings, or if explicitly requested for debugging
     //      purposes, the hex value of each array element is printed
     if (dump_opts->always_dump_content_ext ||
-        iter->content_type != MONAD_EVENT_CONTENT_TYPE_EXEC) {
+        (iter->content_type != MONAD_EVENT_CONTENT_TYPE_EXEC &&
+         iter->content_type != MONAD_EVENT_CONTENT_TYPE_EVMT)) {
         o = std::format_to(o, " CONTENT_EXT:");
         for (uint64_t const u : event->content_ext) {
             o = std::format_to(o, " {0:#08x}", u);
@@ -198,6 +217,9 @@ bool print_event(
     switch (iter->content_type) {
     case MONAD_EVENT_CONTENT_TYPE_EXEC:
         o = format_exec_event_content_ext_array(iter, event, payload, o);
+        break;
+    case MONAD_EVENT_CONTENT_TYPE_EVMT:
+        o = format_evmt_event_content_ext_array(event, o);
         break;
     default:
         break;
@@ -217,6 +239,12 @@ bool print_event(
                 mbo,
                 payload,
                 static_cast<monad_exec_event_type>(event->event_type));
+            break;
+        case MONAD_EVENT_CONTENT_TYPE_EVMT:
+            mbo = category_labs::format_as(
+                mbo,
+                payload,
+                static_cast<monad_evmt_event_type>(event->event_type));
             break;
         default:
             break;
