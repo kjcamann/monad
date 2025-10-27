@@ -19,7 +19,7 @@
 # build these components. This is useful for external third-party clients, and
 # for the Rust build system.
 
-project(monad_event)
+project(monad_event LANGUAGES C CXX)
 
 option(MONAD_EVENT_DISABLE_LIBHUGETLBFS
   "Disable the `monad_event_open_ring_dir_fd` API function (removes dependency on libhugetlbfs" OFF)
@@ -39,12 +39,16 @@ add_library(
   "../core/event/event_iterator.h"
   "../core/event/event_iterator_inline.h"
   "../core/event/event_metadata.h"
+  "../core/event/event_recorder.cpp"
   "../core/event/event_recorder.h"
+  "../core/event/event_recorder.hpp"
   "../core/event/event_recorder_inline.h"
   "../core/event/event_ring.c"
   "../core/event/event_ring.h"
   "../core/event/event_ring_util.c"
   "../core/event/event_ring_util.h"
+  "../core/event/owned_event_ring.cpp"
+  "../core/event/owned_event_ring.hpp"
   "../core/mem/align.h"
   "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
@@ -55,6 +59,7 @@ add_library(
 target_include_directories(monad_event PUBLIC "../..")
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE)
 target_compile_features(monad_event PUBLIC c_std_23)
+target_compile_features(monad_event PUBLIC cxx_std_23)
 target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 
 if(MONAD_EVENT_DISABLE_LIBHUGETLBFS)
