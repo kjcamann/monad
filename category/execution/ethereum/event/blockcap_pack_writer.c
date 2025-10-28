@@ -136,7 +136,8 @@ int monad_bcap_pack_writer_create(struct monad_bcap_pack_writer **pkw_p, int fd)
         return FORMAT_ERRC(errno, "malloc of monad_bcap_pack_writer failed");
     }
     memset(pkw, 0, sizeof *pkw);
-    if ((rc = monad_evcap_writer_create(&pkw->evcap_writer, fd)) != 0) {
+    if ((rc = monad_evcap_writer_create(
+             &pkw->evcap_writer, fd, /*append*/ false)) != 0) {
         goto EVCAP_Error;
     }
     rc = monad_evcap_writer_add_schema_section(

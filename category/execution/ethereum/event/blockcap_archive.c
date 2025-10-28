@@ -11,6 +11,7 @@
 #include <category/core/event/evcap_file.h>
 #include <category/core/event/evcap_reader.h>
 #include <category/core/event/evcap_writer.h>
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_ring.h>
 #include <category/core/format_err.h>
 #include <category/core/srcloc.h>
@@ -302,7 +303,8 @@ int monad_bcap_block_archive_add_block(
             block_number);
         goto Done;
     }
-    if ((rc = monad_evcap_writer_create(&evcap_writer, block_fd)) != 0) {
+    if ((rc = monad_evcap_writer_create(
+             &evcap_writer, block_fd, /*append*/ false)) != 0) {
         FORMAT_ERRC(
             rc,
             "could not open evcap write for block %lu; caused by:\n%s",

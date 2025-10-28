@@ -99,7 +99,9 @@ static int builder_append_event(
     if (bcb->current_proposal->event_count++ == 0) {
         bcb->current_proposal->start_seqno = event->seqno;
     }
-    *append_result = MONAD_BCAP_PROPOSAL_APPENDED;
+    *append_result = event->event_type == MONAD_EXEC_BLOCK_START
+                         ? MONAD_BCAP_PROPOSAL_CREATED
+                         : MONAD_BCAP_PROPOSAL_APPENDED;
     return 0;
 }
 
@@ -119,7 +121,8 @@ static int try_create_block_proposal(struct monad_bcap_proposal **proposal_p)
 static int act_on_block_start(
     struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
     struct monad_exec_block_start const *block_start,
-    enum monad_bcap_append_result *append_result)
+    monad_bcap_append_result_t *append_result,
+    struct monad_bcap_proposal **proposal_p)
 {
     int rc;
 
@@ -134,6 +137,7 @@ static int act_on_block_start(
     if ((rc = try_create_block_proposal(&bcb->current_proposal)) != 0) {
         return rc;
     }
+    *proposal_p = bcb->current_proposal;
     bcb->current_proposal->event_compression_info.compression =
         get_vbuf_writer_compression(bcb->event_vbuf_writer);
     bcb->current_proposal->seqno_index_compression_info.compression =
@@ -241,9 +245,15 @@ void monad_bcap_builder_destroy(struct monad_bcap_builder *bcb)
     }
 }
 
+struct monad_bcap_proposal *
+monad_bcap_builder_get_current_proposal(struct monad_bcap_builder const *bcb)
+{
+    return bcb->current_proposal;
+}
+
 int monad_bcap_builder_append_event(
     struct monad_bcap_builder *bcb, struct monad_event_descriptor const *event,
-    void const *payload, enum monad_bcap_append_result *append_result,
+    void const *payload, monad_bcap_append_result_t *append_result,
     struct monad_bcap_proposal **proposal_p)
 {
     *append_result = MONAD_BCAP_ERROR;
@@ -279,7 +289,8 @@ int monad_bcap_builder_append_event(
             bcb,
             event,
             (struct monad_exec_block_start const *)payload,
-            append_result);
+            append_result,
+            proposal_p);
 
     case MONAD_EXEC_EVM_ERROR:
         [[fallthrough]];
@@ -290,6 +301,7 @@ int monad_bcap_builder_append_event(
             bcb, event, payload, append_result, proposal_p);
 
     default:
+        *proposal_p = bcb->current_proposal;
         return builder_append_event(bcb, event, payload, append_result);
     }
 }

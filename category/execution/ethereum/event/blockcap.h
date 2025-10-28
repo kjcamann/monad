@@ -75,6 +75,7 @@ struct monad_bcap_proposal
     struct monad_vbuf_chain seqno_index_vbuf_chain;
     struct monad_bcap_compression_info event_compression_info;
     struct monad_bcap_compression_info seqno_index_compression_info;
+    void *user;
     TAILQ_ENTRY(monad_bcap_proposal) entry;
 };
 
@@ -89,14 +90,15 @@ TAILQ_HEAD(monad_bcap_proposal_list, monad_bcap_proposal);
  * are vbuf chains holding all recorded events in the scope of a proposal
  */
 
-enum monad_bcap_append_result
+typedef enum monad_bcap_append_result
 {
     MONAD_BCAP_ERROR,
     MONAD_BCAP_OUTSIDE_BLOCK_SCOPE,
+    MONAD_BCAP_PROPOSAL_CREATED,
     MONAD_BCAP_PROPOSAL_APPENDED,
     MONAD_BCAP_PROPOSAL_FINISHED,
     MONAD_BCAP_PROPOSAL_ABORTED,
-};
+} monad_bcap_append_result_t;
 
 struct monad_bcap_builder;
 
@@ -107,9 +109,12 @@ int monad_bcap_builder_create(
 
 void monad_bcap_builder_destroy(struct monad_bcap_builder *);
 
+struct monad_bcap_proposal *
+monad_bcap_builder_get_current_proposal(struct monad_bcap_builder const *);
+
 int monad_bcap_builder_append_event(
     struct monad_bcap_builder *, struct monad_event_descriptor const *,
-    void const *payload, enum monad_bcap_append_result *,
+    void const *payload, monad_bcap_append_result_t *,
     struct monad_bcap_proposal **);
 
 /*
