@@ -233,7 +233,74 @@ alloc_section_table_descriptor(struct monad_evcap_writer *ecw)
     return cur_sectab->next++;
 }
 
-int monad_evcap_writer_create(struct monad_evcap_writer **ecw_p, int fd)
+static int monad_evcap_writer_create_append(struct monad_evcap_writer *ecw)
+{
+    // Map the file header
+    ecw->header = mmap(
+        nullptr,
+        sizeof *ecw->header,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        ecw->fd,
+        0);
+    if (ecw->header == MAP_FAILED) {
+        return FORMAT_ERRC(errno, "mmap of evcap header failed");
+    }
+    if (lseek(ecw->fd, 0, SEEK_END) == -1) {
+        return FORMAT_ERRC(errno, "lseek to end for append mode failed");
+    }
+
+    uint64_t next_sectab_offset = ecw->header->sectab_offset;
+AllocNextSectionTable:
+    struct section_table *sectab = malloc(sizeof *sectab);
+    if (sectab == nullptr) {
+        return FORMAT_ERRC(errno, "sectab allocation failed");
+    }
+    memset(sectab, 0, sizeof *sectab);
+    sectab->file_offset = next_sectab_offset;
+    sectab->start = mmap(
+        nullptr,
+        SECTION_TABLE_EXTENT,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        ecw->fd,
+        (off_t)sectab->file_offset);
+    if (sectab->start == MAP_FAILED) {
+        free(sectab);
+        return FORMAT_ERRC(errno, "mmap of new section table failed");
+    }
+    sectab->end = sectab->start + SECTION_TABLE_ENTRIES;
+    TAILQ_INSERT_TAIL(&ecw->section_tables, sectab, entry);
+    sectab->next = sectab->start;
+    while (sectab->next->type != MONAD_EVCAP_SECTION_LINK &&
+           sectab->next->type != MONAD_EVCAP_SECTION_NONE) {
+        ++sectab->next;
+    }
+    if (sectab->next->type == MONAD_EVCAP_SECTION_LINK) {
+        next_sectab_offset = sectab->next->content_offset;
+        goto AllocNextSectionTable;
+    }
+    return 0;
+}
+
+static int monad_evcap_writer_create_truncate(struct monad_evcap_writer *ecw)
+{
+    int rc;
+    if (ftruncate(ecw->fd, 0) == -1) {
+        return FORMAT_ERRC(errno, "ftruncate failed");
+    }
+    // Write the file header and map the initial section table
+    if ((rc = write_evcap_file_header(ecw)) != 0) {
+        return rc;
+    }
+    if ((rc = alloc_new_section_table(ecw)) != 0) {
+        return rc;
+    }
+    return 0;
+}
+
+int monad_evcap_writer_create(
+    struct monad_evcap_writer **ecw_p, int fd, bool append)
 {
     struct monad_evcap_writer *ecw;
     int rc = 0;
@@ -251,14 +318,8 @@ int monad_evcap_writer_create(struct monad_evcap_writer **ecw_p, int fd)
     }
     TAILQ_INIT(&ecw->section_tables);
 
-    // Write the file header and map the initial section table
-    if ((rc = write_evcap_file_header(ecw)) != 0) {
-        goto Error;
-    }
-    if ((rc = alloc_new_section_table(ecw)) != 0) {
-        goto Error;
-    }
-    return 0;
+    return append ? monad_evcap_writer_create_append(ecw)
+                  : monad_evcap_writer_create_truncate(ecw);
 
 Error:
     monad_evcap_writer_destroy(ecw);

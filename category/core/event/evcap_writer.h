@@ -46,7 +46,8 @@ struct monad_vbuf_writer;
 enum monad_evcap_section_type : uint16_t;
 enum monad_event_content_type : uint16_t;
 
-int monad_evcap_writer_create(struct monad_evcap_writer **, int fd);
+int monad_evcap_writer_create(
+    struct monad_evcap_writer **, int fd, bool append);
 
 void monad_evcap_writer_destroy(struct monad_evcap_writer *);
 
