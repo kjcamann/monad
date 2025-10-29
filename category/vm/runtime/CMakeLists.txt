@@ -30,6 +30,7 @@ target_sources(monad-vm-runtime PRIVATE
     "data.hpp"
     "detail.hpp"
     "environment.hpp"
+    "evm_ctypes.h"
     "exit.S"
     "exit.cpp"
     "keccak.hpp"
