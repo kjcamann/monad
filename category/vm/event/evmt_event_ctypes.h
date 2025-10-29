@@ -48,6 +48,8 @@ enum monad_evmt_event_type : uint16_t
     MONAD_EVMT_TXN_REJECT,
     MONAD_EVMT_TXN_EVM_ENTER,
     MONAD_EVMT_TXN_EVM_EXIT,
+    MONAD_EVMT_MSG_CALL_ENTER,
+    MONAD_EVMT_MSG_CALL_EXIT,
     MONAD_EVMT_TXN_STALL,
     MONAD_EVMT_TXN_RESTART,
     MONAD_EVMT_TXN_END,
@@ -82,6 +84,12 @@ struct monad_evmt_txn_evm_enter
 /// Event recorded immediatey after EVM execution is complete
 typedef struct monad_c_evm_result monad_evmt_txn_evm_exit;
 
+/// Event recorded to introduce the scope of a message call
+typedef struct monad_c_evm_msg_call monad_evmt_msg_call_enter;
+
+/// Event recorded to exit the scope of a message call
+typedef struct monad_c_evm_result monad_evmt_msg_call_exit;
+
 /// Event recorded when transaction processing finished
 struct monad_evmt_txn_end
 {
@@ -99,7 +107,7 @@ struct monad_evmt_evm_error
 
 // clang-format on
 
-constexpr size_t MONAD_EVMT_EVENT_COUNT = 10;
+constexpr size_t MONAD_EVMT_EVENT_COUNT = 12;
 extern struct monad_event_metadata const
     g_monad_evmt_event_metadata[MONAD_EVMT_EVENT_COUNT];
 extern uint8_t const g_monad_evmt_event_schema_hash[32];

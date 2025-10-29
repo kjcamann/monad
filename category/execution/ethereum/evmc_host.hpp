@@ -24,6 +24,8 @@
 #include <category/execution/ethereum/state3/state.hpp>
 #include <category/execution/ethereum/trace/call_tracer.hpp>
 #include <category/execution/ethereum/transaction_gas.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_recorder.hpp>
 #include <category/vm/evm/delegation.hpp>
 #include <category/vm/evm/traits.hpp>
 #include <category/vm/host.hpp>
@@ -39,7 +41,7 @@
 
 MONAD_NAMESPACE_BEGIN
 
-static_assert(sizeof(vm::Host) == 24);
+static_assert(sizeof(vm::Host) == 56);
 static_assert(alignof(vm::Host) == 8);
 
 class BlockHashBuffer;
@@ -100,7 +102,7 @@ public:
         bytes32_t const &value) noexcept override;
 };
 
-static_assert(sizeof(EvmcHostBase) == 88);
+static_assert(sizeof(EvmcHostBase) == 120);
 static_assert(alignof(EvmcHostBase) == 8);
 
 template <Traits traits>
@@ -138,8 +140,29 @@ struct EvmcHost final : public EvmcHostBase
     virtual evmc::Result call(evmc_message const &msg) noexcept override
     {
         try {
+            // Record MSG_CALL_ENTER
+            uint64_t msg_call_flow_seqno = 0;
+            if (auto *const r = g_evmt_event_recorder.get()) {
+                ReservedEvent const msg_call_enter =
+                    r->reserve_evm_event<monad_evmt_msg_call_enter>(
+                        MONAD_EVMT_MSG_CALL_ENTER,
+                        this->get_exec_txn_seqno(),
+                        0,
+                        this->gas_remaining(),
+                        std::as_bytes(
+                            std::span{msg.input_data, msg.input_size}),
+                        std::as_bytes(std::span{msg.code, msg.code_size}));
+                msg_call_flow_seqno = msg_call_enter.seqno;
+                msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] =
+                    msg_call_flow_seqno;
+                init_evm_msg_call(msg, msg_call_enter.payload);
+                r->commit(msg_call_enter);
+            }
+            this->msg_call_seqno_push(msg_call_flow_seqno);
+
+            evmc::Result result;
             if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
-                auto result = ::monad::create<traits>(this, state_, msg);
+                result = ::monad::create<traits>(this, state_, msg);
 
                 // EIP-211
                 if (result.status_code != EVMC_REVERT) {
@@ -149,11 +172,20 @@ struct EvmcHost final : public EvmcHostBase
                         result.gas_refund,
                         result.create_address};
                 }
-                return result;
             }
             else {
-                return ::monad::call(this, state_, msg, revert_transaction_);
+                result = ::monad::call(this, state_, msg, revert_transaction_);
             }
+
+            record_evm_result(
+                MONAD_EVMT_MSG_CALL_EXIT,
+                this->get_exec_txn_seqno(),
+                msg_call_flow_seqno,
+                static_cast<uint64_t>(result.gas_left),
+                result.raw());
+            this->msg_call_seqno_pop();
+
+            return result;
         }
         catch (...) {
             capture_current_exception();
@@ -182,7 +214,7 @@ struct EvmcHost final : public EvmcHostBase
     }
 };
 
-static_assert(sizeof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 88);
+static_assert(sizeof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 120);
 static_assert(alignof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 8);
 
 MONAD_NAMESPACE_END
