@@ -16,7 +16,7 @@
 #pragma once
 
 #include <category/core/hex.hpp>
-#include <category/execution/ethereum/core/base_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 #include <cstddef>
 #include <cstring>

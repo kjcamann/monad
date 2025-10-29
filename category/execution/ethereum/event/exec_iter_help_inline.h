@@ -24,8 +24,8 @@
 #include <category/core/event/event_ring.h>
 #include <category/core/event/event_source.h>
 #include <category/core/likely.h>
-#include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 // Functions like monad_exec_get_block_number expect the caller to pass a
 // descriptor containing a consensus event; if this is not the case, we need to

@@ -38,10 +38,10 @@
 
 #include <category/core/event/event_ring_fmt.hpp>
 #include <category/core/hex.hpp>
-#include <category/execution/ethereum/core/fmt/base_ctypes_fmt.hpp>
 #include <category/execution/ethereum/core/fmt/eth_ctypes_fmt.hpp>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/monad/core/fmt/monad_ctypes_fmt.hpp>
+#include <category/vm/runtime/base_ctypes_fmt.hpp>
 
 template <>
 struct std::formatter<monad_exec_flow_type> : std::formatter<uint8_t>

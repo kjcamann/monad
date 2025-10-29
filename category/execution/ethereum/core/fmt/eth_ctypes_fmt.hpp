@@ -37,7 +37,7 @@
 
 #include <category/core/hex.hpp>
 #include <category/execution/ethereum/core/eth_ctypes.h>
-#include <category/execution/ethereum/core/fmt/base_ctypes_fmt.hpp>
+#include <category/vm/runtime/base_ctypes_fmt.hpp>
 
 template <>
 struct std::formatter<monad_c_transaction_type> : std::formatter<uint8_t>
