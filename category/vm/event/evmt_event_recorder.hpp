@@ -38,9 +38,10 @@
 #include <span>
 #include <utility>
 
-#include <evmc/evmc.hpp>
-
 enum monad_evmt_event_type : uint16_t;
+
+struct evmc_message;
+struct evmc_result;
 
 MONAD_NAMESPACE_BEGIN
 
@@ -60,6 +61,12 @@ public:
         monad_evmt_event_type, uint64_t exec_txn_seqno, uint64_t call_seqno,
         uint64_t gas_remaining);
 };
+
+void init_evm_msg_call(evmc_message const &, monad_c_evm_msg_call *);
+
+uint64_t record_evm_result(
+    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
+    uint64_t call_seqno, uint64_t gas_remaining, evmc_result const &result);
 
 template <typename T, std::same_as<std::span<std::byte const>>... U>
 ReservedEvent<T> EvmTraceEventRecorder::reserve_evm_event(
@@ -100,30 +107,6 @@ inline uint64_t record_evm_marker_event(
     if (auto *const r = g_evmt_event_recorder.get()) {
         return r->record_marker_event(
             event_type, exec_txn_seqno, call_seqno, gas_remaining);
-    }
-    return 0;
-}
-
-inline uint64_t record_evm_result(
-    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
-    uint64_t call_seqno, uint64_t gas_remaining, evmc::Result const &result)
-{
-    if (auto *const r = g_evmt_event_recorder.get()) {
-        std::span const output{result.output_data, result.output_size};
-        ReservedEvent const event = r->reserve_evm_event<monad_c_evm_result>(
-            event_type,
-            exec_txn_seqno,
-            call_seqno,
-            gas_remaining,
-            std::as_bytes(output));
-        *event.payload = monad_c_evm_result{
-            .status_code = std::to_underlying(result.status_code),
-            .create_address = {}, // XXX deal with this later
-            .gas_left = static_cast<uint64_t>(result.gas_left),
-            .gas_refund = static_cast<uint64_t>(result.gas_refund),
-            .output_data_length = static_cast<uint32_t>(result.output_size),
-        };
-        r->commit(event);
     }
     return 0;
 }
