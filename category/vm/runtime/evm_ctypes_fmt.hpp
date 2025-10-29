@@ -62,6 +62,47 @@ struct std::formatter<monad_c_evm_intrinsic_gas> : std::formatter<std::string>
 };
 
 template <>
+struct std::formatter<monad_c_evm_msg_call> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_c_evm_msg_call const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "evm_msg_call {{");
+        i = std::format_to(i, "opcode = {}", value.opcode);
+        i = std::format_to(i, ", depth = {}", value.depth);
+        i = std::format_to(i, ", gas = {}", value.gas);
+        i = std::format_to(i, ", code_address = {}", value.code_address);
+        i = std::format_to(i, ", sender = {}", value.sender);
+        i = std::format_to(i, ", recipient = {}", value.recipient);
+        i = std::format_to(i, ", value = {}", value.value);
+        i = std::format_to(i, ", create2_salt = {}", value.create2_salt);
+        i = std::format_to(
+            i, ", input_data_length = {}", value.input_data_length);
+        i = std::format_to(i, ", code_length = {}", value.code_length);
+        *i++ = '}';
+        auto const *p = reinterpret_cast<std::byte const *>(&value + 1);
+        i = std::format_to(
+            i,
+            ", input_data = {:{#x}}",
+            MONAD_NAMESPACE::as_hex(span{
+                reinterpret_cast<std::byte const *>(p),
+                static_cast<size_t>(value.input_data_length)}));
+        p += value.input_data_length * sizeof(uint8_t);
+        i = std::format_to(
+            i,
+            ", code = {:{#x}}",
+            MONAD_NAMESPACE::as_hex(span{
+                reinterpret_cast<std::byte const *>(p),
+                static_cast<size_t>(value.code_length)}));
+        p += value.code_length * sizeof(uint8_t);
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
 struct std::formatter<monad_c_evm_result> : std::formatter<std::string>
 {
     template <typename FormatContext>
