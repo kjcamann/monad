@@ -42,8 +42,8 @@
 
 #include <category/core/assert.h>
 #include <category/core/event/event_def.h>
-#include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 using std::chrono::nanoseconds, std::chrono::system_clock;
 

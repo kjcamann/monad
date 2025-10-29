@@ -48,6 +48,7 @@
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 namespace fs = std::filesystem;
 
