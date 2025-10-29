@@ -36,8 +36,8 @@
 #include <string>
 #include <utility>
 
-#include <category/vm/event/evm_ctypes_fmt.hpp>
 #include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/runtime/evm_ctypes_fmt.hpp>
 
 template <>
 struct std::formatter<monad_evmt_ext_info> : std::formatter<uint8_t>
@@ -135,6 +135,16 @@ namespace category_labs
                 o,
                 "{}",
                 *static_cast<monad_evmt_txn_evm_exit const *>(payload_buf));
+        case MONAD_EVMT_MSG_CALL_ENTER:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_msg_call_enter const *>(payload_buf));
+        case MONAD_EVMT_MSG_CALL_EXIT:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_msg_call_exit const *>(payload_buf));
         case MONAD_EVMT_TXN_STALL:
             return o;
         case MONAD_EVMT_TXN_RESTART:

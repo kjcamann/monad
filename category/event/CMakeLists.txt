@@ -126,7 +126,9 @@ target_sources(monad_event PUBLIC
   "../vm/event/evmt_event_ctypes.h"
   "../vm/event/evmt_event_ctypes_fmt.hpp"
   "../vm/runtime/base_ctypes.h"
-  "../vm/runtime/base_ctypes_fmt.hpp")
+  "../vm/runtime/base_ctypes_fmt.hpp"
+  "../vm/runtime/evm_ctypes.h"
+  "../vm/runtime/evm_ctypes_fmt.hpp")
 
 
 target_include_directories(monad_event PUBLIC
