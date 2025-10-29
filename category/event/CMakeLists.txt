@@ -50,11 +50,11 @@ add_library(
   "../core/event/owned_event_ring.cpp"
   "../core/event/owned_event_ring.hpp"
   "../core/mem/align.h"
-  "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
   "../execution/ethereum/event/exec_event_ctypes.h"
   "../execution/ethereum/event/exec_event_ctypes_metadata.c"
-  "../execution/ethereum/event/exec_iter_help.h")
+  "../execution/ethereum/event/exec_iter_help.h"
+  "../vm/runtime/base_ctypes.h")
 
 target_include_directories(monad_event PUBLIC "../..")
 target_compile_definitions(monad_event PUBLIC _GNU_SOURCE)
