@@ -138,6 +138,12 @@ static monad_evcap_read_result_t monad_evcap_event_iter_copy(
     struct monad_evcap_event_iter const *,
     struct monad_event_descriptor const **, void const **payload);
 
+/// Advance the given number of events from the current iterator position;
+/// returns the number of events actually moved, which may be less if the end
+/// of the capture is encountered
+static int64_t monad_evcap_event_iter_advance(
+    struct monad_evcap_event_iter *, int64_t distance);
+
 /// Set the iterator so that the next call to monad_evcap_event_iter_copy
 /// or monad_evcap_event_iter_next will return the given sequence number;
 /// possible return codes are the same as `monad_evcap_event_iter_copy_seqno`
