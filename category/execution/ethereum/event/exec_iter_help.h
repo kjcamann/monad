@@ -27,7 +27,7 @@
  * event" because it represents the first state transition (to "proposed")
  */
 
-#include <category/execution/ethereum/core/base_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 #include <stdint.h>
 
 #ifdef __cplusplus

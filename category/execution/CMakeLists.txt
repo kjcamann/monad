@@ -41,7 +41,6 @@ add_library(
   # ethereum/core
   "ethereum/core/account.hpp"
   "ethereum/core/address.hpp"
-  "ethereum/core/base_ctypes.h"
   "ethereum/core/block.hpp"
   "ethereum/core/eth_ctypes.h"
   "ethereum/core/contract/abi_decode_error.cpp"
