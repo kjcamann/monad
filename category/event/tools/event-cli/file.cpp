@@ -45,10 +45,10 @@
 #include <category/core/event/event_ring_iter.h>
 #include <category/core/event/event_ring_util.h>
 #include <category/core/event/event_source.h>
-#include <category/execution/ethereum/core/base_ctypes.h>
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_iter_help.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 namespace fs = std::filesystem;
 
