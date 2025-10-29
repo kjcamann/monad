@@ -28,6 +28,8 @@
 #include <cstdint>
 #include <span>
 
+struct monad_c_evm_intrinsic_gas;
+
 MONAD_NAMESPACE_BEGIN
 
 class BlockHashBuffer;
@@ -48,7 +50,7 @@ using RevertTransactionFn = std::function<bool(
 template <Traits traits>
 class ExecuteTransactionNoValidation
 {
-    evmc_message to_message() const;
+    evmc_message to_message(monad_c_evm_intrinsic_gas const &) const;
 
     uint64_t process_authorizations(State &, EvmcHost<traits> &);
 

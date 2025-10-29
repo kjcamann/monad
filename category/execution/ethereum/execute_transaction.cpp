@@ -37,6 +37,7 @@
 #include <category/vm/evm/explicit_traits.hpp>
 #include <category/vm/evm/switch_traits.hpp>
 #include <category/vm/evm/traits.hpp>
+#include <category/vm/runtime/evm_ctypes.h>
 
 #include <boost/fiber/future/promise.hpp>
 #include <boost/outcome/try.hpp>
@@ -188,7 +189,8 @@ uint64_t ExecuteTransactionNoValidation<traits>::process_authorizations(
 }
 
 template <Traits traits>
-evmc_message ExecuteTransactionNoValidation<traits>::to_message() const
+evmc_message ExecuteTransactionNoValidation<traits>::to_message(
+    monad_c_evm_intrinsic_gas const &g) const
 {
     auto const to_address = [this] {
         if (tx_.to) {
@@ -201,7 +203,7 @@ evmc_message ExecuteTransactionNoValidation<traits>::to_message() const
         .kind = to_address.first,
         .flags = 0,
         .depth = 0,
-        .gas = static_cast<int64_t>(tx_.gas_limit - intrinsic_gas<traits>(tx_)),
+        .gas = static_cast<int64_t>(tx_.gas_limit - sum(g)),
         .recipient = to_address.second,
         .sender = sender_,
         .input_data = tx_.data.data(),
@@ -220,6 +222,8 @@ template <Traits traits>
 evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
     State &state, EvmcHost<traits> &host)
 {
+    monad_c_evm_intrinsic_gas const igas = intrinsic_gas_breakdown<traits>(tx_);
+
     irrevocable_change<traits>(
         state,
         tx_,
@@ -249,7 +253,7 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
         state.access_account(*tx_.to);
     }
 
-    auto msg = to_message();
+    auto msg = to_message(igas);
 
     // EIP-7702
     if constexpr (traits::evm_rev() >= EVMC_PRAGUE) {
