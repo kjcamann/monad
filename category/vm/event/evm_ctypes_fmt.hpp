@@ -35,6 +35,7 @@
 #include <string>
 #include <utility>
 
+#include <category/core/hex.hpp>
 #include <category/vm/runtime/base_ctypes_fmt.hpp>
 #include <category/vm/runtime/evm_ctypes.h>
 
@@ -56,6 +57,35 @@ struct std::formatter<monad_c_evm_intrinsic_gas> : std::formatter<std::string>
         i = std::format_to(i, ", authorizations = {}", value.authorizations);
         *i++ = '}';
 
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
+struct std::formatter<monad_c_evm_result> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_c_evm_result const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "evm_result {{");
+        i = std::format_to(i, "status_code = {}", value.status_code);
+        i = std::format_to(i, ", create_address = {}", value.create_address);
+        i = std::format_to(i, ", gas_left = {}", value.gas_left);
+        i = std::format_to(i, ", gas_refund = {}", value.gas_refund);
+        i = std::format_to(
+            i, ", output_data_length = {}", value.output_data_length);
+        *i++ = '}';
+        auto const *p = reinterpret_cast<std::byte const *>(&value + 1);
+        i = std::format_to(
+            i,
+            ", output_data = {:{#x}}",
+            MONAD_NAMESPACE::as_hex(span{
+                reinterpret_cast<std::byte const *>(p),
+                static_cast<size_t>(value.output_data_length)}));
+        p += value.output_data_length * sizeof(uint8_t);
         return std::formatter<std::string>::format(s, ctx);
     }
 };

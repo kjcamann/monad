@@ -55,6 +55,18 @@ struct monad_event_metadata const
              .description = "Event recorded when a transaction is rejected "
                             "(i.e., is invalid)"},
 
+        [MONAD_EVMT_TXN_EVM_ENTER] =
+            {.event_type = MONAD_EVMT_TXN_EVM_ENTER,
+             .c_name = "TXN_EVM_ENTER",
+             .description =
+                 "Event recorded after validation of transaction is complete"},
+
+        [MONAD_EVMT_TXN_EVM_EXIT] =
+            {.event_type = MONAD_EVMT_TXN_EVM_EXIT,
+             .c_name = "TXN_EVM_EXIT",
+             .description =
+                 "Event recorded immediatey after EVM execution is complete"},
+
         [MONAD_EVMT_TXN_STALL] =
             {.event_type = MONAD_EVMT_TXN_STALL,
              .c_name = "TXN_STALL",
@@ -81,9 +93,9 @@ struct monad_event_metadata const
 };
 
 uint8_t const g_monad_evmt_event_schema_hash[32] = {
-    0xbc, 0x79, 0x75, 0xf8, 0xbe, 0xd8, 0xf8, 0xf9, 0x85, 0xfe, 0xdd,
-    0x5f, 0x39, 0xdb, 0xee, 0xf5, 0xa8, 0x9e, 0xc6, 0x32, 0xd4, 0xb2,
-    0x5d, 0x21, 0x82, 0xe9, 0xf6, 0x41, 0x1e, 0x65, 0xd5, 0xd5,
+    0x48, 0x4b, 0x64, 0x0e, 0xb5, 0xb9, 0xe5, 0xbc, 0x53, 0x21, 0x82,
+    0xdb, 0x24, 0x15, 0xfa, 0x3c, 0x8b, 0x96, 0x72, 0xbc, 0xcf, 0x5c,
+    0xb3, 0xb7, 0x70, 0x64, 0xac, 0xdf, 0xa9, 0x77, 0x33, 0xf7,
 };
 
 #ifdef __cplusplus

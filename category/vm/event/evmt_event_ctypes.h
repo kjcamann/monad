@@ -46,6 +46,8 @@ enum monad_evmt_event_type : uint16_t
     MONAD_EVMT_RECORD_ERROR,
     MONAD_EVMT_TXN_START,
     MONAD_EVMT_TXN_REJECT,
+    MONAD_EVMT_TXN_EVM_ENTER,
+    MONAD_EVMT_TXN_EVM_EXIT,
     MONAD_EVMT_TXN_STALL,
     MONAD_EVMT_TXN_RESTART,
     MONAD_EVMT_TXN_END,
@@ -70,6 +72,16 @@ enum monad_evmt_ext_info : uint8_t
 /// `validate_transaction.hpp`, in the execution repo source code.
 typedef uint32_t monad_evmt_txn_reject;
 
+/// Event recorded after validation of transaction is complete
+struct monad_evmt_txn_evm_enter
+{
+    struct monad_c_evm_intrinsic_gas
+        intrinsic_gas;               ///< g*: intrinsic gas used to enter the EVM
+};
+
+/// Event recorded immediatey after EVM execution is complete
+typedef struct monad_c_evm_result monad_evmt_txn_evm_exit;
+
 /// Event recorded when transaction processing finished
 struct monad_evmt_txn_end
 {
@@ -87,7 +99,7 @@ struct monad_evmt_evm_error
 
 // clang-format on
 
-constexpr size_t MONAD_EVMT_EVENT_COUNT = 8;
+constexpr size_t MONAD_EVMT_EVENT_COUNT = 10;
 extern struct monad_event_metadata const
     g_monad_evmt_event_metadata[MONAD_EVMT_EVENT_COUNT];
 extern uint8_t const g_monad_evmt_event_schema_hash[32];
