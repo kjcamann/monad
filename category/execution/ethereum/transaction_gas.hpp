@@ -18,6 +18,7 @@
 #include <category/core/config.hpp>
 #include <category/core/int.hpp>
 #include <category/vm/evm/traits.hpp>
+#include <category/vm/runtime/evm_ctypes.h>
 
 #include <evmc/evmc.h>
 
@@ -30,6 +31,11 @@ struct BlockHeader;
 
 template <Traits traits>
 uint64_t g_data(Transaction const &) noexcept;
+
+template <Traits traits>
+monad_c_evm_intrinsic_gas intrinsic_gas_breakdown(Transaction const &) noexcept;
+
+uint64_t sum(monad_c_evm_intrinsic_gas const &) noexcept;
 
 template <Traits traits>
 uint64_t intrinsic_gas(Transaction const &) noexcept;
