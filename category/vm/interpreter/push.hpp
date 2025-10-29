@@ -75,7 +75,12 @@ namespace monad::vm::interpreter
             static constexpr auto leading_part = N % 8;
 
             check_requirements<PUSH0 + N, traits>(
-                ctx, analysis, stack_bottom, stack_top, gas_remaining);
+                ctx,
+                analysis,
+                stack_bottom,
+                stack_top,
+                gas_remaining,
+                instr_ptr);
 
             auto const leading_word = [instr_ptr] {
                 auto word = subword_t{0};
@@ -152,7 +157,12 @@ namespace monad::vm::interpreter
             static constexpr auto leading_part = N % 8;
 
             check_requirements<PUSH0 + N, traits>(
-                ctx, analysis, stack_bottom, stack_top, gas_remaining);
+                ctx,
+                analysis,
+                stack_bottom,
+                stack_top,
+                gas_remaining,
+                instr_ptr);
 
             static constexpr int64_t m = ~(
                 std::numeric_limits<int64_t>::max() >> (63 - leading_part * 8));
@@ -216,10 +226,15 @@ namespace monad::vm::interpreter
             runtime::Context &ctx, Intercode const &analysis,
             runtime::uint256_t const *stack_bottom,
             runtime::uint256_t *stack_top, std::int64_t &gas_remaining,
-            std::uint8_t const *)
+            std::uint8_t const *instr_ptr)
         {
             check_requirements<PUSH0, traits>(
-                ctx, analysis, stack_bottom, stack_top, gas_remaining);
+                ctx,
+                analysis,
+                stack_bottom,
+                stack_top,
+                gas_remaining,
+                instr_ptr);
             interpreter::push(stack_top, 0);
         }
     };

@@ -74,8 +74,11 @@ namespace monad::vm::runtime
             .context = context,
             .gas_remaining = msg->gas,
             .gas_refund = 0,
-            .exec_txn_seqno = exec_txn_seqno,
-            .msg_call_seqno = msg_call_seqno,
+            .trace_state =
+                {
+                    .exec_txn_seqno = exec_txn_seqno,
+                    .msg_call_seqno = msg_call_seqno,
+                },
             .env =
                 {
                     .evmc_flags = msg->flags,
@@ -105,8 +108,7 @@ namespace monad::vm::runtime
             .context = nullptr,
             .gas_remaining = 0,
             .gas_refund = 0,
-            .exec_txn_seqno = 0,
-            .msg_call_seqno = 0,
+            .trace_state = {},
             .env =
                 {
                     .evmc_flags = 0,

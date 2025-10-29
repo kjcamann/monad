@@ -100,8 +100,7 @@ namespace
             .context = nullptr,
             .gas_remaining = gas_remaining,
             .gas_refund = 0,
-            .exec_txn_seqno = 0,
-            .msg_call_seqno = 0,
+            .trace_state = {},
             .env =
                 {
                     .evmc_flags = 0,

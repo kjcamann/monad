@@ -15,7 +15,10 @@
 
 #pragma once
 
+#include <category/core/event/event_recorder.hpp>
 #include <category/core/runtime/uint256.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_recorder.hpp>
 #include <category/vm/evm/opcodes.hpp>
 #include <category/vm/evm/traits.hpp>
 #include <category/vm/interpreter/call_runtime.hpp>
@@ -380,10 +383,10 @@ namespace monad::vm::interpreter
     [[gnu::always_inline]] inline void checked_runtime_call(
         void (*f)(FnArgs...), runtime::Context &ctx, Intercode const &analysis,
         runtime::uint256_t const *stack_bottom, runtime::uint256_t *stack_top,
-        std::int64_t &gas_remaining, std::uint8_t const *)
+        std::int64_t &gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<Opcode, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         call_runtime(f, ctx, stack_top, gas_remaining);
     }
 
@@ -420,7 +423,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<ADD, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a + b;
 
@@ -452,7 +455,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SUB, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a - b;
 
@@ -592,7 +595,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SIGNEXTEND, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[b, x] = top_two(stack_top);
         x = runtime::signextend(b, x);
 
@@ -607,7 +610,7 @@ namespace monad::vm::interpreter
        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<LT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a < b;
 
@@ -621,7 +624,7 @@ namespace monad::vm::interpreter
        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<GT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a > b;
 
@@ -635,7 +638,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SLT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = slt(a, b);
 
@@ -649,7 +652,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SGT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = slt(b, a); // note swapped arguments
 
@@ -663,7 +666,7 @@ namespace monad::vm::interpreter
        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<EQ, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = (a == b);
 
@@ -677,7 +680,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<ISZERO, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &a = *stack_top;
         a = !a;
 
@@ -692,7 +695,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<AND, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a & b;
 
@@ -706,7 +709,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<OR, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a | b;
 
@@ -720,7 +723,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<XOR, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[a, b] = top_two(stack_top);
         b = a ^ b;
 
@@ -734,7 +737,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<NOT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &a = *stack_top;
         a = ~a;
 
@@ -748,7 +751,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<BYTE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[i, x] = top_two(stack_top);
         x = runtime::byte(i, x);
 
@@ -762,7 +765,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SHL, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[shift, value] = top_two(stack_top);
         value <<= shift;
 
@@ -776,7 +779,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SHR, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[shift, value] = top_two(stack_top);
         value >>= shift;
 
@@ -790,7 +793,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SAR, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &&[shift, value] = top_two(stack_top);
         value = runtime::sar(shift, value);
 
@@ -837,7 +840,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<ADDRESS, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, runtime::uint256_from_address(ctx.env.recipient));
 
         MONAD_VM_NEXT(ADDRESS);
@@ -868,7 +871,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<ORIGIN, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_address(ctx.env.tx_context->tx_origin));
@@ -883,7 +886,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CALLER, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, runtime::uint256_from_address(ctx.env.sender));
 
         MONAD_VM_NEXT(CALLER);
@@ -896,7 +899,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CALLVALUE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, runtime::uint256_from_bytes32(ctx.env.value));
 
         MONAD_VM_NEXT(CALLVALUE);
@@ -927,7 +930,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CALLDATASIZE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.input_data_size);
 
         MONAD_VM_NEXT(CALLDATASIZE);
@@ -958,7 +961,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CODESIZE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.code_size);
 
         MONAD_VM_NEXT(CODESIZE);
@@ -989,7 +992,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<GASPRICE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_bytes32(ctx.env.tx_context->tx_gas_price));
@@ -1040,7 +1043,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<RETURNDATASIZE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.return_data_size);
 
         MONAD_VM_NEXT(RETURNDATASIZE);
@@ -1107,7 +1110,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<COINBASE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_address(ctx.env.tx_context->block_coinbase));
@@ -1122,7 +1125,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<TIMESTAMP, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.tx_context->block_timestamp);
 
         MONAD_VM_NEXT(TIMESTAMP);
@@ -1135,7 +1138,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<NUMBER, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.tx_context->block_number);
 
         MONAD_VM_NEXT(NUMBER);
@@ -1148,7 +1151,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<DIFFICULTY, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_bytes32(
@@ -1164,7 +1167,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<GASLIMIT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.env.tx_context->block_gas_limit);
 
         MONAD_VM_NEXT(GASLIMIT);
@@ -1177,7 +1180,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CHAINID, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_bytes32(ctx.env.tx_context->chain_id));
@@ -1210,7 +1213,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<BASEFEE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_bytes32(ctx.env.tx_context->block_base_fee));
@@ -1243,7 +1246,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<BLOBBASEFEE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(
             stack_top,
             runtime::uint256_from_bytes32(ctx.env.tx_context->blob_base_fee));
@@ -1404,7 +1407,7 @@ namespace monad::vm::interpreter
        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<PC, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, instr_ptr - analysis.code());
 
         MONAD_VM_NEXT(PC);
@@ -1417,7 +1420,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<MSIZE, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, ctx.memory.size);
 
         MONAD_VM_NEXT(MSIZE);
@@ -1430,7 +1433,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<GAS, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         push(stack_top, gas_remaining);
 
         MONAD_VM_NEXT(GAS);
@@ -1457,7 +1460,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<POP, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         MONAD_VM_NEXT(POP);
     }
 
@@ -1469,7 +1472,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<DUP1 + (N - 1), traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
 
         auto *const old_top = stack_top;
         push(stack_top, *(old_top - (N - 1)));
@@ -1485,7 +1488,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<SWAP1 + (N - 1), traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
 
         auto const top = stack_top->to_avx();
         *stack_top = *(stack_top - N);
@@ -1519,10 +1522,10 @@ namespace monad::vm::interpreter
     MONAD_VM_INSTRUCTION_CALL void jump(
         runtime::Context &ctx, Intercode const &analysis,
         runtime::uint256_t const *stack_bottom, runtime::uint256_t *stack_top,
-        std::int64_t gas_remaining, std::uint8_t const *)
+        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<JUMP, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto const &target = pop(stack_top);
         auto const *const new_ip = jump_impl(ctx, analysis, target);
 
@@ -1540,7 +1543,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<JUMPI, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto const &target = pop(stack_top);
         auto const &cond = pop(stack_top);
 
@@ -1579,7 +1582,7 @@ namespace monad::vm::interpreter
             stack_top,
             static_cast<uint64_t>(instr_ptr - analysis.code()));
         check_requirements<JUMPDEST, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
 
         MONAD_VM_NEXT(JUMPDEST);
     }
@@ -1746,11 +1749,11 @@ namespace monad::vm::interpreter
     MONAD_VM_INSTRUCTION_CALL void return_(
         runtime::Context &ctx, Intercode const &analysis,
         runtime::uint256_t const *stack_bottom, runtime::uint256_t *stack_top,
-        std::int64_t gas_remaining, std::uint8_t const *)
+        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         fuzz_tstore_stack(ctx, stack_bottom, stack_top, analysis.size());
         check_requirements<RETURN, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         return_impl(Success, ctx, stack_top, gas_remaining);
     }
 
@@ -1758,10 +1761,10 @@ namespace monad::vm::interpreter
     MONAD_VM_INSTRUCTION_CALL void revert(
         runtime::Context &ctx, Intercode const &analysis,
         runtime::uint256_t const *stack_bottom, runtime::uint256_t *stack_top,
-        std::int64_t gas_remaining, std::uint8_t const *)
+        std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<REVERT, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         return_impl(Revert, ctx, stack_top, gas_remaining);
     }
 

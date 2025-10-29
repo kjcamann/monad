@@ -54,6 +54,7 @@ enum monad_evmt_event_type : uint16_t
     MONAD_EVMT_TXN_RESTART,
     MONAD_EVMT_TXN_END,
     MONAD_EVMT_EVM_ERROR,
+    MONAD_EVMT_VM_DECODE,
 };
 
 /// Reserved event type used for recording errors
@@ -105,9 +106,17 @@ struct monad_evmt_evm_error
     int64_t status_code; ///< Boost.Outcome status code of error
 };
 
+/// Event emitted when an EVM instruction is executed
+struct monad_evmt_vm_decode
+{
+    uint64_t pc;                ///< Program counter
+    uint8_t opcode;             ///< EVM opcode
+    uint8_t input_stack_length; ///< Length of trailing `input_stack` array
+};
+
 // clang-format on
 
-constexpr size_t MONAD_EVMT_EVENT_COUNT = 12;
+constexpr size_t MONAD_EVMT_EVENT_COUNT = 13;
 extern struct monad_event_metadata const
     g_monad_evmt_event_metadata[MONAD_EVMT_EVENT_COUNT];
 extern uint8_t const g_monad_evmt_event_schema_hash[32];
