@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 #include <category/core/event/event_source.h>
-#include <category/execution/ethereum/core/base_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 
 #ifdef __cplusplus
 extern "C"
