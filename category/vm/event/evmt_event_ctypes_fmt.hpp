@@ -103,6 +103,33 @@ struct std::formatter<monad_evmt_evm_error> : std::formatter<std::string>
     }
 };
 
+template <>
+struct std::formatter<monad_evmt_vm_decode> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_evmt_vm_decode const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "vm_decode {{");
+        i = std::format_to(i, "pc = {}", value.pc);
+        i = std::format_to(i, ", opcode = {}", value.opcode);
+        i = std::format_to(
+            i, ", input_stack_length = {}", value.input_stack_length);
+        *i++ = '}';
+        auto const *p = reinterpret_cast<std::byte const *>(&value + 1);
+        i = std::format_to(
+            i,
+            ", input_stack = {}",
+            std::span{
+                reinterpret_cast<monad_c_bytes32 const *>(p),
+                static_cast<size_t>(value.input_stack_length)});
+        p += value.input_stack_length * sizeof(monad_c_bytes32);
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
 namespace category_labs
 {
 
@@ -157,6 +184,11 @@ namespace category_labs
                 o,
                 "{}",
                 *static_cast<monad_evmt_evm_error const *>(payload_buf));
+        case MONAD_EVMT_VM_DECODE:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_vm_decode const *>(payload_buf));
         default:
             return std::format_to(
                 o, "unknown evmt type code {}", std::to_underlying(event_type));
