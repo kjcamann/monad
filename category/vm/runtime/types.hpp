@@ -46,6 +46,12 @@ namespace monad::vm::runtime
         StatusCode status;
     };
 
+    struct TraceState
+    {
+        uint64_t exec_txn_seqno;
+        uint64_t msg_call_seqno;
+    };
+
     struct Environment
     {
         std::uint32_t evmc_flags;
@@ -191,8 +197,7 @@ namespace monad::vm::runtime
         std::int64_t gas_remaining;
         std::int64_t gas_refund;
 
-        uint64_t exec_txn_seqno;
-        uint64_t msg_call_seqno;
+        TraceState trace_state;
 
         Environment env;
 
