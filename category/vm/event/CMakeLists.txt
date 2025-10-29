@@ -25,6 +25,6 @@ target_sources(monad-vm-event PRIVATE
 monad_compile_options(monad-vm-event)
 
 target_include_directories(monad-vm-event PUBLIC ${CATEGORY_MAIN_DIR})
-target_link_libraries(monad-vm-event PRIVATE monad_event evmc::evmc)
+target_link_libraries(monad-vm-event PRIVATE monad-vm-runtime monad_event evmc::evmc)
 
 add_library(monad-vm::monad-vm-event ALIAS monad-vm-event)

@@ -283,10 +283,38 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
         return revert_transaction_(sender_, tx_, i_, state);
     };
 
+    // Record MSG_CALL_ENTER
+    uint64_t msg_call_flow_seqno = 0;
+    if (auto *const r = g_evmt_event_recorder.get()) {
+        uint64_t const gas_left = tx_.gas_limit - sum(igas);
+        ReservedEvent const msg_call_enter =
+            r->reserve_evm_event<monad_evmt_msg_call_enter>(
+                MONAD_EVMT_MSG_CALL_ENTER,
+                exec_txn_seqno_,
+                0,
+                gas_left,
+                std::as_bytes(std::span{msg.input_data, msg.input_size}),
+                std::as_bytes(std::span{msg.code, msg.code_size}));
+        msg_call_flow_seqno = msg_call_enter.seqno;
+        msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] =
+            msg_call_flow_seqno;
+        init_evm_msg_call(msg, msg_call_enter.payload);
+        r->commit(msg_call_enter);
+    }
+    host.msg_call_seqno_push(msg_call_flow_seqno);
+
     auto result =
         (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
             ? ::monad::create<traits>(&host, state, msg, revert_transaction)
             : ::monad::call<traits>(&host, state, msg, revert_transaction);
+
+    record_evm_result(
+        MONAD_EVMT_MSG_CALL_EXIT,
+        exec_txn_seqno_,
+        msg_call_flow_seqno,
+        static_cast<uint64_t>(result.gas_left),
+        result.raw());
+    host.msg_call_seqno_pop();
 
     result.gas_refund += auth_refund;
     record_evm_result(
@@ -294,7 +322,7 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
         exec_txn_seqno_,
         0,
         static_cast<uint64_t>(result.gas_left),
-        result);
+        result.raw());
     return result;
 }
 
@@ -350,7 +378,7 @@ Result<evmc::Result> ExecuteTransaction<traits>::execute_impl2(State &state)
         call_tracer_, tx_context, block_hash_buffer_, state, [this, &state] {
             return revert_transaction_(sender_, tx_, i_, state);
         }};
-
+    host.set_exec_txn_seqno(this->exec_txn_seqno_);
     return ExecuteTransactionNoValidation<traits>::operator()(state, host);
 }
 

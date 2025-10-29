@@ -67,6 +67,18 @@ struct monad_event_metadata const
              .description =
                  "Event recorded immediatey after EVM execution is complete"},
 
+        [MONAD_EVMT_MSG_CALL_ENTER] =
+            {.event_type = MONAD_EVMT_MSG_CALL_ENTER,
+             .c_name = "MSG_CALL_ENTER",
+             .description =
+                 "Event recorded to introduce the scope of a message call"},
+
+        [MONAD_EVMT_MSG_CALL_EXIT] =
+            {.event_type = MONAD_EVMT_MSG_CALL_EXIT,
+             .c_name = "MSG_CALL_EXIT",
+             .description =
+                 "Event recorded to exit the scope of a message call"},
+
         [MONAD_EVMT_TXN_STALL] =
             {.event_type = MONAD_EVMT_TXN_STALL,
              .c_name = "TXN_STALL",
@@ -93,9 +105,9 @@ struct monad_event_metadata const
 };
 
 uint8_t const g_monad_evmt_event_schema_hash[32] = {
-    0x48, 0x4b, 0x64, 0x0e, 0xb5, 0xb9, 0xe5, 0xbc, 0x53, 0x21, 0x82,
-    0xdb, 0x24, 0x15, 0xfa, 0x3c, 0x8b, 0x96, 0x72, 0xbc, 0xcf, 0x5c,
-    0xb3, 0xb7, 0x70, 0x64, 0xac, 0xdf, 0xa9, 0x77, 0x33, 0xf7,
+    0x29, 0x1f, 0x2d, 0x9d, 0xab, 0x33, 0x50, 0xa6, 0x14, 0xbe, 0x30,
+    0x2c, 0x2e, 0xc9, 0x79, 0x35, 0x8e, 0xc2, 0x0a, 0x78, 0x3a, 0x69,
+    0xba, 0x9b, 0x0b, 0xe4, 0x64, 0x1c, 0xb7, 0x7a, 0xa6, 0xa6,
 };
 
 #ifdef __cplusplus

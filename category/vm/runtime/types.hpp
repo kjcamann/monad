@@ -172,7 +172,16 @@ namespace monad::vm::runtime
         static Context from(
             EvmMemoryAllocator mem_alloc, evmc_host_interface const *host,
             evmc_host_context *context, evmc_message const *msg,
-            std::span<std::uint8_t const> code) noexcept;
+            std::span<std::uint8_t const> code, uint64_t exec_txn_seqno,
+            uint64_t msg_call_seqno) noexcept;
+
+        static Context from(
+            EvmMemoryAllocator mem_alloc, evmc_host_interface const *host,
+            evmc_host_context *context, evmc_message const *msg,
+            std::span<std::uint8_t const> code) noexcept
+        {
+            return from(mem_alloc, host, context, msg, code, 0, 0);
+        }
 
         static Context empty() noexcept;
 
@@ -181,6 +190,9 @@ namespace monad::vm::runtime
 
         std::int64_t gas_remaining;
         std::int64_t gas_refund;
+
+        uint64_t exec_txn_seqno;
+        uint64_t msg_call_seqno;
 
         Environment env;
 
@@ -267,7 +279,7 @@ namespace monad::vm::runtime
 
     // Update context.S accordingly if these offsets change:
     static_assert(offsetof(Context, gas_remaining) == 16);
-    static_assert(offsetof(Context, memory) == 264);
+    static_assert(offsetof(Context, memory) == 280);
     static_assert(offsetof(Memory, size) == 8);
     static_assert(offsetof(Memory, capacity) == 12);
     static_assert(offsetof(Memory, cost) == 24);

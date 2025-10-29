@@ -47,7 +47,22 @@ struct monad_c_evm_intrinsic_gas
     uint64_t authorizations; ///< Cost of EIP-7702 authorizations
 };
 
-/// Returned data from the EVM
+/// Inputs to an EVM message call
+struct monad_c_evm_msg_call
+{
+    uint8_t opcode;               ///< EVM opcode associated with this call
+    uint32_t depth;               ///< Nesting level of call
+    uint64_t gas;                 ///< g: amount of gas available for call
+    monad_c_address code_address; ///< c: address of account containing code
+    monad_c_address sender;       ///< s: address of account sending message
+    monad_c_address recipient;    ///< r: account of storage/balance/nonce changes
+    monad_c_uint256_ne value;     ///< v: value transferred to recipient balance
+    monad_c_bytes32 create2_salt; ///< CREATE2 salt value
+    uint32_t input_data_length;   ///< Length of trailing `input` array
+    uint32_t code_length;         ///< Length of trailing `code` array
+};
+
+/// Data returned by the EVM from a message call (and the entire transaction)
 struct monad_c_evm_result
 {
     int32_t status_code;            ///< EVMC status code
