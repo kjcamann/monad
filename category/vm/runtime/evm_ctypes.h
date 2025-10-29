@@ -47,6 +47,16 @@ struct monad_c_evm_intrinsic_gas
     uint64_t authorizations; ///< Cost of EIP-7702 authorizations
 };
 
+/// Returned data from the EVM
+struct monad_c_evm_result
+{
+    int32_t status_code;            ///< EVMC status code
+    monad_c_address create_address; ///< Address for created contract
+    uint64_t gas_left;              ///< Remaining gas at result time
+    uint64_t gas_refund;            ///< Refund computed by EVM
+    uint32_t output_data_length;    ///< Length of trailing `output` array
+};
+
 // clang-format on
 
 #ifdef __cplusplus
