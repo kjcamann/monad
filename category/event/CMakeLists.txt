@@ -125,7 +125,8 @@ target_sources(monad_event PUBLIC
   "../execution/ethereum/event/exec_iter_help_inline_cxx.hpp"
   "../execution/monad/core/fmt/monad_ctypes_fmt.hpp"
   "../execution/monad/core/monad_ctypes.h"
-  "../vm/event/evmt_event_ctypes.h")
+  "../vm/event/evmt_event_ctypes.h"
+  "../vm/event/evmt_event_ctypes_fmt.hpp")
 
 target_include_directories(monad_event PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
