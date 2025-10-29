@@ -28,7 +28,7 @@
  * C layout-compatible types describing Ethereum blocks and transactions
  */
 
-#include <category/execution/ethereum/core/base_ctypes.h>
+#include <category/vm/runtime/base_ctypes.h>
 #include <stdint.h>
 
 // clang-format off

@@ -21,6 +21,7 @@ target_sources(monad-vm-runtime PRIVATE
     "allocator.hpp"
     "allocator.cpp"
     "cached_allocator.hpp"
+    "base_ctypes.h"
     "bin.hpp"
     "call.hpp"
     "context.S"

@@ -111,7 +111,6 @@ target_sources(monad_event PUBLIC
   "../core/mem/align.h"
   "../core/mem/virtual_buf.h"
   "../core/mem/virtual_buf_inline.h"
-  "../execution/ethereum/core/base_ctypes.h"
   "../execution/ethereum/core/eth_ctypes.h"
   "../execution/ethereum/core/fmt/base_ctypes_fmt.hpp"
   "../execution/ethereum/core/fmt/eth_ctypes_fmt.hpp"
@@ -123,7 +122,8 @@ target_sources(monad_event PUBLIC
   "../execution/ethereum/event/exec_iter_help_inline_c_generic.h"
   "../execution/ethereum/event/exec_iter_help_inline_cxx.hpp"
   "../execution/monad/core/fmt/monad_ctypes_fmt.hpp"
-  "../execution/monad/core/monad_ctypes.h")
+  "../execution/monad/core/monad_ctypes.h"
+  "../vm/runtime/base_ctypes.h")
 
 target_include_directories(monad_event PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>
