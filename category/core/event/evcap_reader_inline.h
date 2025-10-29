@@ -129,6 +129,84 @@ inline monad_evcap_read_result_t monad_evcap_event_iter_copy(
                : MONAD_EVCAP_READ_END;
 }
 
+inline int64_t monad_evcap_event_iter_advance(
+    struct monad_evcap_event_iter *iter, int64_t distance)
+{
+    monad_evcap_read_result_t r;
+    int64_t move_count = 0;
+
+    constexpr long SCAN_THRESHOLD = 8;
+    struct monad_evcap_seqno_index const *const seqno_index =
+        &iter->event_section->seqno_index;
+    if (seqno_index->offsets != nullptr && labs(distance) > SCAN_THRESHOLD) {
+        struct monad_event_descriptor const *event;
+
+        // Faster implementation when we have a sequence number index. First
+        // we need the current sequence number where we are, which may involve
+        // moving back one if we're already at the end
+        if (iter->event_section_next == iter->event_section->section_end) {
+            if (distance >= 0) {
+                // At the end and trying to move forwards; do nothing
+                return 0;
+            }
+            // distance is at least -1; back up one so we can read a sequence
+            // number
+            r = monad_evcap_event_iter_prev(iter, &event, nullptr);
+            if (r != MONAD_EVCAP_READ_SUCCESS) {
+                return 0;
+            }
+            ++distance;
+            --move_count;
+        }
+        else {
+            // Not at the end; get whatever sequence number is here
+            r = monad_evcap_event_iter_copy(iter, &event, nullptr);
+            if (r != MONAD_EVCAP_READ_SUCCESS) {
+                return 0;
+            }
+        }
+
+        int64_t const cur_seqno = (int64_t)event->seqno;
+        uint64_t new_seqno;
+        if (cur_seqno + distance < (int64_t)seqno_index->seqno_start) {
+            new_seqno = seqno_index->seqno_start;
+        }
+        else if (cur_seqno + distance >= (int64_t)seqno_index->seqno_end) {
+            new_seqno = seqno_index->seqno_end;
+        }
+        else {
+            new_seqno = (uint64_t)(cur_seqno + distance);
+        }
+        move_count = (int64_t)new_seqno - cur_seqno;
+        if (new_seqno == seqno_index->seqno_end) {
+            iter->event_section_next = iter->event_section->section_end;
+        }
+        else {
+            (void)monad_evcap_event_iter_set_seqno(iter, new_seqno);
+        }
+    }
+    // Slow, scan based implementation
+    while (distance > 0) {
+        struct monad_event_descriptor const *event;
+        if (monad_evcap_event_iter_next(iter, &event, nullptr) ==
+            MONAD_EVCAP_READ_END) {
+            return move_count;
+        }
+        --distance;
+        ++move_count;
+    }
+    while (distance < 0) {
+        struct monad_event_descriptor const *event;
+        if (monad_evcap_event_iter_prev(iter, &event, nullptr) ==
+            MONAD_EVCAP_READ_END) {
+            return move_count;
+        }
+        ++distance;
+        --move_count;
+    }
+    return move_count;
+}
+
 inline monad_evcap_read_result_t monad_evcap_event_iter_set_seqno(
     struct monad_evcap_event_iter *iter, uint64_t seqno)
 {
