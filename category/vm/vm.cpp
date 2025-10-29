@@ -54,7 +54,13 @@ namespace monad::vm
         auto *const host_ctx = host.to_context();
         auto const &icode = vcode->intercode();
         auto rt_ctx = runtime::Context::from(
-            memory_allocator_, host_itf, host_ctx, msg, icode->code_span());
+            memory_allocator_,
+            host_itf,
+            host_ctx,
+            msg,
+            icode->code_span(),
+            host.get_exec_txn_seqno(),
+            host.msg_call_seqno_top());
 
         // Install new runtime context:
         auto *const prev_rt_ctx = host.set_runtime_context(&rt_ctx);
@@ -78,7 +84,13 @@ namespace monad::vm
         auto const *const host_itf = &host.get_interface();
         auto *const host_ctx = host.to_context();
         auto rt_ctx = runtime::Context::from(
-            memory_allocator_, host_itf, host_ctx, msg, code);
+            memory_allocator_,
+            host_itf,
+            host_ctx,
+            msg,
+            code,
+            host.get_exec_txn_seqno(),
+            host.msg_call_seqno_top());
 
         // Install new runtime context:
         auto *const prev_rt_ctx = host.set_runtime_context(&rt_ctx);

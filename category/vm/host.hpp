@@ -20,6 +20,7 @@
 #include <evmc/evmc.hpp>
 
 #include <exception>
+#include <vector>
 
 namespace monad::vm
 {
@@ -51,6 +52,38 @@ namespace monad::vm
             runtime_context_->stack_unwind();
         }
 
+        void msg_call_seqno_push(uint64_t s)
+        {
+            msg_call_seqno_stack_.push_back(s);
+        }
+
+        void msg_call_seqno_pop()
+        {
+            msg_call_seqno_stack_.pop_back();
+        }
+
+        uint64_t msg_call_seqno_top() const
+        {
+            return msg_call_seqno_stack_.back();
+        }
+
+        uint64_t gas_remaining() const
+        {
+            return runtime_context_ != nullptr
+                       ? static_cast<uint64_t>(runtime_context_->gas_remaining)
+                       : 0;
+        }
+
+        void set_exec_txn_seqno(uint64_t s)
+        {
+            exec_txn_seqno_ = s;
+        }
+
+        uint64_t get_exec_txn_seqno() const
+        {
+            return exec_txn_seqno_;
+        }
+
     private:
         [[gnu::always_inline]]
         void rethrow_on_active_exception()
@@ -71,6 +104,8 @@ namespace monad::vm
         }
 
         runtime::Context *runtime_context_{nullptr};
+        uint64_t exec_txn_seqno_;
+        std::vector<uint64_t> msg_call_seqno_stack_;
         mutable std::exception_ptr active_exception_;
     };
 }
