@@ -15,14 +15,19 @@
 
 #pragma once
 
+#include <category/core/event/event_recorder.hpp>
 #include <category/core/runtime/uint256.hpp>
 #include <category/vm/core/assert.h>
+#include <category/vm/event/evmt_event_ctypes.h>
+#include <category/vm/event/evmt_event_recorder.hpp>
 #include <category/vm/evm/traits.hpp>
 #include <category/vm/interpreter/types.hpp>
 
 #include <evmc/evmc.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace monad::vm::interpreter
 {
@@ -30,11 +35,29 @@ namespace monad::vm::interpreter
 
     template <std::uint8_t Instr, Traits traits>
     [[gnu::always_inline]] inline void check_requirements(
-        runtime::Context &ctx, Intercode const &,
+        runtime::Context &ctx, Intercode const &analysis,
         runtime::uint256_t const *stack_bottom, runtime::uint256_t *stack_top,
-        std::int64_t &gas_remaining)
+        std::int64_t &gas_remaining, std::uint8_t const *instr_ptr)
     {
         static constexpr auto info = compiler::opcode_table<traits>[Instr];
+
+        if (auto *const r = g_evmt_event_recorder.get()) {
+            ReservedEvent const vm_decode =
+                r->reserve_evm_event<monad_evmt_vm_decode>(
+                    MONAD_EVMT_VM_DECODE,
+                    ctx.trace_state.exec_txn_seqno,
+                    ctx.trace_state.msg_call_seqno,
+                    static_cast<uint64_t>(gas_remaining),
+                    std::as_bytes(std::span{
+                        stack_top - info.min_stack,
+                        static_cast<size_t>(info.min_stack)}));
+            *vm_decode.payload = monad_evmt_vm_decode{
+                .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
+                .opcode = Instr,
+                .input_stack_length = info.min_stack,
+            };
+            r->commit(vm_decode);
+        }
 
         if constexpr (info.min_gas > 0) {
             gas_remaining -= info.min_gas;
