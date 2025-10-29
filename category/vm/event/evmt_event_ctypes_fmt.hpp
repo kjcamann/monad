@@ -50,6 +50,23 @@ struct std::formatter<monad_evmt_ext_info> : std::formatter<uint8_t>
 };
 
 template <>
+struct std::formatter<monad_evmt_txn_evm_enter> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_evmt_txn_evm_enter const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "txn_evm_enter {{");
+        i = std::format_to(i, "intrinsic_gas = {}", value.intrinsic_gas);
+        *i++ = '}';
+
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
 struct std::formatter<monad_evmt_txn_end> : std::formatter<std::string>
 {
     template <typename FormatContext>
@@ -108,6 +125,16 @@ namespace category_labs
                 o,
                 "{}",
                 *static_cast<monad_evmt_txn_reject const *>(payload_buf));
+        case MONAD_EVMT_TXN_EVM_ENTER:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_txn_evm_enter const *>(payload_buf));
+        case MONAD_EVMT_TXN_EVM_EXIT:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_txn_evm_exit const *>(payload_buf));
         case MONAD_EVMT_TXN_STALL:
             return o;
         case MONAD_EVMT_TXN_RESTART:
