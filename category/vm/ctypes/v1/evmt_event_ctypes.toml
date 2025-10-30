@@ -69,3 +69,11 @@ doc = "Error occurred in execution process (not a validation error)"
 [evm_error.fields]
 domain_id = {type = "u64", doc="Boost.Outcome domain id of error"}
 status_code = {type = "i64", doc="Boost.Outcome status code of error"}
+
+[vm_decode]
+doc = "Event emitted when an EVM instruction is checked"
+alias = {underlying_type = "evm_instr", strong = false }
+
+[vm_retire]
+doc = "Event emitted when an EVM instruction is retired"
+alias = {underlying_type = "evm_instr", strong = false }

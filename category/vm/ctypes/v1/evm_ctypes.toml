@@ -42,3 +42,11 @@ create_address = {type = "address", doc = "Address for created contract"}
 gas_left = {type = "u64", doc = "Remaining gas at result time"}
 gas_refund = {type = "u64", doc = "Refund computed by EVM"}
 output_data_length = {type = "u32", doc = "Length of trailing `output` array", trailing_array_element_type = "u8"}
+
+[evm_instr]
+doc = "Information about VM decode/retire"
+
+[evm_instr.fields]
+pc = {type = "u64", doc = "Program counter"}
+opcode = {type = "u8", doc = "EVM opcode"}
+stack_length = {type = "u32", doc = "Length of trailing `stack` array", trailing_array_element_type = "b256"}
