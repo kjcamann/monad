@@ -27,10 +27,27 @@ extern thread_local char _g_monad_bcap_error_buf[1024];
         &MONAD_SOURCE_LOCATION_CURRENT(),                                      \
         __VA_ARGS__)
 
+#define MONAD_BCAP_PROPOSALS_SUBDIR "proposals"
+
 struct monad_bcap_block_archive
 {
     int dirfd;
 };
+
+// XXX: Just need to make sure file name is unique, can use any other format
+static int format_proposal_filename(
+    char *buf, size_t buf_size, struct monad_exec_block_tag const *block_tag)
+{
+    return snprintf(
+        buf,
+        buf_size,
+        "%016lx%016lx%016lx%016lx_%lu.bcap",
+        ((uint64_t const *)block_tag->id.bytes)[0],
+        ((uint64_t const *)block_tag->id.bytes)[1],
+        ((uint64_t const *)block_tag->id.bytes)[2],
+        ((uint64_t const *)block_tag->id.bytes)[3],
+        block_tag->block_number);
+}
 
 // Write an evcap file with SCHEMA section, an EVENT_BUNDLE section (with the
 // block number set), and a sequence number index section
@@ -267,22 +284,92 @@ int monad_bcap_block_archive_open_block(
     return 0;
 }
 
-int monad_bcap_block_archive_add_block(
+int monad_bcap_block_archive_write_proposal(
     struct monad_bcap_block_archive *bca,
     struct monad_bcap_proposal const *proposal, mode_t dir_create_mode,
     mode_t file_create_mode)
 {
     int rc;
     int block_fd;
+    char filename_buf[128];
+    char full_path_buf[128 + sizeof(MONAD_BCAP_PROPOSALS_SUBDIR)];
+    struct monad_evcap_writer *evcap_writer;
+
+    uint64_t const block_number = proposal->block_tag.block_number;
+
+    evcap_writer = nullptr;
+
+    // Create proposals subdirectory if it doesn't exist
+    if (mkdirat(bca->dirfd, MONAD_BCAP_PROPOSALS_SUBDIR, dir_create_mode) == -1 &&
+        errno != EEXIST) {
+        return FORMAT_ERRC(
+            errno,
+            "unable to create proposals directory for block %lu",
+            block_number);
+    }
+
+    // Format filename with block_id and block_number
+    format_proposal_filename(filename_buf, sizeof(filename_buf), &proposal->block_tag);
+
+    // Build full path: proposals/filename
+    snprintf(
+        full_path_buf,
+        sizeof(full_path_buf),
+        "%s/%s",
+        MONAD_BCAP_PROPOSALS_SUBDIR,
+        filename_buf);
+
+    block_fd = openat(
+        bca->dirfd, MONAD_BCAP_PROPOSALS_SUBDIR, O_RDWR | O_TMPFILE, file_create_mode);
+    if (block_fd == -1) {
+        rc = FORMAT_ERRC(
+            errno,
+            "unable to open temporary file for proposal block %lu in archive filesystem",
+            block_number);
+        goto Done;
+    }
+    if ((rc = monad_evcap_writer_create(&evcap_writer, block_fd)) != 0) {
+        FORMAT_ERRC(
+            rc,
+            "could not open evcap write for proposal block %lu; caused by:\n%s",
+            block_number,
+            monad_evcap_writer_get_last_error());
+        goto Done;
+    }
+    if ((rc = write_bcap_file(evcap_writer, proposal)) != 0) {
+        return rc;
+    }
+    if (linkat(block_fd, "", bca->dirfd, full_path_buf, AT_EMPTY_PATH) == -1) {
+        rc = FORMAT_ERRC(
+            errno,
+            "could not link proposal block file %lu into the filesystem at %s",
+            block_number,
+            full_path_buf);
+        goto Done;
+    }
+    rc = 0;
+
+Done:
+    monad_evcap_writer_destroy(evcap_writer);
+    (void)close(block_fd);
+    return rc;
+}
+
+int monad_bcap_block_archive_add_block(
+    struct monad_bcap_block_archive *bca,
+    struct monad_bcap_proposal const *proposal, mode_t dir_create_mode)
+{
+    int rc;
     char subdir_name_buf[32];
     char block_name_buf[64];
-    struct monad_evcap_writer *evcap_writer;
+    char filename_buf[128];
+    char proposal_path_buf[128 + sizeof(MONAD_BCAP_PROPOSALS_SUBDIR)];
 
     uint64_t const block_number = proposal->block_tag.block_number;
     ldiv_t const d =
         ldiv((long)block_number, (long)MONAD_BCAP_FILES_PER_SUBDIR);
 
-    evcap_writer = nullptr;
+    // XXX: We can create this once at startup
     sprintf(subdir_name_buf, "%ld", d.quot * (long)MONAD_BCAP_FILES_PER_SUBDIR);
     if (mkdirat(bca->dirfd, subdir_name_buf, dir_create_mode) == -1 &&
         errno != EEXIST) {
@@ -292,40 +379,29 @@ int monad_bcap_block_archive_add_block(
             d.quot,
             block_number);
     }
+
+    // Format the source path in proposals subdirectory
+    format_proposal_filename(filename_buf, sizeof(filename_buf), &proposal->block_tag);
+    snprintf(
+        proposal_path_buf,
+        sizeof(proposal_path_buf),
+        "%s/%s",
+        MONAD_BCAP_PROPOSALS_SUBDIR,
+        filename_buf);
+
+    // Format the destination path
     sprintf(block_name_buf, "%s/%04ld.bcap", subdir_name_buf, d.rem);
-    block_fd = openat(
-        bca->dirfd, subdir_name_buf, O_RDWR | O_TMPFILE, file_create_mode);
-    if (block_fd == -1) {
+
+    // Move the file from proposals to the final location
+    if (renameat(bca->dirfd, proposal_path_buf, bca->dirfd, block_name_buf) == -1) {
         rc = FORMAT_ERRC(
             errno,
-            "unable to open temporary file for block %lu in archive filesystem",
-            block_number);
-        goto Done;
-    }
-    if ((rc = monad_evcap_writer_create(&evcap_writer, block_fd)) != 0) {
-        FORMAT_ERRC(
-            rc,
-            "could not open evcap write for block %lu; caused by:\n%s",
+            "could not move block file %lu from %s to %s",
             block_number,
-            monad_evcap_writer_get_last_error());
-        goto Done;
-    }
-    if ((rc = write_bcap_file(evcap_writer, proposal)) != 0) {
+            proposal_path_buf,
+            block_name_buf);
         return rc;
     }
-    if (linkat(block_fd, "", bca->dirfd, block_name_buf, AT_EMPTY_PATH) == -1) {
-        rc = FORMAT_ERRC(
-            errno,
-            "could not link block file %lu into the filesystem at %s/%s",
-            block_number,
-            subdir_name_buf,
-            block_name_buf);
-        goto Done;
-    }
-    rc = 0;
 
-Done:
-    monad_evcap_writer_destroy(evcap_writer);
-    (void)close(block_fd);
-    return rc;
+    return 0;
 }

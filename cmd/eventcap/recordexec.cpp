@@ -249,8 +249,7 @@ void recordexec_thread_main(std::span<Command *const> commands)
                 BC_CHECK(monad_bcap_block_archive_add_block(
                     archive_writer,
                     proposal,
-                    CreateMode | S_IXUSR | S_IXGRP | S_IXOTH,
-                    CreateMode));
+                    CreateMode | S_IXUSR | S_IXGRP | S_IXOTH));
             }
             else {
                 MONAD_ASSERT(pack_writer != nullptr);
@@ -289,6 +288,16 @@ void recordexec_thread_main(std::span<Command *const> commands)
 
         if (append_result == MONAD_BCAP_PROPOSAL_FINISHED) {
             MONAD_DEBUG_ASSERT(proposal != nullptr);
+
+            // Write the proposed block to the proposals subdirectory
+            if (archive_writer != nullptr) {
+                BC_CHECK(monad_bcap_block_archive_write_proposal(
+                    archive_writer,
+                    proposal,
+                    CreateMode | S_IXUSR | S_IXGRP | S_IXOTH,
+                    CreateMode));
+            }
+
             monad_bcap_finalize_tracker_add_proposal(
                 finalize_tracker, proposal);
         }

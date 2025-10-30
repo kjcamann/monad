@@ -193,9 +193,13 @@ int monad_bcap_block_archive_open_block(
     int *fd_out, char *error_name_buf, size_t error_name_buf_size,
     struct monad_evcap_reader **, struct monad_evcap_section_desc const **);
 
-int monad_bcap_block_archive_add_block(
+int monad_bcap_block_archive_write_proposal(
     struct monad_bcap_block_archive *, struct monad_bcap_proposal const *,
     mode_t dir_create_mode, mode_t file_create_mode);
+
+int monad_bcap_block_archive_add_block(
+    struct monad_bcap_block_archive *, struct monad_bcap_proposal const *,
+    mode_t dir_create_mode);
 
 /// Return a description of the last block capture API error that occurred on
 /// this thread
