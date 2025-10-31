@@ -88,6 +88,7 @@ ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     , header_{header}
     , i_{i}
     , revert_transaction_{revert_transaction}
+    , opcode_tracer_{nullptr}
 {
 }
 
@@ -327,7 +328,7 @@ Result<evmc::Result> ExecuteTransaction<traits>::execute_impl2(State &state)
     EvmcHost<traits> host{
         call_tracer_, tx_context, block_hash_buffer_, state, [this, &state] {
             return revert_transaction_(sender_, tx_, i_, state);
-        }};
+        }, opcode_tracer_};
 
     return ExecuteTransactionNoValidation<traits>::operator()(state, host);
 }

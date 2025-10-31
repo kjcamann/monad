@@ -36,12 +36,14 @@ MONAD_NAMESPACE_BEGIN
 EvmcHostBase::EvmcHostBase(
     CallTracerBase &call_tracer, evmc_tx_context const &tx_context,
     BlockHashBuffer const &block_hash_buffer, State &state,
-    std::function<bool()> const &revert_transaction) noexcept
+    std::function<bool()> const &revert_transaction,
+    vm::runtime::OpcodeTracerBase* opcode_tracer) noexcept
     : block_hash_buffer_{block_hash_buffer}
     , tx_context_{tx_context}
     , state_{state}
     , call_tracer_{call_tracer}
     , revert_transaction_{revert_transaction}
+    , opcode_tracer_{opcode_tracer}
 {
 }
 

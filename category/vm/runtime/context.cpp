@@ -92,6 +92,7 @@ namespace monad::vm::runtime
                 },
             .result = {},
             .memory = Memory(alloc),
+            .opcode_tracer = nullptr,
         };
     }
 
@@ -120,6 +121,7 @@ namespace monad::vm::runtime
                 },
             .result = {},
             .memory = Memory(EvmMemoryAllocator{}),
+            .opcode_tracer = nullptr,
         };
     }
 

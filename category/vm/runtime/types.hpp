@@ -166,7 +166,35 @@ namespace monad::vm::runtime
             }
         }
     };
+    struct OpcodeContext {
+        std::size_t pc;
+        std::uint8_t opcode;
+        std::int64_t gas_remaining_before;
+        std::int64_t gas_cost;
+        evmc::address from_address;
+        evmc::address to_address;
 
+        runtime::uint256_t const* stack_top;
+        std::size_t stack_size;
+
+        runtime::Memory const* memory;
+
+        std::uint8_t const* input_data;
+        std::size_t input_data_size;
+
+        std::uint8_t const* return_data;
+        std::size_t return_data_size;
+
+        evmc::bytes32 value;
+        std::int32_t depth;
+
+    };
+    struct OpcodeTracerBase
+    {
+        virtual ~OpcodeTracerBase() = default;
+
+        virtual void on_opcode(OpcodeContext const&) = 0;
+    };
     struct Context
     {
         static Context from(
@@ -259,6 +287,8 @@ namespace monad::vm::runtime
         void exit [[noreturn]] (StatusCode code) noexcept;
 
         evmc::Result copy_to_evmc_result();
+
+        OpcodeTracerBase* opcode_tracer;
 
     private:
         std::variant<std::span<std::uint8_t const>, evmc_status_code>

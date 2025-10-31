@@ -53,13 +53,18 @@ protected:
     State &state_;
     CallTracerBase &call_tracer_;
     std::function<bool()> revert_transaction_;
+    vm::runtime::OpcodeTracerBase* opcode_tracer_;
 
 public:
     EvmcHostBase(
         CallTracerBase &, evmc_tx_context const &, BlockHashBuffer const &,
         State &, std::function<bool()> const &revert_transaction = [] {
             return false;
-        }) noexcept;
+        }, vm::runtime::OpcodeTracerBase* opcode_tracer = nullptr) noexcept;
+
+    virtual vm::runtime::OpcodeTracerBase* get_opcode_tracer() const noexcept override {
+        return opcode_tracer_;
+    }
 
     virtual ~EvmcHostBase() noexcept = default;
 
@@ -100,7 +105,7 @@ public:
         bytes32_t const &value) noexcept override;
 };
 
-static_assert(sizeof(EvmcHostBase) == 88);
+static_assert(sizeof(EvmcHostBase) == 96);
 static_assert(alignof(EvmcHostBase) == 8);
 
 template <Traits traits>
@@ -182,7 +187,7 @@ struct EvmcHost final : public EvmcHostBase
     }
 };
 
-static_assert(sizeof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 88);
+static_assert(sizeof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 96);
 static_assert(alignof(EvmcHost<EvmTraits<EVMC_LATEST_STABLE_REVISION>>) == 8);
 
 MONAD_NAMESPACE_END

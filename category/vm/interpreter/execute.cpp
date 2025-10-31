@@ -57,7 +57,7 @@ namespace monad::vm::interpreter
             auto const gas_remaining = ctx->gas_remaining;
 
             if constexpr (debug_enabled) {
-                trace(*analysis, gas_remaining, instr_ptr);
+                trace<traits>(*ctx, *analysis, gas_remaining, instr_ptr, stack_bottom, stack_top);
             }
             instruction_table<traits>[*instr_ptr](
                 *ctx,
