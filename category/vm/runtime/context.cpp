@@ -66,19 +66,15 @@ namespace monad::vm::runtime
     Context Context::from(
         EvmMemoryAllocator alloc, evmc_host_interface const *host,
         evmc_host_context *context, evmc_message const *msg,
-        std::span<std::uint8_t const> code, uint64_t exec_txn_seqno,
-        uint64_t msg_call_seqno) noexcept
+        std::span<std::uint8_t const> code,
+        TraceFlowTag const &trace_flow) noexcept
     {
         return Context{
             .host = host,
             .context = context,
             .gas_remaining = msg->gas,
             .gas_refund = 0,
-            .trace_state =
-                {
-                    .exec_txn_seqno = exec_txn_seqno,
-                    .msg_call_seqno = msg_call_seqno,
-                },
+            .trace_flow = trace_flow,
             .env =
                 {
                     .evmc_flags = msg->flags,
@@ -108,7 +104,7 @@ namespace monad::vm::runtime
             .context = nullptr,
             .gas_remaining = 0,
             .gas_refund = 0,
-            .trace_state = {},
+            .trace_flow = {},
             .env =
                 {
                     .evmc_flags = 0,

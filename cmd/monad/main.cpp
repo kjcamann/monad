@@ -130,6 +130,7 @@ try {
     bool trace_calls = false;
     std::string exec_event_ring_config;
     std::string evmt_event_ring_config;
+    std::string evm_trace_flags = "all";
     unsigned sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 1);
     unsigned ro_sq_thread_cpu = static_cast<unsigned>(get_nprocs() - 2);
     std::vector<fs::path> dbname_paths;
@@ -206,7 +207,7 @@ try {
                 }
                 return std::string{};
             });
-    CLI::Option const *const evmt_event_ring_option =
+    CLI::Option *const evmt_event_ring_option =
         cli.add_option(
                "--evmt-event-ring",
                evmt_event_ring_config,
@@ -219,6 +220,10 @@ try {
                 }
                 return std::string{};
             });
+    cli.add_option(
+           "--evm-trace-flags", evm_trace_flags, "EVM trace feature flags")
+        ->needs(evmt_event_ring_option)
+        ->capture_default_str();
 #ifdef ENABLE_EVENT_TRACING
     fs::path trace_log = fs::absolute("trace");
     cli.add_option("--trace_log", trace_log, "path to output trace file");
@@ -273,7 +278,8 @@ try {
         }
         auto config = try_parse_event_ring_config(evmt_event_ring_config);
         MONAD_ASSERT(config, "not validated by CLI11?");
-        if (init_evm_trace_event_recorder(std::move(*config)) != 0) {
+        if (init_evm_trace_event_recorder(
+                std::move(*config), evm_trace_flags) != 0) {
             LOG_ERROR(
                 "cannot continue without EVM trace event ring `{}`",
                 evmt_event_ring_config);
