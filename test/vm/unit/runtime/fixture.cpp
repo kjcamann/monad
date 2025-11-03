@@ -76,7 +76,7 @@ namespace monad::vm::compiler::test
               .context = host_.to_context(),
               .gas_remaining = std::numeric_limits<std::int64_t>::max(),
               .gas_refund = 0,
-              .trace_state = {},
+              .trace_flow = {},
               .env =
                   {
                       .evmc_flags = 0,

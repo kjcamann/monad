@@ -90,7 +90,7 @@ ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     , authorities_{authorities}
     , header_{header}
     , i_{i}
-    , exec_txn_seqno_{exec_txn_seqno}
+    , txn_flow_tag_{exec_txn_seqno, 0}
     , revert_transaction_{revert_transaction}
 {
 }
@@ -228,10 +228,11 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
     monad_c_evm_intrinsic_gas const igas = intrinsic_gas_breakdown<traits>(tx_);
 
     // Record TXN_EVM_ENTER
-    if (auto *const r = g_evmt_event_recorder.get()) {
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
         ReservedEvent const txn_evm_enter =
             r->reserve_evm_event<monad_evmt_txn_evm_enter>(
-                MONAD_EVMT_TXN_EVM_ENTER, exec_txn_seqno_, 0, tx_.gas_limit);
+                MONAD_EVMT_TXN_EVM_ENTER, txn_flow_tag_, tx_.gas_limit);
         *txn_evm_enter.payload = {.intrinsic_gas = igas};
         r->commit(txn_evm_enter);
     }
@@ -284,45 +285,38 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
     };
 
     // Record MSG_CALL_ENTER
-    uint64_t msg_call_flow_seqno = 0;
-    if (auto *const r = g_evmt_event_recorder.get()) {
+    bool const record_evm_trace_events = is_evm_trace_enabled(EVM_TRACE_BASIC);
+    if (record_evm_trace_events) {
+        EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
         uint64_t const gas_left = tx_.gas_limit - sum(igas);
-        ReservedEvent const msg_call_enter =
-            r->reserve_evm_event<monad_evmt_msg_call_enter>(
-                MONAD_EVMT_MSG_CALL_ENTER,
-                exec_txn_seqno_,
-                0,
-                gas_left,
-                std::as_bytes(std::span{msg.input_data, msg.input_size}),
-                std::as_bytes(std::span{msg.code, msg.code_size}));
-        msg_call_flow_seqno = msg_call_enter.seqno;
-        msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] =
-            msg_call_flow_seqno;
-        init_evm_msg_call(msg, msg_call_enter.payload);
-        r->commit(msg_call_enter);
+        uint64_t const msg_call_enter_seqno =
+            r->record_message_call_enter(txn_flow_tag_, gas_left, msg);
+        host.msg_call_seqno_push(msg_call_enter_seqno);
     }
-    host.msg_call_seqno_push(msg_call_flow_seqno);
 
     auto result =
         (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2)
             ? ::monad::create<traits>(&host, state, msg, revert_transaction)
             : ::monad::call<traits>(&host, state, msg, revert_transaction);
 
-    record_evm_result(
-        MONAD_EVMT_MSG_CALL_EXIT,
-        exec_txn_seqno_,
-        msg_call_flow_seqno,
-        static_cast<uint64_t>(result.gas_left),
-        result.raw());
-    host.msg_call_seqno_pop();
+    if (record_evm_trace_events) {
+        EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
+        r->record_message_call_exit(
+            host.get_trace_flow_tag(),
+            static_cast<uint64_t>(result.gas_left),
+            result.raw());
+        host.msg_call_seqno_pop();
+    }
 
     result.gas_refund += auth_refund;
-    record_evm_result(
-        MONAD_EVMT_TXN_EVM_EXIT,
-        exec_txn_seqno_,
-        0,
-        static_cast<uint64_t>(result.gas_left),
-        result.raw());
+
+    if (record_evm_trace_events) {
+        EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
+        r->record_transaction_evm_exit(
+            txn_flow_tag_,
+            static_cast<uint64_t>(result.gas_left),
+            result.raw());
+    }
     return result;
 }
 
@@ -378,7 +372,7 @@ Result<evmc::Result> ExecuteTransaction<traits>::execute_impl2(State &state)
         call_tracer_, tx_context, block_hash_buffer_, state, [this, &state] {
             return revert_transaction_(sender_, tx_, i_, state);
         }};
-    host.set_exec_txn_seqno(this->exec_txn_seqno_);
+    host.set_exec_txn_seqno(this->txn_flow_tag_.exec_txn_seqno);
     return ExecuteTransactionNoValidation<traits>::operator()(state, host);
 }
 
@@ -423,11 +417,11 @@ Receipt ExecuteTransaction<traits>::execute_final(
         state.destruct_touched_dead();
     }
 
-    if (EvmTraceEventRecorder *const r = g_evmt_event_recorder.get()) {
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
         ReservedEvent const txn_end = r->reserve_evm_event<monad_evmt_txn_end>(
             MONAD_EVMT_TXN_END,
-            this->exec_txn_seqno_,
-            0,
+            this->txn_flow_tag_,
             static_cast<uint64_t>(result.gas_left));
         *txn_end.payload = monad_evmt_txn_end{
             .exec_gas_refund = static_cast<uint64_t>(result.gas_refund),
@@ -451,7 +445,7 @@ template <Traits traits>
 Result<Receipt> ExecuteTransaction<traits>::operator()()
 {
     record_evm_marker_event(
-        MONAD_EVMT_TXN_START, this->exec_txn_seqno_, 0, tx_.gas_limit);
+        MONAD_EVMT_TXN_START, this->txn_flow_tag_, tx_.gas_limit);
     TRACE_TXN_EVENT(StartTxn);
 
     BOOST_OUTCOME_TRY(static_validate_transaction<traits>(
@@ -476,7 +470,7 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
                                          std::max(result.value().gas_left, 0L))
                                    : 0;
             record_evm_marker_event(
-                MONAD_EVMT_TXN_STALL, this->exec_txn_seqno_, 0, gas_remaining);
+                MONAD_EVMT_TXN_STALL, this->txn_flow_tag_, gas_remaining);
             TRACE_TXN_EVENT(StartStall);
             prev_.get_future().wait();
         }
@@ -500,7 +494,7 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
     block_metrics_.inc_retries();
     {
         record_evm_marker_event(
-            MONAD_EVMT_TXN_RESTART, this->exec_txn_seqno_, 0, tx_.gas_limit);
+            MONAD_EVMT_TXN_RESTART, this->txn_flow_tag_, tx_.gas_limit);
         TRACE_TXN_EVENT(StartRetry);
 
         State state{block_state_, Incarnation{header_.number, i_ + 1}};

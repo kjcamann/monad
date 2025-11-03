@@ -62,9 +62,12 @@ namespace monad::vm
             msg_call_seqno_stack_.pop_back();
         }
 
-        uint64_t msg_call_seqno_top() const
+        vm::runtime::TraceFlowTag get_trace_flow_tag() const
         {
-            return msg_call_seqno_stack_.back();
+            return {
+                exec_txn_seqno_,
+                msg_call_seqno_stack_.empty() ? 0
+                                              : msg_call_seqno_stack_.back()};
         }
 
         uint64_t gas_remaining() const
@@ -77,11 +80,6 @@ namespace monad::vm
         void set_exec_txn_seqno(uint64_t s)
         {
             exec_txn_seqno_ = s;
-        }
-
-        uint64_t get_exec_txn_seqno() const
-        {
-            return exec_txn_seqno_;
         }
 
     private:

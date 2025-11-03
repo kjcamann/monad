@@ -70,6 +70,7 @@ int init_execution_event_recorder(EventRingConfig);
 /// Initialize the global recorder object for the EVM tracer event ring (an
 /// object inside the libmonad_vm_event library) with the given configuration
 /// options
-int init_evm_trace_event_recorder(EventRingConfig);
+int init_evm_trace_event_recorder(
+    EventRingConfig, std::string const &trace_flags);
 
 MONAD_NAMESPACE_END

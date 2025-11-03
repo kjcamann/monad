@@ -46,7 +46,7 @@ namespace monad::vm::runtime
         StatusCode status;
     };
 
-    struct TraceState
+    struct TraceFlowTag
     {
         uint64_t exec_txn_seqno;
         uint64_t msg_call_seqno;
@@ -178,15 +178,14 @@ namespace monad::vm::runtime
         static Context from(
             EvmMemoryAllocator mem_alloc, evmc_host_interface const *host,
             evmc_host_context *context, evmc_message const *msg,
-            std::span<std::uint8_t const> code, uint64_t exec_txn_seqno,
-            uint64_t msg_call_seqno) noexcept;
+            std::span<std::uint8_t const> code, TraceFlowTag const &) noexcept;
 
         static Context from(
             EvmMemoryAllocator mem_alloc, evmc_host_interface const *host,
             evmc_host_context *context, evmc_message const *msg,
             std::span<std::uint8_t const> code) noexcept
         {
-            return from(mem_alloc, host, context, msg, code, 0, 0);
+            return from(mem_alloc, host, context, msg, code, TraceFlowTag{});
         }
 
         static Context empty() noexcept;
@@ -197,7 +196,7 @@ namespace monad::vm::runtime
         std::int64_t gas_remaining;
         std::int64_t gas_refund;
 
-        TraceState trace_state;
+        TraceFlowTag trace_flow;
 
         Environment env;
 

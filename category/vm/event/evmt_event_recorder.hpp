@@ -30,6 +30,7 @@
 #include <category/core/event/owned_event_ring.hpp>
 #include <category/vm/event/evmt_event_ctypes.h>
 #include <category/vm/runtime/evm_ctypes.h>
+#include <category/vm/runtime/types.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -45,6 +46,22 @@ struct evmc_result;
 
 MONAD_NAMESPACE_BEGIN
 
+enum EvmTraceFlag : uint8_t
+{
+    EVM_TRACE_NONE = 0,
+    EVM_TRACE_BASIC = 0b0001,
+    EVM_TRACE_DECODE = 0b0010,
+    EVM_TRACE_STACK = 0b0100,
+    EVM_TRACE_ALL = EVM_TRACE_BASIC | EVM_TRACE_DECODE | EVM_TRACE_STACK,
+};
+
+constexpr uint8_t EvmTraceFlagRequires[] = {
+    EVM_TRACE_NONE,
+    EVM_TRACE_NONE,
+    EVM_TRACE_BASIC,
+    EVM_TRACE_BASIC | EVM_TRACE_DECODE,
+};
+
 class EvmTraceEventRecorder : private EventRecorder
 {
 public:
@@ -52,61 +69,75 @@ public:
 
     template <typename T, std::same_as<std::span<std::byte const>>... U>
     [[nodiscard]] ReservedEvent<T> reserve_evm_event(
-        monad_evmt_event_type, uint64_t exec_txn_seqno, uint64_t call_seqno,
+        monad_evmt_event_type, vm::runtime::TraceFlowTag const &,
         uint64_t gas_remaining, U &&...trailing_bufs);
 
     using EventRecorder::commit;
 
     uint64_t record_marker_event(
-        monad_evmt_event_type, uint64_t exec_txn_seqno, uint64_t call_seqno,
+        monad_evmt_event_type, vm::runtime::TraceFlowTag const &,
         uint64_t gas_remaining);
+
+    [[nodiscard]] uint64_t record_message_call_enter(
+        vm::runtime::TraceFlowTag const &, uint64_t gas_left,
+        evmc_message const &);
+
+    void record_message_call_exit(
+        vm::runtime::TraceFlowTag const &, uint64_t gas_remaining,
+        evmc_result const &);
+
+    void record_transaction_evm_exit(
+        vm::runtime::TraceFlowTag const &, uint64_t gas_remaining,
+        evmc_result const &);
 };
 
-void init_evm_msg_call(evmc_message const &, monad_c_evm_msg_call *);
+extern uint8_t g_evm_trace_flags;
+extern std::unique_ptr<OwnedEventRing> g_evmt_event_ring;
+extern std::unique_ptr<EvmTraceEventRecorder> g_evmt_event_recorder;
 
-uint64_t record_evm_result(
-    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
-    uint64_t call_seqno, uint64_t gas_remaining, evmc_result const &result);
+inline bool is_evm_trace_enabled(EvmTraceFlag flag)
+{
+    return (g_evm_trace_flags & flag) == flag;
+}
 
 template <typename T, std::same_as<std::span<std::byte const>>... U>
 ReservedEvent<T> EvmTraceEventRecorder::reserve_evm_event(
-    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
-    uint64_t call_seqno, uint64_t gas_remaining, U &&...trailing_bufs)
+    monad_evmt_event_type event_type,
+    vm::runtime::TraceFlowTag const &trace_flow, uint64_t gas_remaining,
+    U &&...trailing_bufs)
 {
     ReservedEvent const r =
         this->reserve_event<T>(event_type, std::forward<U>(trailing_bufs)...);
-    r.event->content_ext[MONAD_EVMT_EXT_TXN] = exec_txn_seqno;
-    r.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = call_seqno;
+    r.event->content_ext[MONAD_EVMT_EXT_TXN] = trace_flow.exec_txn_seqno;
+    r.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = trace_flow.msg_call_seqno;
     r.event->content_ext[MONAD_EVMT_EXT_GAS] = gas_remaining;
     return r;
 }
 
 inline uint64_t EvmTraceEventRecorder::record_marker_event(
-    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
-    uint64_t call_seqno, uint64_t gas_remaining)
+    monad_evmt_event_type event_type,
+    vm::runtime::TraceFlowTag const &trace_flow, uint64_t gas_remaining)
 {
     uint64_t seqno;
     uint8_t *payload_buf;
     monad_event_descriptor *const event =
         monad_event_recorder_reserve(&recorder_, 0, &seqno, &payload_buf);
     event->event_type = std::to_underlying(event_type);
-    event->content_ext[MONAD_EVMT_EXT_TXN] = exec_txn_seqno;
-    event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = call_seqno;
+    event->content_ext[MONAD_EVMT_EXT_TXN] = trace_flow.exec_txn_seqno;
+    event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = trace_flow.msg_call_seqno;
     event->content_ext[MONAD_EVMT_EXT_GAS] = gas_remaining;
     monad_event_recorder_commit(event, seqno);
     return seqno;
 }
 
-extern std::unique_ptr<OwnedEventRing> g_evmt_event_ring;
-extern std::unique_ptr<EvmTraceEventRecorder> g_evmt_event_recorder;
-
 inline uint64_t record_evm_marker_event(
-    monad_evmt_event_type event_type, uint64_t exec_txn_seqno,
-    uint64_t call_seqno, uint64_t gas_remaining)
+    monad_evmt_event_type event_type,
+    vm::runtime::TraceFlowTag const &trace_flow, uint64_t gas_remaining)
 {
-    if (auto *const r = g_evmt_event_recorder.get()) {
-        return r->record_marker_event(
-            event_type, exec_txn_seqno, call_seqno, gas_remaining);
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        auto *const recorder = g_evmt_event_recorder.get();
+        return recorder->record_marker_event(
+            event_type, trace_flow, gas_remaining);
     }
     return 0;
 }

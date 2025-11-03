@@ -21,6 +21,7 @@
 #include <category/execution/ethereum/core/receipt.hpp>
 #include <category/execution/ethereum/trace/state_tracer.hpp>
 #include <category/vm/evm/traits.hpp>
+#include <category/vm/runtime/types.hpp>
 
 #include <boost/fiber/future/promise.hpp>
 #include <evmc/evmc.hpp>
@@ -61,7 +62,7 @@ protected:
     std::span<std::optional<Address> const> const authorities_;
     BlockHeader const &header_;
     uint64_t i_;
-    uint64_t exec_txn_seqno_;
+    vm::runtime::TraceFlowTag txn_flow_tag_;
     RevertTransactionFn revert_transaction_;
 
 public:

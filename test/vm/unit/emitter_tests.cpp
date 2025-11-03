@@ -141,7 +141,7 @@ namespace
             .context = nullptr,
             .gas_remaining = gas_remaining,
             .gas_refund = 0,
-            .trace_state = {},
+            .trace_flow = {},
             .env =
                 {
                     .evmc_flags = 0,
