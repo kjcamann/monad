@@ -117,10 +117,14 @@ void try_record_evm_trace_error_result(
     Transaction const &tx, Result<Receipt>::error_type const &error,
     uint64_t exec_enter_seqno)
 {
-    EvmTraceEventRecorder *const evmt_recorder = g_evmt_event_recorder.get();
-    if (evmt_recorder == nullptr) {
+    if (!is_evm_trace_enabled(EVM_TRACE_BASIC)) {
         return;
     }
+    EvmTraceEventRecorder *const evmt_recorder = g_evmt_event_recorder.get();
+    vm::runtime::TraceFlowTag const trace_flow = {
+        .exec_txn_seqno = exec_enter_seqno,
+        .msg_call_seqno = 0,
+    };
     // See the comments in record_txn_events.cpp for an explanation of what
     // this does
     static Result<Receipt>::error_type const ref_txn_error =
@@ -131,14 +135,14 @@ void try_record_evm_trace_error_result(
     if (error_domain == txn_err_domain) {
         ReservedEvent const txn_reject =
             evmt_recorder->reserve_evm_event<monad_evmt_txn_reject>(
-                MONAD_EVMT_TXN_REJECT, exec_enter_seqno, 0, tx.gas_limit);
+                MONAD_EVMT_TXN_REJECT, trace_flow, tx.gas_limit);
         *txn_reject.payload = static_cast<uint32_t>(error_value);
         evmt_recorder->commit(txn_reject);
     }
     else {
         ReservedEvent const evm_error =
             evmt_recorder->reserve_evm_event<monad_exec_evm_error>(
-                MONAD_EVMT_EVM_ERROR, exec_enter_seqno, 0, tx.gas_limit);
+                MONAD_EVMT_EVM_ERROR, trace_flow, tx.gas_limit);
         *evm_error.payload = monad_exec_evm_error{
             .domain_id = error_domain.id(), .status_code = error_value};
         evmt_recorder->commit(evm_error);

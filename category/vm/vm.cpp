@@ -59,8 +59,7 @@ namespace monad::vm
             host_ctx,
             msg,
             icode->code_span(),
-            host.get_exec_txn_seqno(),
-            host.msg_call_seqno_top());
+            host.get_trace_flow_tag());
 
         // Install new runtime context:
         auto *const prev_rt_ctx = host.set_runtime_context(&rt_ctx);
@@ -89,8 +88,7 @@ namespace monad::vm
             host_ctx,
             msg,
             code,
-            host.get_exec_txn_seqno(),
-            host.msg_call_seqno_top());
+            host.get_trace_flow_tag());
 
         // Install new runtime context:
         auto *const prev_rt_ctx = host.set_runtime_context(&rt_ctx);

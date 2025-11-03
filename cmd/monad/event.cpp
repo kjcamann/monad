@@ -28,6 +28,9 @@
 #include <category/vm/event/evmt_event_ctypes.h>
 #include <category/vm/event/evmt_event_recorder.hpp>
 
+#include <algorithm>
+#include <bit>
+#include <cctype>
 #include <charconv>
 #include <concepts>
 #include <cstdint>
@@ -47,7 +50,9 @@
 #include <linux/limits.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -342,6 +347,57 @@ int init_owned_event_ring(
     return 0;
 }
 
+constexpr struct EvmTraceFlagName
+{
+    std::string_view name;
+    EvmTraceFlag value;
+} EvmTraceFlagTable[] = {
+    {"basic", EVM_TRACE_BASIC},
+    {"decode", EVM_TRACE_DECODE},
+    {"stack", EVM_TRACE_STACK},
+};
+
+int set_evm_trace_flags(std::string const &trace_flags)
+{
+    if (std::ranges::all_of(
+            trace_flags, [](char c) { return std::isdigit(c); }) ||
+        trace_flags.starts_with('0')) {
+        unsigned long const flags = strtoul(trace_flags.data(), nullptr, 0);
+        if ((flags & ~static_cast<unsigned long>(EVM_TRACE_ALL)) != 0) {
+            LOG_ERROR(
+                "EVM trace flag mask {:#x} refers to unknown features", flags);
+            return EINVAL;
+        }
+        g_evm_trace_flags = static_cast<uint8_t>(flags);
+        return 0;
+    }
+    g_evm_trace_flags = EVM_TRACE_NONE;
+    if (strcasecmp(trace_flags.data(), "none") == 0) {
+        return 0;
+    }
+    if (strcasecmp(trace_flags.data(), "all") == 0) {
+        g_evm_trace_flags = EVM_TRACE_ALL;
+        return 0;
+    }
+    for (auto t : std::views::split(trace_flags, ',')) {
+        std::string_view const token{t};
+        bool found = false;
+        for (EvmTraceFlagName const &e : EvmTraceFlagTable) {
+            if (strncasecmp(token.data(), e.name.data(), token.size()) == 0) {
+                g_evm_trace_flags = g_evm_trace_flags | e.value;
+                g_evm_trace_flags |= EvmTraceFlagRequires[std::bit_width(
+                    std::to_underlying(e.value))];
+                found = true;
+            }
+        }
+        if (!found) {
+            LOG_ERROR("EVM trace feature flag `{}` not found", token);
+            return EINVAL;
+        }
+    }
+    return 0;
+}
+
 MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
@@ -352,6 +408,7 @@ extern std::unique_ptr<OwnedEventRing> g_exec_event_ring;
 extern std::unique_ptr<ExecutionEventRecorder> g_exec_event_recorder;
 
 // As above, but for the EVM tracer
+extern uint8_t g_evm_trace_flags;
 extern std::unique_ptr<OwnedEventRing> g_exec_event_ring;
 extern std::unique_ptr<EvmTraceEventRecorder> g_evmt_event_recorder;
 
@@ -426,7 +483,8 @@ int init_execution_event_recorder(EventRingConfig ring_config)
     return 0;
 }
 
-int init_evm_trace_event_recorder(EventRingConfig ring_config)
+int init_evm_trace_event_recorder(
+    EventRingConfig ring_config, std::string const &trace_flags)
 {
     if (int const rc = init_owned_event_ring(
             std::move(ring_config),
@@ -445,6 +503,18 @@ int init_evm_trace_event_recorder(EventRingConfig ring_config)
         return rc;
     }
     g_evmt_event_recorder = std::make_unique<EvmTraceEventRecorder>(recorder);
+    if (int const rc = set_evm_trace_flags(trace_flags)) {
+        return rc;
+    }
+    std::string enabled_trace_features =
+        std::format("{:#x} [", g_evm_trace_flags);
+    for (EvmTraceFlagName const &e : EvmTraceFlagTable) {
+        if (g_evm_trace_flags & e.value) {
+            enabled_trace_features += std::format(" {}", e.name);
+        }
+    }
+    enabled_trace_features += " ]";
+    LOG_INFO("EVM trace features enabled: {}", enabled_trace_features);
     return 0;
 }
 

@@ -41,22 +41,37 @@ namespace monad::vm::interpreter
     {
         static constexpr auto info = compiler::opcode_table<traits>[Instr];
 
-        if (auto *const r = g_evmt_event_recorder.get()) {
-            ReservedEvent const vm_decode =
-                r->reserve_evm_event<monad_evmt_vm_decode>(
-                    MONAD_EVMT_VM_DECODE,
-                    ctx.trace_state.exec_txn_seqno,
-                    ctx.trace_state.msg_call_seqno,
-                    static_cast<uint64_t>(gas_remaining),
-                    std::as_bytes(std::span{
-                        stack_top - info.min_stack,
-                        static_cast<size_t>(info.min_stack)}));
-            *vm_decode.payload = monad_evmt_vm_decode{
-                .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
-                .opcode = Instr,
-                .input_stack_length = info.min_stack,
-            };
-            r->commit(vm_decode);
+        if (is_evm_trace_enabled(EVM_TRACE_DECODE)) {
+            auto *const recorder = g_evmt_event_recorder.get();
+            if (is_evm_trace_enabled(EVM_TRACE_STACK)) {
+                ReservedEvent const vm_decode =
+                    recorder->reserve_evm_event<monad_evmt_vm_decode>(
+                        MONAD_EVMT_VM_DECODE,
+                        ctx.trace_flow,
+                        static_cast<uint64_t>(gas_remaining),
+                        std::as_bytes(std::span{
+                            stack_top - info.min_stack,
+                            static_cast<size_t>(info.min_stack)}));
+                *vm_decode.payload = monad_evmt_vm_decode{
+                    .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
+                    .opcode = Instr,
+                    .input_stack_length = info.min_stack,
+                };
+                recorder->commit(vm_decode);
+            }
+            else {
+                ReservedEvent const vm_decode =
+                    recorder->reserve_evm_event<monad_evmt_vm_decode>(
+                        MONAD_EVMT_VM_DECODE,
+                        ctx.trace_flow,
+                        static_cast<uint64_t>(gas_remaining));
+                *vm_decode.payload = monad_evmt_vm_decode{
+                    .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
+                    .opcode = Instr,
+                    .input_stack_length = 0,
+                };
+                recorder->commit(vm_decode);
+            }
         }
 
         if constexpr (info.min_gas > 0) {

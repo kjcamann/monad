@@ -141,24 +141,15 @@ struct EvmcHost final : public EvmcHostBase
     {
         try {
             // Record MSG_CALL_ENTER
-            uint64_t msg_call_flow_seqno = 0;
-            if (auto *const r = g_evmt_event_recorder.get()) {
-                ReservedEvent const msg_call_enter =
-                    r->reserve_evm_event<monad_evmt_msg_call_enter>(
-                        MONAD_EVMT_MSG_CALL_ENTER,
-                        this->get_exec_txn_seqno(),
-                        0,
-                        this->gas_remaining(),
-                        std::as_bytes(
-                            std::span{msg.input_data, msg.input_size}),
-                        std::as_bytes(std::span{msg.code, msg.code_size}));
-                msg_call_flow_seqno = msg_call_enter.seqno;
-                msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] =
-                    msg_call_flow_seqno;
-                init_evm_msg_call(msg, msg_call_enter.payload);
-                r->commit(msg_call_enter);
+            bool const record_evm_trace_events =
+                is_evm_trace_enabled(EVM_TRACE_BASIC);
+            if (record_evm_trace_events) {
+                EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
+                uint64_t const msg_call_enter_seqno =
+                    r->record_message_call_enter(
+                        this->get_trace_flow_tag(), this->gas_remaining(), msg);
+                this->msg_call_seqno_push(msg_call_enter_seqno);
             }
-            this->msg_call_seqno_push(msg_call_flow_seqno);
 
             evmc::Result result;
             if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2) {
@@ -177,13 +168,15 @@ struct EvmcHost final : public EvmcHostBase
                 result = ::monad::call(this, state_, msg, revert_transaction_);
             }
 
-            record_evm_result(
-                MONAD_EVMT_MSG_CALL_EXIT,
-                this->get_exec_txn_seqno(),
-                msg_call_flow_seqno,
-                static_cast<uint64_t>(result.gas_left),
-                result.raw());
-            this->msg_call_seqno_pop();
+            // Record MSG_CALL_EXIT
+            if (record_evm_trace_events) {
+                EvmTraceEventRecorder *const r = g_evmt_event_recorder.get();
+                r->record_message_call_exit(
+                    this->get_trace_flow_tag(),
+                    static_cast<uint64_t>(result.gas_left),
+                    result.raw());
+                this->msg_call_seqno_pop();
+            }
 
             return result;
         }
