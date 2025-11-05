@@ -131,14 +131,15 @@ char *format_exec_event_content_ext_array(
 char *format_evmt_event_content_ext_array(
     monad_event_descriptor const *event, char *o)
 {
-    if (uint64_t const txn_seqno = event->content_ext[MONAD_EVMT_EXT_TXN]) {
+    if (uint64_t const txn_seqno =
+            event->content_ext[MONAD_EVMT_EXT_TXN_SEQNO]) {
         o = std::format_to(o, " TXN-SEQ: {}", txn_seqno);
     }
     if (uint64_t const call_seqno =
-            event->content_ext[MONAD_EVMT_EXT_MSG_CALL]) {
+            event->content_ext[MONAD_EVMT_EXT_MSG_CALL_SEQNO]) {
         o = std::format_to(o, " MSG-CALL-SEQ: {}", call_seqno);
     }
-    if (uint64_t const gas_left = event->content_ext[MONAD_EVMT_EXT_GAS]) {
+    if (uint64_t const gas_left = event->content_ext[MONAD_EVMT_EXT_GAS_LEFT]) {
         o = std::format_to(o, " GAS: {}", gas_left);
     }
     return o;
@@ -274,7 +275,7 @@ void dump_thread_main(std::span<Command *const> commands)
     }
 
     while (g_should_exit == 0 && active_state_count > 0) {
-        for (std::size_t i = 0; EventSourceState &state : states) {
+        for (std::size_t i = 0; EventSourceState & state : states) {
             using enum EventIteratorResult;
 
             size_t const ring_index = i++;

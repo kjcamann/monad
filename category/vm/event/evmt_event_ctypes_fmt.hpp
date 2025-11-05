@@ -50,6 +50,57 @@ struct std::formatter<monad_evmt_ext_info> : std::formatter<uint8_t>
 };
 
 template <>
+struct std::formatter<monad_evmt_block_start> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_evmt_block_start const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "block_start {{");
+        i = std::format_to(i, "exec_block_seqno = {}", value.exec_block_seqno);
+        *i++ = '}';
+
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
+struct std::formatter<monad_evmt_block_end> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_evmt_block_end const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "block_end {{");
+        i = std::format_to(i, "exec_block_seqno = {}", value.exec_block_seqno);
+        *i++ = '}';
+
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
+struct std::formatter<monad_evmt_txn_start> : std::formatter<std::string>
+{
+    template <typename FormatContext>
+    auto format(monad_evmt_txn_start const &value, FormatContext &ctx) const
+    {
+        using MONAD_NAMESPACE::as_hex;
+        std::string s;
+        std::back_insert_iterator i{s};
+        i = std::format_to(i, "txn_start {{");
+        i = std::format_to(i, "exec_txn_seqno = {}", value.exec_txn_seqno);
+        *i++ = '}';
+
+        return std::formatter<std::string>::format(s, ctx);
+    }
+};
+
+template <>
 struct std::formatter<monad_evmt_txn_evm_enter> : std::formatter<std::string>
 {
     template <typename FormatContext>
@@ -145,8 +196,21 @@ namespace category_labs
                 o,
                 "{}",
                 *static_cast<monad_evmt_record_error const *>(payload_buf));
+        case MONAD_EVMT_BLOCK_START:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_block_start const *>(payload_buf));
+        case MONAD_EVMT_BLOCK_END:
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_block_end const *>(payload_buf));
         case MONAD_EVMT_TXN_START:
-            return o;
+            return std::format_to(
+                o,
+                "{}",
+                *static_cast<monad_evmt_txn_start const *>(payload_buf));
         case MONAD_EVMT_TXN_REJECT:
             return std::format_to(
                 o,
