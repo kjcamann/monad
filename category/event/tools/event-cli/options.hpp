@@ -66,6 +66,13 @@ struct CommonCommandOptions
     std::string end_seqno;
 };
 
+struct VirtualBufPoolSize
+{
+    uint8_t segment_size_shift;
+    uint8_t segment_count_shift;
+    bool use_hugetlb;
+};
+
 // blockstat subcommand
 struct BlockStatCommandOptions
 {
@@ -148,7 +155,9 @@ struct RecordTraceCommandOptions
 {
     CommonCommandOptions common_options;
     std::vector<std::string> trace_source_specs;
-    uint8_t vbuf_segment_shift;
+    unsigned worker_thread_count;
+    VirtualBufPoolSize big_pool_size;
+    VirtualBufPoolSize small_pool_size;
     std::optional<uint8_t> event_zstd_level;
     std::optional<uint8_t> seqno_zstd_level;
 };
