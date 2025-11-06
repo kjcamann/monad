@@ -108,9 +108,10 @@ ReservedEvent<T> EvmTraceEventRecorder::reserve_evm_event(
 {
     ReservedEvent const r =
         this->reserve_event<T>(event_type, std::forward<U>(trailing_bufs)...);
-    r.event->content_ext[MONAD_EVMT_EXT_TXN] = trace_flow.exec_txn_seqno;
-    r.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = trace_flow.msg_call_seqno;
-    r.event->content_ext[MONAD_EVMT_EXT_GAS] = gas_remaining;
+    r.event->content_ext[MONAD_EVMT_EXT_TXN_SEQNO] = trace_flow.txn_start_seqno;
+    r.event->content_ext[MONAD_EVMT_EXT_MSG_CALL_SEQNO] =
+        trace_flow.msg_call_seqno;
+    r.event->content_ext[MONAD_EVMT_EXT_GAS_LEFT] = gas_remaining;
     return r;
 }
 
@@ -123,9 +124,10 @@ inline uint64_t EvmTraceEventRecorder::record_marker_event(
     monad_event_descriptor *const event =
         monad_event_recorder_reserve(&recorder_, 0, &seqno, &payload_buf);
     event->event_type = std::to_underlying(event_type);
-    event->content_ext[MONAD_EVMT_EXT_TXN] = trace_flow.exec_txn_seqno;
-    event->content_ext[MONAD_EVMT_EXT_MSG_CALL] = trace_flow.msg_call_seqno;
-    event->content_ext[MONAD_EVMT_EXT_GAS] = gas_remaining;
+    event->content_ext[MONAD_EVMT_EXT_TXN_SEQNO] = trace_flow.txn_start_seqno;
+    event->content_ext[MONAD_EVMT_EXT_MSG_CALL_SEQNO] =
+        trace_flow.msg_call_seqno;
+    event->content_ext[MONAD_EVMT_EXT_GAS_LEFT] = gas_remaining;
     monad_event_recorder_commit(event, seqno);
     return seqno;
 }

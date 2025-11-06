@@ -48,7 +48,7 @@ namespace monad::vm::runtime
 
     struct TraceFlowTag
     {
-        uint64_t exec_txn_seqno;
+        uint64_t txn_start_seqno;
         uint64_t msg_call_seqno;
     };
 
