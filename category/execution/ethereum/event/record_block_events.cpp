@@ -21,6 +21,7 @@
 #include <category/execution/ethereum/event/exec_event_recorder.hpp>
 #include <category/execution/ethereum/event/record_block_events.hpp>
 #include <category/execution/ethereum/validate_block.hpp>
+#include <category/vm/event/evmt_event_ctypes.h>
 #include <category/vm/event/evmt_event_recorder.hpp>
 
 #include <bit>
@@ -76,13 +77,19 @@ void record_block_start(
         block_start.payload->eth_block_input.extra_data.bytes,
         data(eth_block_header.extra_data),
         block_start.payload->eth_block_input.extra_data_length);
-    if (OwnedEventRing *const owned_event_ring = g_evmt_event_ring.get()) {
-        monad_event_ring_control const *const evmt_rctl =
-            &owned_event_ring->get_event_ring()->header->control;
-        block_start.event->content_ext[MONAD_FLOW_ACCOUNT_INDEX] =
-            __atomic_load_n(&evmt_rctl->last_seqno, __ATOMIC_ACQUIRE) + 1;
-    }
     exec_recorder->commit(block_start);
+
+    if (EvmTraceEventRecorder *const evm_trace_recorder =
+            g_evmt_event_recorder.get()) {
+        // The EVM trace recorder is also active; write its block start event,
+        // so we can tie the two streams back together more easily
+        ReservedEvent const trace_block_start =
+            evm_trace_recorder->reserve_evm_event<monad_evmt_block_start>(
+                MONAD_EVMT_BLOCK_START, {}, 0);
+        *trace_block_start.payload =
+            monad_evmt_block_start{.exec_block_seqno = block_start.seqno};
+        evm_trace_recorder->commit(trace_block_start);
+    }
 }
 
 Result<BlockExecOutput> record_block_result(Result<BlockExecOutput> result)
@@ -133,6 +140,7 @@ Result<BlockExecOutput> record_block_result(Result<BlockExecOutput> result)
         exec_recorder->commit(block_end);
     }
     exec_recorder->end_current_block();
+    record_evm_marker_event(MONAD_EVMT_BLOCK_END, {}, 0);
     return result;
 }
 
