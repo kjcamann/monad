@@ -88,7 +88,7 @@ uint64_t EvmTraceEventRecorder::record_message_call_enter(
             gas_left,
             std::as_bytes(std::span{msg.input_data, msg.input_size}),
             std::as_bytes(std::span{msg.code, msg.code_size}));
-    msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL] =
+    msg_call_enter.event->content_ext[MONAD_EVMT_EXT_MSG_CALL_SEQNO] =
         msg_call_enter.seqno;
 
     *msg_call_enter.payload = monad_c_evm_msg_call{

@@ -65,7 +65,7 @@ namespace monad::vm
         vm::runtime::TraceFlowTag get_trace_flow_tag() const
         {
             return {
-                exec_txn_seqno_,
+                txn_start_seqno_,
                 msg_call_seqno_stack_.empty() ? 0
                                               : msg_call_seqno_stack_.back()};
         }
@@ -77,9 +77,9 @@ namespace monad::vm
                        : 0;
         }
 
-        void set_exec_txn_seqno(uint64_t s)
+        void set_txn_start_seqno(uint64_t s)
         {
-            exec_txn_seqno_ = s;
+            txn_start_seqno_ = s;
         }
 
     private:
@@ -102,7 +102,7 @@ namespace monad::vm
         }
 
         runtime::Context *runtime_context_{nullptr};
-        uint64_t exec_txn_seqno_;
+        uint64_t txn_start_seqno_;
         std::vector<uint64_t> msg_call_seqno_stack_;
         mutable std::exception_ptr active_exception_;
     };

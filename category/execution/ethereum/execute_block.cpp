@@ -121,8 +121,9 @@ void try_record_evm_trace_error_result(
         return;
     }
     EvmTraceEventRecorder *const evmt_recorder = g_evmt_event_recorder.get();
+    // XXX: after this changed to the EVMT seqno this doesn't work anymore...
     vm::runtime::TraceFlowTag const trace_flow = {
-        .exec_txn_seqno = exec_enter_seqno,
+        .txn_start_seqno = exec_enter_seqno,
         .msg_call_seqno = 0,
     };
     // See the comments in record_txn_events.cpp for an explanation of what

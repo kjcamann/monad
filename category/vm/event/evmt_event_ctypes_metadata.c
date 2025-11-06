@@ -43,11 +43,22 @@ struct monad_event_metadata const
              .c_name = "RECORD_ERROR",
              .description = "Reserved event type used for recording errors"},
 
+        [MONAD_EVMT_BLOCK_START] =
+            {.event_type = MONAD_EVMT_BLOCK_START,
+             .c_name = "BLOCK_START",
+             .description = "Event recorded at the start of block processing"},
+
+        [MONAD_EVMT_BLOCK_END] =
+            {.event_type = MONAD_EVMT_BLOCK_END,
+             .c_name = "BLOCK_END",
+             .description =
+                 "Marker event recorded at the end of block processing"},
+
         [MONAD_EVMT_TXN_START] =
             {.event_type = MONAD_EVMT_TXN_START,
              .c_name = "TXN_START",
-             .description = "Marker event recorded at the start of transaction "
-                            "processing"},
+             .description =
+                 "Event recorded at the start of transaction processing"},
 
         [MONAD_EVMT_TXN_REJECT] =
             {.event_type = MONAD_EVMT_TXN_REJECT,
@@ -111,9 +122,9 @@ struct monad_event_metadata const
 };
 
 uint8_t const g_monad_evmt_event_schema_hash[32] = {
-    0x33, 0x34, 0xa2, 0xda, 0xe1, 0x19, 0x99, 0xb4, 0x8d, 0x1f, 0x61,
-    0xcd, 0x15, 0x51, 0x31, 0xa3, 0x41, 0xbc, 0x71, 0xb0, 0xcd, 0xda,
-    0x82, 0x50, 0x4a, 0xd1, 0xa8, 0x03, 0xa5, 0x52, 0x1a, 0x04,
+    0x51, 0xd7, 0x0d, 0xa2, 0x81, 0x45, 0xe8, 0xd7, 0x18, 0x3d, 0x21,
+    0xf0, 0x1c, 0xe8, 0x68, 0x44, 0x67, 0x72, 0x31, 0xee, 0x99, 0xfd,
+    0xc6, 0x20, 0x8c, 0x8e, 0x31, 0xbf, 0x76, 0xfa, 0xb4, 0x7a,
 };
 
 #ifdef __cplusplus

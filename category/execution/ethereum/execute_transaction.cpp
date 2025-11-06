@@ -82,7 +82,7 @@ template <Traits traits>
 ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     Chain const &chain, Transaction const &tx, Address const &sender,
     std::span<std::optional<Address> const> const authorities,
-    BlockHeader const &header, uint64_t const i, uint64_t exec_txn_seqno,
+    BlockHeader const &header, uint64_t const i, uint64_t exec_txn_start_seqno,
     RevertTransactionFn const &revert_transaction)
     : chain_{chain}
     , tx_{tx}
@@ -90,7 +90,8 @@ ExecuteTransactionNoValidation<traits>::ExecuteTransactionNoValidation(
     , authorities_{authorities}
     , header_{header}
     , i_{i}
-    , txn_flow_tag_{exec_txn_seqno, 0}
+    , exec_txn_start_seqno_{exec_txn_start_seqno}
+    , txn_flow_tag_{}
     , revert_transaction_{revert_transaction}
 {
 }
@@ -372,7 +373,7 @@ Result<evmc::Result> ExecuteTransaction<traits>::execute_impl2(State &state)
         call_tracer_, tx_context, block_hash_buffer_, state, [this, &state] {
             return revert_transaction_(sender_, tx_, i_, state);
         }};
-    host.set_exec_txn_seqno(this->txn_flow_tag_.exec_txn_seqno);
+    host.set_txn_start_seqno(this->txn_flow_tag_.txn_start_seqno);
     return ExecuteTransactionNoValidation<traits>::operator()(state, host);
 }
 
@@ -444,8 +445,18 @@ Receipt ExecuteTransaction<traits>::execute_final(
 template <Traits traits>
 Result<Receipt> ExecuteTransaction<traits>::operator()()
 {
-    record_evm_marker_event(
-        MONAD_EVMT_TXN_START, this->txn_flow_tag_, tx_.gas_limit);
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        auto *const recorder = g_evmt_event_recorder.get();
+        ReservedEvent const txn_start =
+            recorder->reserve_evm_event<monad_evmt_txn_start>(
+                MONAD_EVMT_TXN_START, {}, tx_.gas_limit);
+        *txn_start.payload =
+            monad_evmt_txn_start{.exec_txn_seqno = this->exec_txn_start_seqno_};
+        this->txn_flow_tag_.txn_start_seqno = txn_start.seqno;
+        txn_start.event->content_ext[MONAD_EVMT_EXT_TXN_SEQNO] =
+            txn_start.seqno;
+        recorder->commit(txn_start);
+    }
     TRACE_TXN_EVENT(StartTxn);
 
     BOOST_OUTCOME_TRY(static_validate_transaction<traits>(

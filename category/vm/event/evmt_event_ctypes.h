@@ -44,6 +44,8 @@ enum monad_evmt_event_type : uint16_t
 {
     MONAD_EVMT_NONE,
     MONAD_EVMT_RECORD_ERROR,
+    MONAD_EVMT_BLOCK_START,
+    MONAD_EVMT_BLOCK_END,
     MONAD_EVMT_TXN_START,
     MONAD_EVMT_TXN_REJECT,
     MONAD_EVMT_TXN_EVM_ENTER,
@@ -64,9 +66,27 @@ typedef struct monad_event_record_error monad_evmt_record_error;
 /// event
 enum monad_evmt_ext_info : uint8_t
 {
-    MONAD_EVMT_EXT_TXN = 0,
-    MONAD_EVMT_EXT_MSG_CALL = 1,
-    MONAD_EVMT_EXT_GAS = 2,
+    MONAD_EVMT_EXT_TXN_SEQNO = 0,
+    MONAD_EVMT_EXT_MSG_CALL_SEQNO = 1,
+    MONAD_EVMT_EXT_GAS_LEFT = 2,
+};
+
+/// Event recorded at the start of block processing
+struct monad_evmt_block_start
+{
+    uint64_t exec_block_seqno; ///< Sequence no. of exec ring BLOCK_START
+};
+
+/// Marker event recorded at the end of block processing
+struct monad_evmt_block_end
+{
+    uint64_t exec_block_seqno; ///< Sequence no. of exec ring BLOCK_START
+};
+
+/// Event recorded at the start of transaction processing
+struct monad_evmt_txn_start
+{
+    uint64_t exec_txn_seqno; ///< Sequence no. of exec ring TXN_PERF_EVM_ENTER
 };
 
 /// Event recorded when a transaction is rejected (i.e., is invalid)
@@ -116,7 +136,7 @@ struct monad_evmt_vm_decode
 
 // clang-format on
 
-constexpr size_t MONAD_EVMT_EVENT_COUNT = 13;
+constexpr size_t MONAD_EVMT_EVENT_COUNT = 15;
 extern struct monad_event_metadata const
     g_monad_evmt_event_metadata[MONAD_EVMT_EVENT_COUNT];
 extern uint8_t const g_monad_evmt_event_schema_hash[32];
