@@ -77,10 +77,21 @@ void record_block_start(
         block_start.payload->eth_block_input.extra_data.bytes,
         data(eth_block_header.extra_data),
         block_start.payload->eth_block_input.extra_data_length);
+
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        // XXX: evil synchronization hack
+        OwnedEventRing const *const owned_event_ring = g_evmt_event_ring.get();
+        monad_event_ring_control const *const evmt_rctl =
+            &owned_event_ring->get_event_ring()->header->control;
+        block_start.event->content_ext[MONAD_FLOW_ACCOUNT_INDEX] =
+            __atomic_load_n(&evmt_rctl->last_seqno, __ATOMIC_ACQUIRE) + 1;
+    }
+
     exec_recorder->commit(block_start);
 
-    if (EvmTraceEventRecorder *const evm_trace_recorder =
-            g_evmt_event_recorder.get()) {
+    if (is_evm_trace_enabled(EVM_TRACE_BASIC)) {
+        EvmTraceEventRecorder *const evm_trace_recorder =
+            g_evmt_event_recorder.get();
         // The EVM trace recorder is also active; write its block start event,
         // so we can tie the two streams back together more easily
         ReservedEvent const trace_block_start =
