@@ -63,9 +63,9 @@ int monad_event_ring_check_content_type(
     struct monad_event_ring const *, enum monad_event_content_type,
     uint8_t const *schema_hash);
 
-/// Find the pid of every process that has opened the given event ring file
-/// descriptor for writing; this is slow, and somewhat brittle (it crawls
-/// proc(5) file descriptor tables so depends on your access(2) permissions)
+/// Find the pid of every process that has opened the given file descriptor
+/// for writing; this is slow, and somewhat brittle (it crawls proc(5) file
+/// descriptor tables so depends on your access(2) permissions)
 int monad_event_ring_find_writer_pids(int ring_fd, pid_t *pids, size_t *size);
 
 /// Given a path to a file (which does not need to exist), check if the
