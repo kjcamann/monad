@@ -179,7 +179,8 @@ std::vector<std::vector<std::optional<Address>>> recover_authorities(
 
 template <Traits traits>
 void execute_block_header(
-    Chain const &chain, BlockState &block_state, BlockHeader const &header)
+    Chain const &chain, BlockState &block_state, BlockHeader const &header,
+    std::unique_ptr<trace::StateTracer> const &state_tracer)
 {
     State state{block_state, Incarnation{header.number, 0}};
 
@@ -207,6 +208,9 @@ void execute_block_header(
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
     record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_PROLOGUE, state);
+    if (state_tracer) {
+        trace::run_tracer<traits>(*state_tracer, state);
+    }
 }
 
 EXPLICIT_TRAITS(execute_block_header);
@@ -225,7 +229,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
 {
     MONAD_ASSERT(senders.size() == transactions.size());
     MONAD_ASSERT(senders.size() == call_tracers.size());
-    MONAD_ASSERT(senders.size() == state_tracers.size());
+    MONAD_ASSERT(senders.size() + 2 == state_tracers.size());
 
     std::shared_ptr<boost::fibers::promise<void>[]> promises{
         new boost::fibers::promise<void>[transactions.size() + 1]};
@@ -338,9 +342,13 @@ Result<std::vector<Receipt>> execute_block(
 
     MONAD_ASSERT(senders.size() == block.transactions.size());
     MONAD_ASSERT(senders.size() == call_tracers.size());
-    MONAD_ASSERT(senders.size() == state_tracers.size());
+    MONAD_ASSERT(senders.size() + 2 == state_tracers.size());
 
-    execute_block_header<traits>(chain, block_state, block.header);
+    execute_block_header<traits>(
+        chain,
+        block_state,
+        block.header,
+        state_tracers[block.transactions.size()]);
 
     BOOST_OUTCOME_TRY(
         auto const retvals,
@@ -374,6 +382,8 @@ Result<std::vector<Receipt>> execute_block(
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
     record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, state);
+    trace::run_tracer<traits>(
+        *state_tracers[block.transactions.size() + 1], state);
 
     return retvals;
 }

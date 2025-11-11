@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "runloop_ethereum.hpp"
+#include "event_cvt.hpp"
 
 #include <category/core/assert.h>
 #include <category/core/bytes.hpp>
@@ -45,8 +46,18 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <iterator>
 #include <memory>
 #include <vector>
+
+#include <signal.h>
+
+namespace fs = std::filesystem;
+
+extern monad::event_cross_validation_test::UpdateVersion
+    event_cvt_update_version;
+extern fs::path event_cvt_export_path;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -86,7 +97,9 @@ Result<void> process_ethereum_block(
     Chain const &chain, Db &db, vm::VM &vm,
     BlockHashBufferFinalized &block_hash_buffer,
     fiber::PriorityPool &priority_pool, Block &block, bytes32_t const &block_id,
-    bytes32_t const &parent_block_id, bool const enable_tracing)
+    bytes32_t const &parent_block_id, bool const enable_tracing,
+    sig_atomic_t const volatile &stop,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
     auto const block_begin = std::chrono::steady_clock::now();
@@ -127,21 +140,42 @@ Result<void> process_ethereum_block(
     }
 
     // Call tracer initialization
-    std::vector<std::vector<CallFrame>> call_frames{block.transactions.size()};
-    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{
-        block.transactions.size()};
+    size_t const txn_count = block.transactions.size();
+    std::vector<std::vector<CallFrame>> call_frames{txn_count};
+    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{txn_count};
     std::vector<std::unique_ptr<trace::StateTracer>> state_tracers{
-        block.transactions.size()};
+        txn_count + 2};
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        using event_cross_validation_test::CVTCallTracer;
         call_tracers[i] =
             enable_tracing
-                ? std::unique_ptr<CallTracerBase>{std::make_unique<CallTracer>(
-                      block.transactions[i], call_frames[i])}
+                ? std::unique_ptr<
+                      CallTracerBase>{std::make_unique<CVTCallTracer>(
+                      block.transactions[i], call_frames[i], i, cvt_recorder)}
                 : std::unique_ptr<CallTracerBase>{
                       std::make_unique<NoopCallTracer>()};
         state_tracers[i] = std::unique_ptr<trace::StateTracer>{
-            std::make_unique<trace::StateTracer>(std::monostate{})};
+            std::make_unique<trace::StateTracer>(
+                trace::TrampolineStateTracer{[i, cvt_recorder](State &s) {
+                    if (cvt_recorder != nullptr) {
+                        cvt_recorder->visit_transaction_state(i, s);
+                    }
+                }})};
     }
+    state_tracers[txn_count] = std::unique_ptr<trace::StateTracer>{
+        std::make_unique<trace::StateTracer>(
+            trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+                if (cvt_recorder != nullptr) {
+                    cvt_recorder->visit_prologue_state(s);
+                }
+            }})};
+    state_tracers[txn_count + 1] = std::unique_ptr<trace::StateTracer>{
+        std::make_unique<trace::StateTracer>(
+            trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+                if (cvt_recorder != nullptr) {
+                    cvt_recorder->visit_epilogue_state(s);
+                }
+            }})};
 
     // Core execution: transaction-level EVM execution that tracks state
     // changes but does not commit them
@@ -201,6 +235,17 @@ Result<void> process_ethereum_block(
         exec_output.eth_header.number, exec_output.eth_block_hash);
     (void)record_block_result(exec_output);
 
+    if (cvt_recorder != nullptr && stop == 0) {
+        cvt_recorder->record_execution(
+            block_id,
+            chain.get_chain_id(),
+            exec_output.eth_block_hash,
+            exec_output.eth_header,
+            block.transactions,
+            senders,
+            receipts);
+    }
+
     // Emit the block metrics log line
     [[maybe_unused]] auto const block_time =
         std::chrono::duration_cast<std::chrono::microseconds>(
@@ -244,7 +289,9 @@ Result<void> process_ethereum_block(
 // finalized) before acting; the "blockcap" helper library (which only records
 // finalized blocks) is an example. This does not try to imitate the pipelined
 // operation of the Monad chain's consensus events
-void emit_consensus_events(bytes32_t const &block_id, uint64_t block_number)
+void emit_consensus_events(
+    bytes32_t const &block_id, uint64_t block_number,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     if (auto *exec_recorder = g_exec_event_recorder.get()) {
         ReservedExecEvent const block_qc =
@@ -269,6 +316,13 @@ void emit_consensus_events(bytes32_t const &block_id, uint64_t block_number)
         *block_verified.payload =
             monad_exec_block_verified{.block_number = block_number};
         exec_recorder->commit(block_verified);
+
+        if (cvt_recorder) {
+            cvt_recorder->record_vote(*block_qc.payload);
+            cvt_recorder->record_finalization(*block_finalized.payload);
+            cvt_recorder->record_verification(
+                block_verified.payload->block_number);
+        }
     }
 }
 
@@ -283,6 +337,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     uint64_t const end_block_num, sig_atomic_t const volatile &stop,
     bool const enable_tracing)
 {
+    using namespace event_cross_validation_test;
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
     uint64_t const batch_size =
         end_block_num == std::numeric_limits<uint64_t>::max() ? 1 : 1000;
     uint64_t batch_num_blocks = 0;
@@ -293,6 +349,11 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
     uint64_t ntxs = 0;
     BlockDb block_db(ledger_dir);
     bytes32_t parent_block_id{};
+
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder = ExpectedDataRecorder::create(
+            event_cvt_update_version, event_cvt_export_path);
+    }
 
     while (block_num <= end_block_num && stop == 0) {
         Block block;
@@ -316,11 +377,13 @@ Result<std::pair<uint64_t, uint64_t>> runloop_ethereum(
                 block,
                 block_id,
                 parent_block_id,
-                enable_tracing);
+                enable_tracing,
+                stop,
+                cvt_recorder.get());
             MONAD_ABORT_PRINTF("unhandled rev switch case: %d", rev);
         }());
 
-        emit_consensus_events(block_id, block_num);
+        emit_consensus_events(block_id, block_num, cvt_recorder.get());
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();
         total_gas += block.header.gas_used;
