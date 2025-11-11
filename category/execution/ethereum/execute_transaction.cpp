@@ -421,7 +421,8 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
             record_txn_output_events(
                 static_cast<uint32_t>(this->i_),
                 receipt,
-                call_tracer_.get_call_frames());
+                call_tracer_.get_call_frames(),
+                state);
             return receipt;
         }
     }
@@ -446,7 +447,8 @@ Result<Receipt> ExecuteTransaction<traits>::operator()()
         record_txn_output_events(
             static_cast<uint32_t>(this->i_),
             receipt,
-            call_tracer_.get_call_frames());
+            call_tracer_.get_call_frames(),
+            state);
         return receipt;
     }
 }

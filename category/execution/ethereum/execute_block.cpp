@@ -205,6 +205,7 @@ void execute_block_header(
 
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
+    record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_PROLOGUE, state);
 }
 
 EXPLICIT_TRAITS(execute_block_header);
@@ -373,6 +374,7 @@ Result<std::vector<Receipt>> execute_block(
 
     MONAD_ASSERT(block_state.can_merge(state));
     block_state.merge(state);
+    record_account_access_events(MONAD_ACCT_ACCESS_BLOCK_EPILOGUE, state);
 
     return retvals;
 }
