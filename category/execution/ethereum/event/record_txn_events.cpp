@@ -19,6 +19,7 @@
 #include <category/core/result.hpp>
 #include <category/execution/ethereum/core/address.hpp>
 #include <category/execution/ethereum/core/eth_ctypes.h>
+#include <category/execution/ethereum/core/receipt.hpp>
 #include <category/execution/ethereum/core/rlp/transaction_rlp.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
@@ -41,7 +42,7 @@ MONAD_ANONYMOUS_NAMESPACE_BEGIN
 // Initializes the TXN_HEADER_START event payload
 void init_txn_header_start(
     Transaction const &txn, Address const &sender,
-    monad_exec_txn_header_start *event)
+    monad_exec_txn_header_start *const event)
 {
     event->txn_hash = to_bytes(keccak256(rlp::encode_transaction(txn)));
     event->sender = sender;
@@ -70,11 +71,10 @@ MONAD_ANONYMOUS_NAMESPACE_END
 
 MONAD_NAMESPACE_BEGIN
 
-void record_txn_events(
-    uint32_t txn_num, Transaction const &transaction, Address const &sender,
-    std::span<std::optional<Address> const> authorities,
-    Result<Receipt> const &receipt_result,
-    std::span<CallFrame const> const call_frames)
+void record_txn_header_events(
+    uint32_t const txn_num, Transaction const &transaction,
+    Address const &sender,
+    std::span<std::optional<Address> const> const authorities)
 {
     ExecutionEventRecorder *const exec_recorder = g_exec_event_recorder.get();
     if (exec_recorder == nullptr) {
@@ -132,38 +132,18 @@ void record_txn_events(
 
     // TXN_HEADER_END
     exec_recorder->record_txn_marker_event(MONAD_EXEC_TXN_HEADER_END, txn_num);
+}
 
-    if (receipt_result.has_error()) {
-        // Create a reference error so we can extract its domain with
-        // `ref_txn_error.domain()`, for the purpose of checking if the
-        // r.error() domain is a TransactionError. We record these as
-        // TXN_REJECT events (invalid transactions) vs. all other cases
-        // which are internal EVM errors (EVM_ERROR)
-        static Result<Receipt>::error_type const ref_txn_error =
-            TransactionError::InsufficientBalance;
-        static auto const &txn_err_domain = ref_txn_error.domain();
-        auto const &error_domain = receipt_result.error().domain();
-        auto const error_value = receipt_result.error().value();
-        if (error_domain == txn_err_domain) {
-            ReservedExecEvent const txn_reject =
-                exec_recorder->reserve_txn_event<monad_exec_txn_reject>(
-                    MONAD_EXEC_TXN_REJECT, txn_num);
-            *txn_reject.payload = static_cast<uint32_t>(error_value);
-            exec_recorder->commit(txn_reject);
-        }
-        else {
-            ReservedExecEvent const evm_error =
-                exec_recorder->reserve_txn_event<monad_exec_evm_error>(
-                    MONAD_EXEC_EVM_ERROR, txn_num);
-            *evm_error.payload = monad_exec_evm_error{
-                .domain_id = error_domain.id(), .status_code = error_value};
-            exec_recorder->commit(evm_error);
-        }
+void record_txn_output_events(
+    uint32_t const txn_num, Receipt const &receipt,
+    std::span<CallFrame const> const call_frames)
+{
+    ExecutionEventRecorder *const exec_recorder = g_exec_event_recorder.get();
+    if (exec_recorder == nullptr) {
         return;
     }
 
     // TXN_EVM_OUTPUT
-    Receipt const &receipt = receipt_result.value();
     ReservedExecEvent const txn_evm_output =
         exec_recorder->reserve_txn_event<monad_exec_txn_evm_output>(
             MONAD_EXEC_TXN_EVM_OUTPUT, txn_num);
@@ -224,6 +204,41 @@ void record_txn_events(
     }
 
     exec_recorder->record_txn_marker_event(MONAD_EXEC_TXN_END, txn_num);
+}
+
+void record_txn_error_event(
+    uint32_t const txn_num, Result<Receipt>::error_type const &txn_error)
+{
+    ExecutionEventRecorder *const exec_recorder = g_exec_event_recorder.get();
+    if (exec_recorder == nullptr) {
+        return;
+    }
+
+    // Create a reference error so we can extract its domain with
+    // `ref_txn_error.domain()`, for the purpose of checking if the
+    // r.error() domain is a TransactionError. We record these as
+    // TXN_REJECT events (invalid transactions) vs. all other cases
+    // which are internal EVM errors (EVM_ERROR)
+    static Result<Receipt>::error_type const ref_txn_error =
+        TransactionError::InsufficientBalance;
+    static auto const &txn_err_domain = ref_txn_error.domain();
+    auto const &error_domain = txn_error.domain();
+    auto const error_value = txn_error.value();
+    if (error_domain == txn_err_domain) {
+        ReservedExecEvent const txn_reject =
+            exec_recorder->reserve_txn_event<monad_exec_txn_reject>(
+                MONAD_EXEC_TXN_REJECT, txn_num);
+        *txn_reject.payload = static_cast<uint32_t>(error_value);
+        exec_recorder->commit(txn_reject);
+    }
+    else {
+        ReservedExecEvent const evm_error =
+            exec_recorder->reserve_txn_event<monad_exec_evm_error>(
+                MONAD_EXEC_EVM_ERROR, txn_num);
+        *evm_error.payload = monad_exec_evm_error{
+            .domain_id = error_domain.id(), .status_code = error_value};
+        exec_recorder->commit(evm_error);
+    }
 }
 
 MONAD_NAMESPACE_END
