@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "runloop_monad_ethblocks.hpp"
+#include "event_cvt.hpp"
 
 #include <category/core/assert.h>
 #include <category/core/bytes.hpp>
@@ -49,10 +50,19 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <thread>
 #include <vector>
+
+#include <signal.h>
+
+namespace fs = std::filesystem;
+
+extern monad::event_cross_validation_test::UpdateVersion
+    event_cvt_update_version;
+extern fs::path event_cvt_export_path;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -121,7 +131,9 @@ Result<void> process_monad_block(
     ankerl::unordered_dense::segmented_set<Address> const
         *parent_senders_and_authorities,
     ankerl::unordered_dense::segmented_set<Address>
-        &senders_and_authorities_out)
+        &senders_and_authorities_out,
+    sig_atomic_t const volatile &stop,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
     auto const block_begin = std::chrono::steady_clock::now();
@@ -181,21 +193,39 @@ Result<void> process_monad_block(
         static_validate_monad_body<traits>(senders, block.transactions));
 
     // Call tracer initialization
-    std::vector<std::vector<CallFrame>> call_frames{block.transactions.size()};
-    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{
-        block.transactions.size()};
+    size_t const txn_count = block.transactions.size();
+    std::vector<std::vector<CallFrame>> call_frames{txn_count};
+    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{txn_count};
     std::vector<std::unique_ptr<trace::StateTracer>> state_tracers{
-        block.transactions.size()};
+        txn_count + 2};
     for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        using event_cross_validation_test::CVTCallTracer;
         call_tracers[i] =
             enable_tracing
-                ? std::unique_ptr<CallTracerBase>{std::make_unique<CallTracer>(
-                      block.transactions[i], call_frames[i])}
+                ? std::unique_ptr<
+                      CallTracerBase>{std::make_unique<CVTCallTracer>(
+                      block.transactions[i], call_frames[i], i, cvt_recorder)}
                 : std::unique_ptr<CallTracerBase>{
                       std::make_unique<NoopCallTracer>()};
-        state_tracers[i] = std::unique_ptr<trace::StateTracer>{
-            std::make_unique<trace::StateTracer>(std::monostate{})};
+        state_tracers[i] = std::make_unique<trace::StateTracer>(
+            trace::TrampolineStateTracer{[i, cvt_recorder](State &s) {
+                if (cvt_recorder != nullptr) {
+                    cvt_recorder->visit_transaction_state(i, s);
+                }
+            }});
     }
+    state_tracers[txn_count] = std::make_unique<trace::StateTracer>(
+        trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+            if (cvt_recorder != nullptr) {
+                cvt_recorder->visit_prologue_state(s);
+            }
+        }});
+    state_tracers[txn_count + 1] = std::make_unique<trace::StateTracer>(
+        trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+            if (cvt_recorder != nullptr) {
+                cvt_recorder->visit_epilogue_state(s);
+            }
+        }});
 
     senders_and_authorities_out = senders_and_authorities;
 
@@ -283,6 +313,17 @@ Result<void> process_monad_block(
         exec_output.eth_header.number, exec_output.eth_block_hash);
     (void)record_block_result(exec_output);
 
+    if (cvt_recorder != nullptr && stop == 0) {
+        cvt_recorder->record_execution(
+            block_id,
+            chain.get_chain_id(),
+            exec_output.eth_block_hash,
+            exec_output.eth_header,
+            block.transactions,
+            senders,
+            receipts);
+    }
+
     // Emit the block metrics log line
     [[maybe_unused]] auto const block_time =
         std::chrono::duration_cast<std::chrono::microseconds>(
@@ -331,6 +372,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_ethblocks(
     uint64_t const end_block_num, sig_atomic_t const volatile &stop,
     bool const enable_tracing, std::chrono::seconds const block_db_timeout)
 {
+    using namespace event_cross_validation_test;
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
     uint64_t const batch_size =
         end_block_num == std::numeric_limits<uint64_t>::max() ? 1 : 1000;
     uint64_t batch_num_blocks = 0;
@@ -410,6 +453,11 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_ethblocks(
         }
     }
 
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder = ExpectedDataRecorder::create(
+            event_cvt_update_version, event_cvt_export_path);
+    }
+
     while (block_num <= end_block_num && stop == 0) {
         Block block;
         get_block_with_retry(block_db, block_num, block, block_db_timeout);
@@ -437,11 +485,19 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_ethblocks(
                 parent_senders_and_authorities.has_value()
                     ? &parent_senders_and_authorities.value()
                     : nullptr,
-                senders_and_authorities);
+                senders_and_authorities,
+                stop,
+                cvt_recorder.get());
             MONAD_ABORT_PRINTF("unhandled rev switch case: %d", rev);
         }());
 
-        record_mock_consensus_events(block_id, block_num);
+        monad_exec_block_qc *qc;
+        record_mock_consensus_events(block_id, block_num, &qc);
+        if (auto *const r = cvt_recorder.get()) {
+            r->record_vote(*qc);
+            r->record_finalization({block_id, block_num});
+            r->record_verification(block_num);
+        }
         ntxs += block.transactions.size();
         batch_num_txs += block.transactions.size();
         total_gas += block.header.gas_used;

@@ -457,7 +457,7 @@ namespace
                 chain_context.authorities.data(), transactions_size};
 
         // Execute block header
-        execute_block_header<traits>(chain, block_state, header);
+        execute_block_header<traits>(chain, block_state, header, nullptr);
         BlockMetrics metrics{};
 
         // Prepare state tracers and auxiliary noop call tracers.
