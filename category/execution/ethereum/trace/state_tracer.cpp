@@ -185,6 +185,9 @@ namespace trace
                 },
                 [&state](AccessListTracer &access_list) {
                     access_list.encode<traits>(state);
+                },
+                [&state](TrampolineStateTracer &trampoline_tracer) {
+                    trampoline_tracer.fn(state);
                 }},
             tracer);
     }

@@ -22,11 +22,12 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 MONAD_NAMESPACE_BEGIN
 
 template <class MonadConsensusBlockHeader>
-void record_block_qc(
+monad_exec_block_qc const *record_block_qc(
     MonadConsensusBlockHeader const &header, uint64_t finalized_block_num)
 {
     // Before recording a QC for block B, we need to check if that block isn't
@@ -50,7 +51,7 @@ void record_block_qc(
     if (auto *const exec_recorder = g_exec_event_recorder.get()) {
         uint64_t const vote_block_number = header.seqno - 1;
         if (vote_block_number <= finalized_block_num) {
-            return;
+            return nullptr;
         }
         auto const &vote = header.qc.vote;
         ReservedExecEvent const block_qc =
@@ -61,11 +62,14 @@ void record_block_qc(
             .round = vote.round,
             .epoch = vote.epoch};
         exec_recorder->commit(block_qc);
+        return block_qc.payload;
     }
+    return nullptr;
 }
 
 #define EXPLICIT_INSTANTIATE_QC_TEMPLATE(HEADER_TYPE)                          \
-    template void record_block_qc<HEADER_TYPE>(HEADER_TYPE const &, uint64_t);
+    template monad_exec_block_qc const *record_block_qc<HEADER_TYPE>(          \
+        HEADER_TYPE const &, uint64_t);
 
 EXPLICIT_INSTANTIATE_QC_TEMPLATE(MonadConsensusBlockHeaderV0);
 EXPLICIT_INSTANTIATE_QC_TEMPLATE(MonadConsensusBlockHeaderV1);
@@ -73,7 +77,8 @@ EXPLICIT_INSTANTIATE_QC_TEMPLATE(MonadConsensusBlockHeaderV2);
 
 #undef EXPLICIT_INSTANTIATE_QC_TEMPLATE
 
-void record_block_finalized(bytes32_t const &block_id, uint64_t block_number)
+monad_exec_block_finalized const *
+record_block_finalized(bytes32_t const &block_id, uint64_t block_number)
 {
     if (auto *const exec_recorder = g_exec_event_recorder.get()) {
         ReservedExecEvent const block_finalized =
@@ -82,11 +87,15 @@ void record_block_finalized(bytes32_t const &block_id, uint64_t block_number)
         *block_finalized.payload = monad_exec_block_finalized{
             .id = block_id, .block_number = block_number};
         exec_recorder->commit(block_finalized);
+        return block_finalized.payload;
     }
+    return nullptr;
 }
 
-void record_block_verified(std::span<uint64_t const> verified_blocks)
+std::vector<monad_exec_block_verified const *>
+record_block_verified(std::span<uint64_t const> verified_blocks)
 {
+    std::vector<monad_exec_block_verified const *> events;
     if (auto *const exec_recorder = g_exec_event_recorder.get()) {
         for (uint64_t b : verified_blocks) {
             if (b == 0) {
@@ -98,8 +107,10 @@ void record_block_verified(std::span<uint64_t const> verified_blocks)
             *block_verified.payload =
                 monad_exec_block_verified{.block_number = b};
             exec_recorder->commit(block_verified);
+            events.emplace_back(block_verified.payload);
         }
     }
+    return events;
 }
 
 MONAD_NAMESPACE_END

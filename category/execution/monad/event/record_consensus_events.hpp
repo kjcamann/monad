@@ -19,19 +19,26 @@
 #include <category/core/config.hpp>
 #include <cstdint>
 #include <span>
+#include <vector>
+
+typedef struct monad_exec_block_tag monad_exec_block_finalized;
+struct monad_exec_block_qc;
+struct monad_exec_block_verified;
 
 MONAD_NAMESPACE_BEGIN
 
 /// Record the BLOCK_QC event, using the QC for the parent block that is
 /// presented in a newly proposed block's header
 template <class MonadConsensusBlockHeader>
-void record_block_qc(
+monad_exec_block_qc const *record_block_qc(
     MonadConsensusBlockHeader const &, uint64_t finalized_block_num);
 
 /// Record the BLOCK_FINALIZED event
-void record_block_finalized(bytes32_t const &block_id, uint64_t block_number);
+monad_exec_block_finalized const *
+record_block_finalized(bytes32_t const &block_id, uint64_t block_number);
 
 /// Record a BLOCK_VERIFIED event for each of the given block numbers
-void record_block_verified(std::span<uint64_t const> verified_blocks);
+std::vector<monad_exec_block_verified const *>
+record_block_verified(std::span<uint64_t const> verified_blocks);
 
 MONAD_NAMESPACE_END
