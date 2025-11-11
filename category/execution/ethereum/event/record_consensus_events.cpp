@@ -21,7 +21,8 @@
 MONAD_NAMESPACE_BEGIN
 
 void record_mock_consensus_events(
-    bytes32_t const &block_id, uint64_t block_number)
+    bytes32_t const &block_id, uint64_t block_number,
+    monad_exec_block_qc **qc_out)
 {
     if (auto *exec_recorder = g_exec_event_recorder.get()) {
         ReservedExecEvent const block_qc =
@@ -32,6 +33,9 @@ void record_mock_consensus_events(
             .round = block_number + 1,
             .epoch = 0};
         exec_recorder->commit(block_qc);
+        if (qc_out != nullptr) {
+            *qc_out = block_qc.payload;
+        }
 
         ReservedExecEvent const block_finalized =
             exec_recorder->reserve_block_event<monad_exec_block_finalized>(

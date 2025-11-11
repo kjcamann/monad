@@ -25,6 +25,7 @@
 #include <immer/map.hpp>
 #include <nlohmann/json.hpp>
 
+#include <functional>
 #include <span>
 #include <variant>
 
@@ -106,8 +107,14 @@ namespace trace
         bool should_exclude_address(Address const &) const;
     };
 
+    struct TrampolineStateTracer
+    {
+        std::function<void(State &)> fn;
+    };
+
     using StateTracer = std::variant<
-        std::monostate, PrestateTracer, StateDiffTracer, AccessListTracer>;
+        std::monostate, PrestateTracer, StateDiffTracer, AccessListTracer,
+        TrampolineStateTracer>;
 
     template <Traits traits>
     void run_tracer(StateTracer &tracer, State &state);

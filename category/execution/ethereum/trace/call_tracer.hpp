@@ -59,8 +59,9 @@ struct NoopCallTracer final : public CallTracerBase
     virtual std::span<CallFrame const> get_call_frames() const override;
 };
 
-class CallTracer final : public CallTracerBase
+class CallTracer : public CallTracerBase
 {
+protected:
     std::vector<CallFrame> &frames_;
     std::stack<size_t> last_{};
     std::stack<size_t> positions_{};

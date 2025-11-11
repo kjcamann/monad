@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "runloop_monad.hpp"
+#include "event_cvt.hpp"
 #include "file_io.hpp"
 #include "wal.hpp"
 
@@ -60,12 +61,19 @@
 #include <concepts>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <thread>
 #include <variant>
 #include <vector>
+
+namespace fs = std::filesystem;
+
+extern monad::event_cross_validation_test::UpdateVersion
+    event_cvt_update_version;
+extern fs::path event_cvt_export_path;
 
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
@@ -185,7 +193,8 @@ struct ToFinalize
 template <std::ranges::bidirectional_range R>
 void finalize_blocks(
     Db &db, R &&to_finalize, BlockHashChain &block_hash_chain,
-    BlockCache &block_cache)
+    BlockCache &block_cache,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
     requires std::same_as<ToFinalize, std::ranges::range_value_t<R>>
 {
     for (auto const &[block_number, block_id, verified_blocks] : to_finalize) {
@@ -195,13 +204,22 @@ void finalize_blocks(
             block_id);
         db.finalize(block_number, block_id);
         block_hash_chain.finalize(block_id);
-        record_block_finalized(block_id, block_number);
+        monad_exec_block_finalized const *const block_finalized =
+            record_block_finalized(block_id, block_number);
+        if (cvt_recorder != nullptr && block_finalized != nullptr) {
+            cvt_recorder->record_finalization(*block_finalized);
+        }
 
         if (!verified_blocks.empty() &&
             verified_blocks.back() != mpt::INVALID_BLOCK_NUM) {
             db.update_verified_block(verified_blocks.back());
         }
-        record_block_verified(verified_blocks);
+        auto const verified_events = record_block_verified(verified_blocks);
+        if (cvt_recorder != nullptr) {
+            for (auto const *const block_verified : verified_events) {
+                cvt_recorder->record_verification(block_verified->block_number);
+            }
+        }
     }
 
     if (!std::ranges::empty(to_finalize)) {
@@ -223,7 +241,8 @@ Result<BlockExecOutput> propose_block(
     MonadConsensusBlockHeader const &consensus_header, Block block,
     BlockHashChain &block_hash_chain, MonadChain const &chain, Db &db,
     vm::VM &vm, fiber::PriorityPool &priority_pool, bool const is_first_block,
-    bool const enable_tracing, BlockCache &block_cache)
+    bool const enable_tracing, BlockCache &block_cache,
+    event_cross_validation_test::ExpectedDataRecorder *cvt_recorder)
 {
     [[maybe_unused]] auto const block_start = std::chrono::system_clock::now();
     auto const block_begin = std::chrono::steady_clock::now();
@@ -278,21 +297,42 @@ Result<BlockExecOutput> propose_block(
         static_validate_monad_body<traits>(senders, block.transactions));
 
     // Create call frames vectors for tracers
-    std::vector<std::vector<CallFrame>> call_frames{block.transactions.size()};
-    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{
-        block.transactions.size()};
+    size_t const txn_count = block.transactions.size();
+    std::vector<std::vector<CallFrame>> call_frames{txn_count};
+    std::vector<std::unique_ptr<CallTracerBase>> call_tracers{txn_count};
     std::vector<std::unique_ptr<trace::StateTracer>> state_tracers{
-        block.transactions.size()};
-    for (unsigned i = 0; i < block.transactions.size(); ++i) {
+        txn_count + 2};
+    for (unsigned i = 0; i < txn_count; ++i) {
+        using event_cross_validation_test::CVTCallTracer;
         call_tracers[i] =
             enable_tracing
-                ? std::unique_ptr<CallTracerBase>{std::make_unique<CallTracer>(
-                      block.transactions[i], call_frames[i])}
+                ? std::unique_ptr<
+                      CallTracerBase>{std::make_unique<CVTCallTracer>(
+                      block.transactions[i], call_frames[i], i, cvt_recorder)}
                 : std::unique_ptr<CallTracerBase>{
                       std::make_unique<NoopCallTracer>()};
         state_tracers[i] = std::unique_ptr<trace::StateTracer>{
-            std::make_unique<trace::StateTracer>(std::monostate{})};
+            std::make_unique<trace::StateTracer>(
+                trace::TrampolineStateTracer{[i, cvt_recorder](State &s) {
+                    if (cvt_recorder != nullptr) {
+                        cvt_recorder->visit_transaction_state(i, s);
+                    }
+                }})};
     }
+    state_tracers[txn_count] = std::unique_ptr<trace::StateTracer>{
+        std::make_unique<trace::StateTracer>(
+            trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+                if (cvt_recorder != nullptr) {
+                    cvt_recorder->visit_prologue_state(s);
+                }
+            }})};
+    state_tracers[txn_count + 1] = std::unique_ptr<trace::StateTracer>{
+        std::make_unique<trace::StateTracer>(
+            trace::TrampolineStateTracer{[cvt_recorder](State &s) {
+                if (cvt_recorder != nullptr) {
+                    cvt_recorder->visit_epilogue_state(s);
+                }
+            }})};
 
     auto const
         &[grandparent_senders_and_authorities,
@@ -391,6 +431,17 @@ Result<BlockExecOutput> propose_block(
         block.header.number,
         block_id,
         consensus_header.parent_id());
+
+    if (cvt_recorder != nullptr) {
+        cvt_recorder->record_execution(
+            block_id,
+            chain.get_chain_id(),
+            exec_output.eth_block_hash,
+            exec_output.eth_header,
+            block.transactions,
+            senders,
+            results);
+    }
 
     // Emit the block metrics log line
     [[maybe_unused]] auto const block_time =
@@ -517,10 +568,18 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_live(
     uint64_t const end_block_num, sig_atomic_t const volatile &stop,
     bool const enable_tracing)
 {
+    using namespace event_cross_validation_test;
     constexpr auto SLEEP_TIME = std::chrono::microseconds(100);
     uint64_t finalized_block_num = raw_db.get_latest_finalized_version();
     uint64_t const start_block_num = finalized_block_num + 1;
     uint256_t const chain_id = chain.get_chain_id();
+
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder = ExpectedDataRecorder::create(
+            event_cvt_update_version, event_cvt_export_path);
+    }
+
     BlockHashChain block_hash_chain(block_hash_buffer);
 
     auto const body_dir = ledger_dir / "bodies";
@@ -665,13 +724,18 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_live(
              chain_id,
              start_block_num,
              enable_tracing,
-             &block_cache](
+             &block_cache,
+             cvt_recorder = cvt_recorder.get()](
                 bytes32_t const &block_id,
                 auto const &header) -> Result<std::pair<uint64_t, uint64_t>> {
             auto const block_time_start = std::chrono::steady_clock::now();
 
             db.update_voted_metadata(header.seqno - 1, header.parent_id());
-            record_block_qc(header, last_finalized_block_number);
+            monad_exec_block_qc const *const block_qc =
+                record_block_qc(header, last_finalized_block_number);
+            if (cvt_recorder != nullptr && block_qc != nullptr) {
+                cvt_recorder->record_vote(*block_qc);
+            }
 
             uint64_t const block_number = header.execution_inputs.number;
             auto body = read_body(header.block_body_id, body_dir);
@@ -720,7 +784,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_live(
                     priority_pool,
                     block_number == start_block_num,
                     enable_tracing,
-                    block_cache);
+                    block_cache,
+                    cvt_recorder);
                 MONAD_ABORT_PRINTF("handled rev value %d", rev);
             };
 
@@ -749,7 +814,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_live(
                 consensus_header));
         }
 
-        finalize_blocks(db, to_finalize, block_hash_chain, block_cache);
+        finalize_blocks(
+            db, to_finalize, block_hash_chain, block_cache, cvt_recorder.get());
         for (auto const &finalize_entry : to_finalize) {
             wal.write(WalAction::FINALIZE, finalize_entry.block_id);
             output_block_num = finalize_entry.block_number;
@@ -767,8 +833,15 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
     uint64_t const end_block_num, sig_atomic_t const volatile &stop,
     bool enable_tracing)
 {
+    using namespace event_cross_validation_test;
     uint64_t const start_block_num = output_block_num;
     uint256_t const chain_id = chain.get_chain_id();
+
+    std::unique_ptr<ExpectedDataRecorder> cvt_recorder;
+    if (!event_cvt_export_path.empty()) {
+        cvt_recorder = ExpectedDataRecorder::create(
+            event_cvt_update_version, event_cvt_export_path);
+    }
 
     WalReader reader(chain, ledger_dir);
     BlockHashChain block_hash_chain(block_hash_buffer);
@@ -796,7 +869,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
              &block_cache,
              chain_id,
              start_block_num,
-             enable_tracing](
+             enable_tracing,
+             cvt_recorder = cvt_recorder.get()](
                 bytes32_t const &block_id,
                 auto const &header,
                 MonadConsensusBlockBody const &body) -> Result<void> {
@@ -813,7 +887,11 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
                 monad_block_input.base_fee_moment = header.base_fee_moment;
             };
 
-            record_block_qc(header, raw_db.get_latest_finalized_version());
+            monad_exec_block_qc const *const block_qc =
+                record_block_qc(header, raw_db.get_latest_finalized_version());
+            if (cvt_recorder != nullptr && block_qc != nullptr) {
+                cvt_recorder->record_vote(*block_qc);
+            }
             record_block_start(
                 block_id,
                 chain_id,
@@ -845,7 +923,8 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
                     priority_pool,
                     block_number == start_block_num,
                     enable_tracing,
-                    block_cache);
+                    block_cache,
+                    cvt_recorder);
                 MONAD_ABORT_PRINTF("handled rev value %d", rev);
             };
 
@@ -865,26 +944,31 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad_replay(
             return outcome::success();
         };
 
-        auto const handle_finalize_action =
-            [&output_block_num, &db, &block_hash_chain, &block_cache](
-                bytes32_t const &block_id, auto const &header) {
-                std::vector<BlockHeader> const &delayed_exec_results =
-                    header.delayed_execution_results;
-                std::vector<uint64_t> verified_blocks;
-                for (BlockHeader const &h : delayed_exec_results) {
-                    verified_blocks.push_back(h.number);
-                }
-                ToFinalize const finalize_entry = {
-                    .block_number = header.execution_inputs.number,
-                    .block_id = block_id,
-                    .verified_blocks = std::move(verified_blocks)};
-                finalize_blocks(
-                    db,
-                    std::span{&finalize_entry, 1UZ},
-                    block_hash_chain,
-                    block_cache);
-                output_block_num = finalize_entry.block_number;
-            };
+        auto const handle_finalize_action = [&output_block_num,
+                                             &db,
+                                             &block_hash_chain,
+                                             &block_cache,
+                                             cvt_recorder = cvt_recorder.get()](
+                                                bytes32_t const &block_id,
+                                                auto const &header) {
+            std::vector<BlockHeader> const &delayed_exec_results =
+                header.delayed_execution_results;
+            std::vector<uint64_t> verified_blocks;
+            for (BlockHeader const &h : delayed_exec_results) {
+                verified_blocks.push_back(h.number);
+            }
+            ToFinalize const finalize_entry = {
+                .block_number = header.execution_inputs.number,
+                .block_id = block_id,
+                .verified_blocks = std::move(verified_blocks)};
+            finalize_blocks(
+                db,
+                std::span{&finalize_entry, 1UZ},
+                block_hash_chain,
+                block_cache,
+                cvt_recorder);
+            output_block_num = finalize_entry.block_number;
+        };
 
         auto [action, block_id, consensus_header_variant, consensus_body] =
             reader_res.value();
