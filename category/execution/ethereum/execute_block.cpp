@@ -270,14 +270,10 @@ Result<std::vector<Receipt>> execute_block_transactions(
                         state_tracer,
                         revert_transaction);
                     promises[i + 1].set_value();
+                    if (results[i]->has_error()) {
+                        record_txn_error_event(i, results[i]->error());
+                    }
                     record_txn_marker_event(MONAD_EXEC_TXN_PERF_EVM_EXIT, i);
-                    record_txn_events(
-                        i,
-                        transaction,
-                        sender,
-                        authorities,
-                        *results[i],
-                        call_tracer.get_call_frames());
                 }
                 catch (...) {
                     promises[i + 1].set_exception(std::current_exception());

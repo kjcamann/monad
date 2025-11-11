@@ -30,13 +30,19 @@ struct Receipt;
 struct Transaction;
 
 /// Record the transaction header events (TXN_HEADER_START, the EIP-2930
-/// and EIP-7702 events, and TXN_HEADER_END), followed by the TXN_EVM_OUTPUT,
-/// TXN_REJECT, or EVM_ERROR events, depending on what happened during
-/// transaction execution; in the TXN_EVM_OUTPUT case, also record other
-/// execution output events (TXN_LOG, TXN_CALL_FRAME, etc.)
-void record_txn_events(
+/// and EIP-7702 events, and TXN_HEADER_END)
+void record_txn_header_events(
     uint32_t txn_num, Transaction const &, Address const &sender,
-    std::span<std::optional<Address> const> authorities,
-    Result<Receipt> const &, std::span<CallFrame const>);
+    std::span<std::optional<Address> const> authorities);
+
+/// Record TXN_EVM_OUTPUT, and all subsequent execution output events
+/// (TXN_LOG, TXN_CALL_FRAME, etc.)
+void record_txn_output_events(
+    uint32_t txn_num, Receipt const &, std::span<CallFrame const>);
+
+/// Record TXN_REJECT or EVM_ERROR events depending on what happened during
+/// transaction execution
+void record_txn_error_event(
+    uint32_t txn_num, Result<Receipt>::error_type const &);
 
 MONAD_NAMESPACE_END
