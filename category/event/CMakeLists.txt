@@ -23,9 +23,11 @@ cmake_minimum_required(VERSION 3.23)
 project(monad_event LANGUAGES C CXX)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  set(MONAD_EVENT_BUILD_BLOCKCAPD_DEFAULT ON)
   set(MONAD_EVENT_HUGETLBFS_DEFAULT ON)
   set(MONAD_EVENT_USE_O_TMPFILE_DEFAULT OFF) # OFF until Ubuntu 26.04 LTS
 else()
+  set(MONAD_EVENT_BUILD_BLOCKCAPD_DEFAULT OFF)
   set(MONAD_EVENT_HUGETLBFS_DEFAULT OFF)
   set(MONAD_EVENT_USE_O_TMPFILE_DEFAULT OFF)
 endif()
@@ -176,10 +178,17 @@ else()
   message(WARNING "libgmp is not available; uint256 values > UINT128_MAX will print as hex uint64_t[4]")
 endif()
 
+option(MONAD_EVENT_BUILD_BLOCKCAPD "Build the block capture daemon"
+    ${MONAD_EVENT_BUILD_BLOCKCAPD_DEFAULT})
+
 option(MONAD_EVENT_BUILD_EXAMPLES
     "Build the example programs that show how to use the API" ON)
 
-if (MONAD_EVENT_BUILD_EXAMPLES)
+if(MONAD_EVENT_BUILD_BLOCKCAPD)
+  add_subdirectory(tools/blockcapd)
+endif()
+
+if(MONAD_EVENT_BUILD_EXAMPLES)
   add_executable(eventwatch "example/eventwatch.c")
   target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
