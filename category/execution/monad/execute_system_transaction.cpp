@@ -19,6 +19,7 @@
 #include <category/execution/ethereum/chain/chain.hpp>
 #include <category/execution/ethereum/core/contract/abi_signatures.hpp>
 #include <category/execution/ethereum/core/transaction.hpp>
+#include <category/execution/ethereum/event/record_txn_events.hpp>
 #include <category/execution/ethereum/metrics/block_metrics.hpp>
 #include <category/execution/ethereum/state2/block_state.hpp>
 #include <category/execution/ethereum/state3/state.hpp>
@@ -73,6 +74,7 @@ ExecuteSystemTransaction<traits>::ExecuteSystemTransaction(
     , prev_{prev}
     , call_tracer_{call_tracer}
 {
+    record_txn_header_events(static_cast<uint32_t>(i), tx, sender, {});
 }
 
 template <Traits traits>
@@ -113,6 +115,11 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
             }
             auto const receipt = execute_final(state);
             block_state_.merge(state);
+            record_txn_output_events(
+                static_cast<uint32_t>(this->i_),
+                receipt,
+                call_tracer_.get_call_frames(),
+                state);
             return receipt;
         }
     }
@@ -132,6 +139,11 @@ Result<Receipt> ExecuteSystemTransaction<traits>::operator()()
         }
         auto const receipt = execute_final(state);
         block_state_.merge(state);
+        record_txn_output_events(
+            static_cast<uint32_t>(this->i_),
+            receipt,
+            call_tracer_.get_call_frames(),
+            state);
         return receipt;
     }
 }
