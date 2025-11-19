@@ -161,7 +161,8 @@ void monad_bcap_finalize_tracker_reset(struct monad_bcap_finalize_tracker *);
 
 struct monad_bcap_pack_writer;
 
-int monad_bcap_pack_writer_create(struct monad_bcap_pack_writer **, int fd);
+int monad_bcap_pack_writer_create(
+    struct monad_bcap_pack_writer **, int fd, unsigned max_sections);
 
 void monad_bcap_pack_writer_destroy(struct monad_bcap_pack_writer *);
 

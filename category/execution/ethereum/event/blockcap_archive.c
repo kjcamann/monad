@@ -222,6 +222,8 @@ int monad_bcap_block_archive_open_block_writer(
     int block_fd;
     char local_path_buf[64];
     struct monad_evcap_section_desc const *schema_sd;
+    struct monad_evcap_writer_create_options const evcap_writer_opts = {
+        .sectab_entries_shift = 0, .append = false};
 
     *evcap_writer_p = nullptr;
     if (path_buf == nullptr) {
@@ -251,7 +253,8 @@ int monad_bcap_block_archive_open_block_writer(
     if (rc != 0) {
         return rc;
     }
-    rc = monad_evcap_writer_create(evcap_writer_p, block_fd, /*append*/ false);
+    rc =
+        monad_evcap_writer_create(evcap_writer_p, block_fd, &evcap_writer_opts);
     if (rc != 0) {
         FORMAT_ERRC(
             rc,

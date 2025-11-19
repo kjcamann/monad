@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <errno.h>
+#include <stdbit.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,18 +74,23 @@ static inline void write_index_entry(
 
 #endif
 
-int monad_bcap_pack_writer_create(struct monad_bcap_pack_writer **pkw_p, int fd)
+int monad_bcap_pack_writer_create(
+    struct monad_bcap_pack_writer **pkw_p, int fd, unsigned max_sections)
 {
     int rc;
     struct monad_bcap_pack_writer *pkw;
     struct monad_evcap_section_desc *index_sd;
+    struct monad_evcap_writer_create_options const evcap_writer_opts = {
+        .sectab_entries_shift =
+            (uint8_t)stdc_trailing_zeros(stdc_bit_ceil(max_sections)),
+        .append = false};
 
     *pkw_p = pkw = malloc(sizeof *pkw);
     if (pkw == nullptr) {
         return FORMAT_ERRC(errno, "malloc of monad_bcap_pack_writer failed");
     }
     memset(pkw, 0, sizeof *pkw);
-    rc = monad_evcap_writer_create(&pkw->evcap_writer, fd, /*append*/ false);
+    rc = monad_evcap_writer_create(&pkw->evcap_writer, fd, &evcap_writer_opts);
     if (rc != 0) {
         goto EVCAP_Error;
     }
