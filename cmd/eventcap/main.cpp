@@ -19,6 +19,7 @@
 #include "init.hpp"
 #include "options.hpp"
 
+#include <algorithm>
 #include <array>
 #include <csignal>
 #include <cstdlib>
@@ -35,7 +36,7 @@
 #include <pthread.h>
 #include <sysexits.h>
 
-#include <category/core/event/event_ring.h>
+#include <category/core/event/event_def.h>
 
 namespace
 {
@@ -399,6 +400,15 @@ MiB/s payload consumption rate.)");
         ->capture_default_str()
         ->type_name("<vbuf-size-shift>")
         ->check(CLI::Range(12, 32));
+    recordexec
+        ->add_option(
+            "--pack-max-sections-shift",
+            recordexec_command.pack_max_sections_shift,
+            "maximum number of evcap sections shift (power of 2)")
+        ->default_val(9)
+        ->capture_default_str()
+        ->type_name("<max-sections-shift>")
+        ->check(CLI::Range(0, 32));
 
     /*
      * sectiondump subcommand

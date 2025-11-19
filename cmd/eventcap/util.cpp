@@ -119,16 +119,17 @@ void print_evcap_sectab_header(std::FILE *out)
 }
 
 void print_evcap_sectab_entry(
-    SectionTableLocation const &section_loc, monad_evcap_section_desc const &sd,
+    monad_evcap_file_header const &fh, monad_evcap_section_desc const &sd,
     std::span<monad_bcap_pack_index_entry const> pack_index_table,
     std::FILE *out)
 {
+    uint32_t const sectab_entries = monad_evcap_get_sectab_entries(&fh);
     std::print(
         out,
         "{:6} {:3}:{:<4} {:16} [{}] {:12} {:>5} {:12} {:12} {:12}",
-        section_loc.sectab_index,
-        section_loc.table_number,
-        section_loc.entry_number,
+        sd.index,
+        sd.index / sectab_entries,
+        sd.index % sectab_entries,
         g_monad_evcap_section_names[sd.type],
         std::to_underlying(sd.type),
         sd.descriptor_offset,
@@ -138,10 +139,6 @@ void print_evcap_sectab_entry(
         sd.file_length);
 
     switch (sd.type) {
-    case MONAD_EVCAP_SECTION_LINK:
-        std::print(out, "   NEXT_TAB: {}", sd.content_offset);
-        break;
-
     case MONAD_EVCAP_SECTION_SCHEMA:
         std::print(
             out,

@@ -140,6 +140,7 @@ struct RecordExecCommandOptions
     std::optional<uint8_t> event_zstd_level;
     std::optional<uint8_t> seqno_zstd_level;
     BlockRecordFormat block_format;
+    uint8_t pack_max_sections_shift;
 };
 
 // sectiondump subcommand

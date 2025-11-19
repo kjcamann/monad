@@ -17,7 +17,6 @@
 #include "file.hpp"
 #include "util.hpp"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -82,29 +81,34 @@ void print_event_capture_header(
     EventCaptureFile const *capture, bool print_full_section_table,
     std::FILE *out)
 {
-    std::println(out, "{} section table", capture->describe());
-
     monad_evcap_reader const *const evcap_reader = capture->get_reader();
     monad_evcap_file_header const *const file_header =
         monad_evcap_reader_get_file_header(evcap_reader);
+
+    std::println(
+        out,
+        "{} with {} sections in {} section tables (size {}):",
+        capture->describe(),
+        file_header->section_count,
+        file_header->sectab_count,
+        monad_evcap_get_sectab_entries(file_header));
+    std::print(out, "SECTAB OFFSETS:");
+    for (uint8_t t = 0; t < file_header->sectab_count; ++t) {
+        std::print(out, " {}", file_header->sectab_offsets[t]);
+    }
+    std::println(out);
+
     std::byte const *const map_base = reinterpret_cast<std::byte const *>(
         monad_evcap_reader_get_mmap_base(evcap_reader));
     monad_evcap_section_desc const *sd = nullptr;
     std::span<monad_bcap_pack_index_entry const> pack_index_table;
-    SectionTableLocation section_loc{};
 
     while (monad_evcap_reader_next_section(
         evcap_reader, MONAD_EVCAP_SECTION_NONE, &sd)) {
-        if (section_loc.sectab_index == 0) {
+        if (sd->index == 0) {
             print_evcap_sectab_header(out);
         }
-        print_evcap_sectab_entry(section_loc, *sd, pack_index_table, out);
-        ++section_loc.entry_number;
-        if (sd->type == MONAD_EVCAP_SECTION_LINK) {
-            ++section_loc.table_number;
-            section_loc.entry_number = 0;
-        }
-        ++section_loc.sectab_index;
+        print_evcap_sectab_entry(*file_header, *sd, pack_index_table, out);
 
         switch (sd->type) {
         case MONAD_EVCAP_SECTION_PACK_INDEX:
@@ -117,10 +121,10 @@ void print_event_capture_header(
             break;
         }
 
-        if (!print_full_section_table && section_loc.sectab_index > 10) {
+        if (!print_full_section_table && sd->index > 10) {
             std::println(
                 "skipping {} additional sections...",
-                file_header->section_count - section_loc.sectab_index - 1);
+                file_header->section_count - sd->index - 1);
             break;
         }
     }

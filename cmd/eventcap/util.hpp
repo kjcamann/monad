@@ -24,7 +24,9 @@
 #include <string>
 
 struct monad_bcap_pack_index_entry;
+struct monad_evcap_file_header;
 struct monad_evcap_section_desc;
+
 enum class TextUIMode : unsigned;
 class EventCaptureFile;
 struct OutputFile;
@@ -32,13 +34,6 @@ struct OutputFile;
 constexpr size_t NotReadyCheckMask = (1UL << 25) - 1;
 
 typedef struct ZSTD_CCtx_s ZSTD_CCtx;
-
-struct SectionTableLocation
-{
-    size_t sectab_index;
-    size_t table_number;
-    size_t entry_number;
-};
 
 std::expected<ZSTD_CCtx *, std::string>
 create_zstd_cctx(std::optional<uint8_t> const &compression_level);
@@ -48,7 +43,7 @@ bool event_ring_is_abandoned(int ring_fd);
 void print_evcap_sectab_header(std::FILE *);
 
 void print_evcap_sectab_entry(
-    SectionTableLocation const &, monad_evcap_section_desc const &,
+    monad_evcap_file_header const &, monad_evcap_section_desc const &,
     std::span<monad_bcap_pack_index_entry const> pack_index_table, std::FILE *);
 
 bool use_tty_control_codes(TextUIMode, OutputFile const *);

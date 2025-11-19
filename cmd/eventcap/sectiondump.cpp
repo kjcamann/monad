@@ -116,9 +116,10 @@ void dump_evcap_sections(
     std::FILE *out)
 {
     std::span<monad_bcap_pack_index_entry const> pack_index_table;
-    SectionTableLocation section_loc{};
 
     monad_evcap_reader const *const evcap_reader = evcap_file->get_reader();
+    monad_evcap_file_header const *const file_header =
+        monad_evcap_reader_get_file_header(evcap_reader);
     std::byte const *const map_base = reinterpret_cast<std::byte const *>(
         monad_evcap_reader_get_mmap_base(evcap_reader));
     auto i_section_input = std::begin(sections);
@@ -126,9 +127,9 @@ void dump_evcap_sections(
     while (monad_evcap_reader_next_section(
                evcap_reader, MONAD_EVCAP_SECTION_NONE, &sd) &&
            i_section_input != std::end(sections)) {
-        if (section_loc.sectab_index == *i_section_input) {
+        if (sd->index == *i_section_input) {
             print_evcap_sectab_header(out);
-            print_evcap_sectab_entry(section_loc, *sd, pack_index_table, out);
+            print_evcap_sectab_entry(*file_header, *sd, pack_index_table, out);
 
             std::unique_ptr<std::byte const[]> decompressed_content;
             std::span section_content =
@@ -150,12 +151,6 @@ void dump_evcap_sections(
             }
             ++i_section_input;
         }
-        ++section_loc.entry_number;
-        if (sd->type == MONAD_EVCAP_SECTION_LINK) {
-            ++section_loc.table_number;
-            section_loc.entry_number = 0;
-        }
-        ++section_loc.sectab_index;
 
         switch (sd->type) {
         case MONAD_EVCAP_SECTION_PACK_INDEX:

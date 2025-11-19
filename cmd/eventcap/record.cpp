@@ -338,7 +338,10 @@ void record_thread_main(std::span<Command *const> commands)
             "unable to open fd to record output file `{}`",
             output_spec.c_str());
     }
-    EVCAP_CHECK(monad_evcap_writer_create(&evcap_writer, fd, /*append*/ false));
+    monad_evcap_writer_create_options const evcap_writer_options = {
+        .sectab_entries_shift = 0, .append = false};
+    EVCAP_CHECK(
+        monad_evcap_writer_create(&evcap_writer, fd, &evcap_writer_options));
     (void)close(fd);
 
     monad_event_content_type const content_type =

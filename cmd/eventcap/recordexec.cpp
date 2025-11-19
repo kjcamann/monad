@@ -129,7 +129,8 @@ void recordexec_thread_main(std::span<Command *const> commands)
         pack_writer = nullptr;
     }
     else {
-        BC_CHECK(monad_bcap_pack_writer_create(&pack_writer, output_fd));
+        BC_CHECK(monad_bcap_pack_writer_create(
+            &pack_writer, output_fd, 1U << options->pack_max_sections_shift));
         block_archive = nullptr;
     }
     (void)close(output_fd);
