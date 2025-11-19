@@ -23,6 +23,7 @@
  * event ring data.
  */
 
+#include <stddef.h>
 #include <stdint.h>
 
 enum monad_event_content_type : uint16_t;
@@ -38,15 +39,16 @@ constexpr char const MONAD_EVCAP_FILE_MAGIC[] = {
 struct monad_evcap_file_header
 {
     char magic[8];
-    uint64_t sectab_offset;
-    uint64_t sectab_size;
-    uint64_t section_count;
+    uint32_t section_count;
+    uint8_t sectab_entries_shift;
+    uint8_t sectab_count;
+    uint64_t reserved[6];
+    uint64_t sectab_offsets[1];
 };
 
 enum monad_evcap_section_type : uint16_t
 {
     MONAD_EVCAP_SECTION_NONE,
-    MONAD_EVCAP_SECTION_LINK,
     MONAD_EVCAP_SECTION_SCHEMA,
     MONAD_EVCAP_SECTION_EVENT_BUNDLE,
     MONAD_EVCAP_SECTION_SEQNO_INDEX,
@@ -111,7 +113,7 @@ struct monad_evcap_section_desc
 {
     enum monad_evcap_section_type type;
     enum monad_evcap_section_compression compression;
-    uint32_t : 32;
+    uint32_t index;
     uint64_t descriptor_offset;
     uint64_t content_offset;
     uint64_t content_length;
@@ -130,6 +132,29 @@ struct monad_evcap_section_desc
 // It is OK to increase this is the size of the union increases, but it must
 // be a power of 2 so that an array of these evenly fills an mmap'ed page
 static_assert(sizeof(struct monad_evcap_section_desc) == 128);
+
+static inline uint32_t
+monad_evcap_get_sectab_entries(struct monad_evcap_file_header const *fh)
+{
+    return 1U << fh->sectab_entries_shift;
+}
+
+static inline size_t
+monad_evcap_get_sectab_extent(struct monad_evcap_file_header const *fh)
+{
+    return sizeof(struct monad_evcap_section_desc) *
+           monad_evcap_get_sectab_entries(fh);
+}
+
+static inline uint64_t monad_evcap_get_section_desc_offset(
+    struct monad_evcap_file_header const *fh, uint32_t section_index)
+{
+    uint32_t const sectab_entries = monad_evcap_get_sectab_entries(fh);
+    uint32_t const table_num = section_index / sectab_entries;
+    uint32_t const entry_offset = section_index % sectab_entries;
+    return fh->sectab_offsets[table_num] +
+           sizeof(struct monad_evcap_section_desc) * entry_offset;
+}
 
 extern char const *g_monad_evcap_section_names[];
 

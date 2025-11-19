@@ -47,8 +47,15 @@ enum monad_event_content_type : uint16_t;
 
 typedef struct ZSTD_CCtx_s ZSTD_CCtx;
 
+struct monad_evcap_writer_create_options
+{
+    uint8_t sectab_entries_shift;
+    bool append;
+};
+
 int monad_evcap_writer_create(
-    struct monad_evcap_writer **, int fd, bool append);
+    struct monad_evcap_writer **, int fd,
+    struct monad_evcap_writer_create_options const *);
 
 void monad_evcap_writer_destroy(struct monad_evcap_writer *);
 

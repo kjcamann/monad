@@ -236,30 +236,27 @@ struct monad_evcap_section_desc const *monad_evcap_reader_next_section(
     struct monad_evcap_reader const *ecr, enum monad_evcap_section_type filter,
     struct monad_evcap_section_desc const **sd_iter)
 {
+    auto const header = (struct monad_evcap_file_header const *)ecr->map_base;
+
 TryAgain:
     if (*sd_iter == nullptr) {
         // No previous iteration; reset iteration at the initial section table
-        auto const header =
-            (struct monad_evcap_file_header const *)ecr->map_base;
-        *sd_iter =
-            (struct monad_evcap_section_desc const *)(ecr->map_base +
-                                                      header->sectab_offset);
-    }
-    else if ((*sd_iter)->type == MONAD_EVCAP_SECTION_LINK) {
-        // Previous iteration found a link; jump to the linked section table
-        *sd_iter = monad_evcap_reader_load_linked_section_desc(
-            ecr, (*sd_iter)->content_offset);
+        *sd_iter = (struct monad_evcap_section_desc const
+                        *)(ecr->map_base + header->sectab_offsets[0]);
     }
     else {
         // Advance past previous descriptor
-        ++*sd_iter;
+        uint32_t next_index = (*sd_iter)->index + 1;
+        *sd_iter =
+            next_index == header->section_count
+                ? nullptr
+                : (struct monad_evcap_section_desc const
+                       *)(ecr->map_base + monad_evcap_get_section_desc_offset(
+                                              header, next_index));
     }
 
-    if ((*sd_iter)->type == MONAD_EVCAP_SECTION_NONE) {
-        // This descriptor is the end sentinel
-        *sd_iter = nullptr;
-    }
-    else if (filter != MONAD_EVCAP_SECTION_NONE && (*sd_iter)->type != filter) {
+    if (*sd_iter != nullptr && filter != MONAD_EVCAP_SECTION_NONE &&
+        (*sd_iter)->type != filter) {
         // This descriptor is filtered out; look for another one
         goto TryAgain;
     }
@@ -400,7 +397,6 @@ char const *monad_evcap_reader_get_last_error()
 // for now...
 char const *g_monad_evcap_section_names[] = {
     [MONAD_EVCAP_SECTION_NONE] = "NONE",
-    [MONAD_EVCAP_SECTION_LINK] = "LINK",
     [MONAD_EVCAP_SECTION_SCHEMA] = "SCHEMA",
     [MONAD_EVCAP_SECTION_EVENT_BUNDLE] = "EVENT_BUNDLE",
     [MONAD_EVCAP_SECTION_SEQNO_INDEX] = "SEQNO_INDEX",
