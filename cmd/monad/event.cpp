@@ -93,11 +93,9 @@ int claim_event_ring_file(
         int const saved_errno = errno;
         if (saved_errno == EWOULDBLOCK) {
             pid_t owner_pid = 0;
-            size_t owner_pid_size = 1;
 
             // Another process has an exclusive lock; find out who it is
-            (void)monad_event_ring_find_writer_pids(
-                *ring_fd, &owner_pid, &owner_pid_size);
+            (void)monad_event_ring_query_excl_writer_pid(*ring_fd, &owner_pid);
             if (owner_pid == 0) {
                 LOG_ERROR(
                     "event ring file `{}` is owned by an unknown other process",

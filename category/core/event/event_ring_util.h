@@ -27,6 +27,8 @@
 
 #include <sys/types.h>
 
+struct timespec;
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -51,6 +53,13 @@ struct monad_event_ring_simple_config
     uint8_t const *schema_hash;
 };
 
+/// Output structure returned by `monad_event_ring_query_flocks`
+struct monad_event_flock_info
+{
+    int lock;
+    pid_t pid;
+};
+
 /// "All in one" convenience event ring file init for simple cases: given an
 /// event ring fd and the required options, calculate the required size of the
 /// event ring, call fallocate(2) to ensure the storage is available, then call
@@ -65,10 +74,20 @@ int monad_event_ring_check_content_type(
     struct monad_event_ring const *, monad_event_content_type_t,
     uint8_t const *schema_hash);
 
-/// Find the pid of every process that has opened the given file descriptor
-/// for writing; this is slow, and somewhat brittle (it crawls proc(5) file
-/// descriptor tables so depends on your access(2) permissions)
-int monad_event_ring_find_writer_pids(int ring_fd, pid_t *pids, size_t *size);
+/// Query information about every process that has holds an flock on the file
+/// referred to by the given file descriptor
+int monad_event_ring_query_flocks(
+    int ring_fd, struct monad_event_flock_info *, size_t *size);
+
+/// For event ring files that have an exclusive writer, determine the pid of
+/// that writer
+int monad_event_ring_query_excl_writer_pid(int ring_fd, pid_t *pid);
+
+/// Waits for the (currently non-existent) event ring file to be created, then
+/// opens it with the specified open_flags
+int monad_event_ring_wait_for_excl_writer(
+    char const *path, struct timespec const *timeout, sigset_t const *sigmask,
+    int open_flags, int *fd, pid_t *pid);
 
 /// Given a path to a file (which does not need to exist), check if the
 /// associated file system supports that file being mmap'ed with MAP_HUGETLB

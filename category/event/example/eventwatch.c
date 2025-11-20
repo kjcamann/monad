@@ -354,6 +354,7 @@ extern void monad_stack_backtrace_capture_and_print(
 int main(int argc, char **argv)
 {
     char event_ring_pathbuf[PATH_MAX];
+    pid_t writer_pid = 0;
     char const *event_ring_input = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME;
     int const pos_arg_idx = parse_options(argc, argv);
 
@@ -440,6 +441,13 @@ int main(int argc, char **argv)
         (void)close(ring_fd);
         ring_fd = snapshot_fd;
     }
+    else {
+        // This is not a snapshot; make sure it's not a left-over event ring
+        // file that didn't get cleaned up by a harsh exit, e.g., SIGKILL
+        if (monad_event_ring_query_excl_writer_pid(ring_fd, &writer_pid) != 0) {
+            goto Error;
+        }
+    }
 
     // Map the shared memory segments of the event ring into our address space.
     // If this is successful, we'll be able to create one or more iterators
@@ -473,18 +481,6 @@ int main(int argc, char **argv)
         pidfd = PIDFD_SNAPSHOT;
     }
     else if (PLATFORM_LINUX) {
-        pid_t writer_pid;
-        size_t n_pids = 1;
-        if (monad_event_ring_find_writer_pids(ring_fd, &writer_pid, &n_pids) !=
-            0) {
-            goto Error;
-        }
-        if (n_pids == 0) {
-            errno = EOWNERDEAD;
-            err(EX_SOFTWARE,
-                "writer of zombie event ring `%s` has exited",
-                event_ring_pathbuf);
-        }
         pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
         if (pidfd == -1) {
             err(EX_OSERR, "pidfd_open of writer pid %d failed", writer_pid);

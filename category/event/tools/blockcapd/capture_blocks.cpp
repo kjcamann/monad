@@ -137,110 +137,70 @@ std::string describe(monad_exec_block_tag const &bt)
     return s;
 }
 
-bool try_connect_execution_daemon(
-    BlockCapOptions const *options, ExecutionDaemon *daemon)
-{
-    struct stat ring_stat;
-    int ring_fd [[gnu::cleanup(cleanup_close)]] =
-        open(options->exec_ring_path.c_str(), O_RDONLY);
-    if (ring_fd == -1) {
-        BCD_WARN(
-            "open of event ring file `{}` failed: {} [{}]",
-            options->exec_ring_path,
-            strerror(errno),
-            errno);
-        return false;
-    }
-    size_t n_pids = 1;
-    if (monad_event_ring_find_writer_pids(ring_fd, &daemon->pid, &n_pids) !=
-        0) {
-        errx(
-            EX_SOFTWARE,
-            "event ring library error -- %s",
-            monad_event_ring_get_last_error());
-    }
-    if (options->force_live) {
-        daemon->pid = getpid();
-    }
-    else {
-        switch (n_pids) {
-        case 0:
-            BCD_WARN(
-                "no writer pids for `{}` detected; zombie event ring file?",
-                options->exec_ring_path);
-            return false;
-
-        case 1:
-            break; // Handled in the rest of the function
-
-        default:
-            BCD_WARN(
-                "found {} writers of `{}` but expected one; ignoring",
-                n_pids,
-                options->exec_ring_path);
-            return false;
-        }
-    }
-    daemon->pidfd = (int)syscall(SYS_pidfd_open, daemon->pid, 0);
-    if (daemon->pidfd == -1) {
-        BCD_WARN(
-            "pidfd_open failed for pid {} owning `{}`: {} [{}]",
-            daemon->pid,
-            options->exec_ring_path,
-            strerror(errno),
-            errno);
-        return false;
-    }
-    if (fstat(ring_fd, &ring_stat) == -1) {
-        BCD_WARN(
-            "fstat of file `{}` failed: {} [{}]",
-            options->exec_ring_path,
-            strerror(errno),
-            errno);
-        return false;
-    }
-    if (ring_stat.st_size == 0) {
-        BCD_WARN(
-            "`{}` has size zero; maybe initiailizing?",
-            options->exec_ring_path);
-        return false;
-    }
-    if (monad_event_ring_mmap(
-            &daemon->event_ring,
-            PROT_READ,
-            MAP_POPULATE,
-            ring_fd,
-            0,
-            options->exec_ring_path.c_str()) != 0) {
-        errx(
-            EX_SOFTWARE,
-            "event ring library error -- %s",
-            monad_event_ring_get_last_error());
-    }
-    return true;
-}
-
 void wait_for_execution_daemon(
     BlockCapOptions const *options, ExecutionDaemon *daemon)
 {
-    unsigned seconds_elapsed = 0;
-
     monad_event_ring_unmap(&daemon->event_ring);
     (void)close(daemon->pidfd);
     daemon->pid = -1;
 
-    while (g_exit_signaled == 0 &&
-           (!options->connect_timeout ||
-            seconds_elapsed <= *options->connect_timeout) &&
-           !try_connect_execution_daemon(options, daemon)) {
-        sleep(1);
-        ++seconds_elapsed;
+    timespec const timeout = {
+        .tv_sec = options->connect_timeout.value_or(0), .tv_nsec = 0};
+
+    while (g_exit_signaled == 0) {
+        int ring_fd;
+        int rc;
+
+        BCD_INFO_NS("waiting for {}", options->exec_ring_path);
+        rc = monad_event_ring_wait_for_excl_writer(
+            options->exec_ring_path.c_str(),
+            options->connect_timeout ? &timeout : nullptr,
+            nullptr,
+            O_RDONLY,
+            &ring_fd,
+            &daemon->pid);
+        if (rc == EINTR || rc == ESRCH) {
+            // TODO: deduct time spent from timeout
+            continue;
+        }
+        if (rc == ETIMEDOUT) {
+            break;
+        }
+        daemon->pidfd = (int)syscall(SYS_pidfd_open, daemon->pid, 0);
+        if (daemon->pidfd == -1) {
+            BCD_WARN(
+                "pidfd_open failed for pid {} owning `{}`: {} [{}]",
+                daemon->pid,
+                options->exec_ring_path,
+                strerror(errno),
+                errno);
+            // TODO: deduct time spent from timeout
+            (void)close(ring_fd);
+            continue;
+        }
+        if (rc == 0) {
+            rc = monad_event_ring_mmap(
+                &daemon->event_ring,
+                PROT_READ,
+                MAP_POPULATE,
+                ring_fd,
+                0,
+                options->exec_ring_path.c_str());
+        }
+        (void)close(ring_fd);
+        if (rc != 0) {
+            errx(
+                EX_SOFTWARE,
+                "event library error -- %s",
+                monad_event_ring_get_last_error());
+        }
+        return;
     }
     if (daemon->event_ring.header == nullptr) {
         errx(
             EX_UNAVAILABLE,
-            "could not detect monad-execution daemon after %u seconds",
-            seconds_elapsed);
+            "could not detect monad-execution daemon after %ld seconds",
+            timeout.tv_sec);
     }
 }
 

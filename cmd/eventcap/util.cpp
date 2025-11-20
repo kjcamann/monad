@@ -87,15 +87,16 @@ create_zstd_cctx(std::optional<uint8_t> const &compression_level)
 
 bool event_ring_is_abandoned(int ring_fd)
 {
-    pid_t writer_pids[32];
-    size_t n_pids = std::size(writer_pids);
-    if (monad_event_ring_find_writer_pids(ring_fd, writer_pids, &n_pids) != 0) {
+    constexpr size_t MAX_FLOCKS = 128;
+    monad_event_flock_info flocks[MAX_FLOCKS];
+    size_t lock_count = std::size(flocks);
+    if (monad_event_ring_query_flocks(ring_fd, flocks, &lock_count) != 0) {
         errx_f(
             EX_SOFTWARE,
             "event library error -- {}",
             monad_event_ring_get_last_error());
     }
-    return n_pids == 0;
+    return lock_count == 0;
 }
 
 void print_evcap_sectab_header(std::FILE *out)

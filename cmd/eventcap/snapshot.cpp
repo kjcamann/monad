@@ -340,19 +340,18 @@ struct EventSourceState
     Command const *command;
 };
 
-void kill_event_ring_writers(int ring_fd)
+void kill_event_ring_writers(int ring_fd, int sig)
 {
-    pid_t writer_pids[32];
-    size_t num_pids = std::size(writer_pids);
-    if (monad_event_ring_find_writer_pids(ring_fd, writer_pids, &num_pids) ==
-        -1) {
+    monad_event_flock_info flocks[32];
+    size_t lock_count = std::size(flocks);
+    if (monad_event_ring_query_flocks(ring_fd, flocks, &lock_count) == -1) {
         errx_f(
             EX_SOFTWARE,
             "library error: {}",
             monad_event_ring_get_last_error());
     }
-    for (size_t i = 0; i < num_pids; ++i) {
-        kill(writer_pids[i], SIGINT);
+    for (size_t i = 0; i < lock_count; ++i) {
+        kill(flocks[i].pid, sig);
     }
 }
 
@@ -453,7 +452,7 @@ void snapshot_thread_main(std::span<Command *const> commands)
         EventSourceFile const *const file = state.event_source->source_file;
         if (state.command->get_options<SnapshotCommandOptions>()->kill_at_end &&
             file->get_type() == EventSourceFile::Type::EventRing) {
-            kill_event_ring_writers(file->get_file_descriptor());
+            kill_event_ring_writers(file->get_file_descriptor(), SIGINT);
         }
     }
 

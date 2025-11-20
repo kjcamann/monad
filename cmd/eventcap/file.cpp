@@ -253,25 +253,25 @@ MappedEventRing::~MappedEventRing()
 
 std::string MappedEventRing::describe() const
 {
-    constexpr size_t MAX_WRITER_PIDS = 128;
+    constexpr size_t MAX_FLOCKS = 128;
 
     EventRingLiveness current_liveness = initial_liveness_;
     std::string live_suffix;
     if (current_liveness == EventRingLiveness::Live) {
-        pid_t pids[MAX_WRITER_PIDS];
-        size_t npids = std::size(pids);
+        monad_event_flock_info flocks[MAX_FLOCKS];
+        size_t lock_count = std::size(flocks);
         if (int const rc =
-                monad_event_ring_find_writer_pids(ring_fd_, pids, &npids)) {
+                monad_event_ring_query_flocks(ring_fd_, flocks, &lock_count)) {
             live_suffix = std::format(", pids not available {}", rc);
         }
-        else if (npids == 1) {
-            live_suffix = std::format(", pid: {}", pids[0]);
+        else if (lock_count == 1) {
+            live_suffix = std::format(", {}", flocks[0]);
         }
-        else if (npids == 0) {
+        else if (lock_count == 0) {
             current_liveness = EventRingLiveness::Abandoned;
         }
         else {
-            live_suffix = std::format(", pids: {}", std::span{pids, npids});
+            live_suffix = std::format(", {}", std::span{flocks, lock_count});
         }
     }
     if (force_live_) {

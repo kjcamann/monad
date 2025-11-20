@@ -408,33 +408,37 @@ static void fetch_missing_block_range(
     }
 }
 
-// Open the live event ring: this is mostly the same code as the basic
-// example (eventwatch.c) so it does not contain the explanatory comments;
-// see eventwatch.c for this same code, but with more explanation
+// Wait for the live event ring file be (re-)created, then mmap in into our
+// address space
 static int open_event_ring(
-    char const *event_ring_input, struct monad_event_ring *exec_ring)
+    char const *event_ring_path, struct monad_event_ring *exec_ring, int *pidfd)
 {
-    char event_ring_pathbuf[PATH_MAX];
+    int rc;
+    int ring_fd;
+    pid_t writer_pid;
 
-    if (monad_event_resolve_ring_file(
-            MONAD_EVENT_DEFAULT_HUGETLBFS,
-            event_ring_input,
-            event_ring_pathbuf,
-            sizeof event_ring_pathbuf) != 0) {
-        goto EventRingError;
+    *pidfd = -1;
+
+    // First, remove the previous mapping; initially this does nothing
+    monad_event_ring_unmap(exec_ring);
+    rc = monad_event_ring_wait_for_excl_writer(
+        event_ring_path,
+        nullptr,
+        nullptr,
+        O_RDONLY | O_CLOEXEC,
+        &ring_fd,
+        &writer_pid);
+    if (rc == EINTR) {
+        return EINTR;
     }
-
-    int const ring_fd = open(event_ring_pathbuf, O_RDONLY | O_CLOEXEC);
-    if (ring_fd == -1) {
-        err(EX_CONFIG, "open of event ring `%s` failed", event_ring_pathbuf);
+    if (rc != 0) {
+        err(EX_UNAVAILABLE,
+            "event library error -- %s",
+            monad_event_ring_get_last_error());
     }
     if (monad_event_ring_mmap(
-            exec_ring,
-            PROT_READ,
-            MAP_HUGETLB,
-            ring_fd,
-            0,
-            event_ring_pathbuf) != 0) {
+            exec_ring, PROT_READ, MAP_HUGETLB, ring_fd, 0, event_ring_path) !=
+        0) {
         goto EventRingError;
     }
 
@@ -446,23 +450,14 @@ static int open_event_ring(
     }
 
 #if defined(__linux__)
-    pid_t writer_pid;
-    size_t n_pids = 1;
-    if (monad_event_ring_find_writer_pids(ring_fd, &writer_pid, &n_pids) != 0) {
-        goto EventRingError;
-    }
-    if (n_pids == 0) {
-        errno = EOWNERDEAD;
-        err(EX_SOFTWARE,
-            "writer of event ring `%s` has exited",
-            event_ring_pathbuf);
-    }
-    int pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
-    if (pidfd == -1) {
+    *pidfd = (int)syscall(SYS_pidfd_open, writer_pid, 0);
+    if (*pidfd == -1) {
+        if (errno == ESRCH) {
+            monad_event_ring_unmap(exec_ring);
+            return ESRCH; // This was a race, so keep trying
+        }
         err(EX_OSERR, "pidfd_open of writer pid %d failed", writer_pid);
     }
-#else
-    int pidfd = -1;
 #endif
 
     (void)close(ring_fd);
@@ -471,7 +466,7 @@ static int open_event_ring(
         goto EventRingError;
     }
 
-    return pidfd;
+    return 0;
 
 EventRingError:
     errx(
@@ -842,10 +837,52 @@ RecoverAgain:
     }
 }
 
+static void reconnect_loop(
+    struct config const *cfg, struct monad_bcap_block_archive *block_archive,
+    char const *resolved_fetch_command, FILE *out)
+{
+    char event_ring_pathbuf[PATH_MAX];
+    struct monad_event_ring exec_ring;
+    int writer_pidfd;
+
+    if (monad_event_resolve_ring_file(
+            MONAD_EVENT_DEFAULT_HUGETLBFS,
+            cfg->event_ring_path,
+            event_ring_pathbuf,
+            sizeof event_ring_pathbuf) != 0) {
+        errx(
+            EX_SOFTWARE,
+            "event library error -- %s",
+            monad_event_ring_get_last_error());
+    }
+
+    memset(&exec_ring, 0, sizeof exec_ring);
+    while (g_should_stop == 0) {
+        // Open the event ring. This will tell us what block we're currently
+        // on, and eventually we'll switch over to live reading once we've
+        // recovered
+        if (open_event_ring(event_ring_pathbuf, &exec_ring, &writer_pidfd) !=
+            0) {
+            // Whenever open_event_ring returns non-zero, it's either a rare
+            // IPC race (and we should try again) or EINTR, and we should check
+            // g_should_stop again
+            continue;
+        }
+        event_loop(
+            cfg,
+            &exec_ring,
+            block_archive,
+            resolved_fetch_command,
+            writer_pidfd,
+            out);
+        (void)close(writer_pidfd);
+    }
+    monad_event_ring_unmap(&exec_ring);
+}
+
 int main(int argc, char **argv)
 {
     struct monad_bcap_block_archive *block_archive;
-    struct monad_event_ring exec_ring;
 
     struct config const cfg = parse_arguments(argc, argv);
     signal(SIGINT, handle_signal);
@@ -861,11 +898,6 @@ int main(int argc, char **argv)
             "the executable's directory",
             cfg.fetch_command);
     }
-
-    // Open the event ring. This will tell us what block we're currently
-    // on, and eventually we'll switch over to live reading once we've
-    // recovered
-    int const writer_pidfd = open_event_ring(cfg.event_ring_path, &exec_ring);
 
     // Open the "finalized block archive" (FBA) directory
     int const block_dirfd =
@@ -883,14 +915,13 @@ int main(int argc, char **argv)
             monad_bcap_get_last_error());
     }
 
-    event_loop(
-        &cfg, &exec_ring, block_archive, fetch_command, writer_pidfd, stdout);
+    // The outer loop of the program waits for execution daemon to (re)start,
+    // and each time it re-appears, we begin working again
+    reconnect_loop(&cfg, block_archive, fetch_command, stdout);
 
     // Cleanup
     free(fetch_command);
-    monad_event_ring_unmap(&exec_ring);
     monad_bcap_block_archive_close(block_archive);
-    (void)close(writer_pidfd);
 
     return 0;
 }

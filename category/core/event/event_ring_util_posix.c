@@ -15,7 +15,15 @@ extern thread_local char _g_monad_event_ring_error_buf[1024];
         &MONAD_SOURCE_LOCATION_CURRENT(),                                      \
         __VA_ARGS__)
 
-int monad_event_ring_find_writer_pids(int, pid_t *, size_t *)
+int monad_event_ring_query_flocks(
+    int, struct monad_event_flock_info *, size_t *)
+{
+    return FORMAT_ERRC(ENOSYS, "function not available on non-Linux platforms");
+}
+
+int monad_event_ring_wait_for_excl_writer(
+    char const *, struct timespec const *, sigset_t const *, int, int *,
+    pid_t *)
 {
     return FORMAT_ERRC(ENOSYS, "function not available on non-Linux platforms");
 }

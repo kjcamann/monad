@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -293,6 +294,24 @@ int monad_event_ring_check_content_type(
             schema_hash,
             sizeof event_ring->header->schema_hash) != 0) {
         return FORMAT_ERRC(EPROTO, "event ring schema hash does not match");
+    }
+    return 0;
+}
+
+int monad_event_ring_query_excl_writer_pid(int ring_fd, pid_t *pid)
+{
+    int rc;
+    struct monad_event_flock_info fl_info;
+    size_t lock_count = 1;
+
+    *pid = 0;
+    rc = monad_event_ring_query_flocks(ring_fd, &fl_info, &lock_count);
+    if (rc != 0) {
+        return rc;
+    }
+    *pid = lock_count == 1 && fl_info.lock == LOCK_EX ? fl_info.pid : 0;
+    if (*pid == 0) {
+        return FORMAT_ERRC(EOWNERDEAD, "exclusive writer is dead");
     }
     return 0;
 }
