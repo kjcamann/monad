@@ -50,13 +50,16 @@ namespace monad::vm::interpreter
                         ctx.trace_flow,
                         static_cast<uint64_t>(gas_remaining),
                         std::as_bytes(std::span{
-                            stack_top - info.min_stack,
-                            static_cast<size_t>(info.min_stack)}));
+                            stack_top - info.min_stack + 1,
+                            static_cast<size_t>(info.min_stack)}),
+                        std::as_bytes(std::span{
+                            instr_ptr + 1,
+                            static_cast<size_t>(info.num_args)}));
                 *vm_decode.payload = monad_evmt_vm_decode{
                     .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
                     .opcode = Instr,
                     .input_stack_length = info.min_stack,
-                };
+                    .push_value_length = info.num_args};
                 recorder->commit(vm_decode);
             }
             else {
@@ -69,7 +72,7 @@ namespace monad::vm::interpreter
                     .pc = static_cast<uint64_t>(instr_ptr - analysis.code()),
                     .opcode = Instr,
                     .input_stack_length = 0,
-                };
+                    .push_value_length = 0};
                 recorder->commit(vm_decode);
             }
         }

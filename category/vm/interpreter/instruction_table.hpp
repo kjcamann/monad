@@ -807,7 +807,7 @@ namespace monad::vm::interpreter
         std::int64_t gas_remaining, std::uint8_t const *instr_ptr)
     {
         check_requirements<CLZ, traits>(
-            ctx, analysis, stack_bottom, stack_top, gas_remaining);
+            ctx, analysis, stack_bottom, stack_top, gas_remaining, instr_ptr);
         auto &a = *stack_top;
         a = runtime::countl_zero(a);
 
