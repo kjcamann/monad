@@ -131,6 +131,8 @@ constexpr char const *describe(Command::Type t)
         return "sectiondump";
     case Snapshot:
         return "snapshot";
+    case VmStat:
+        return "vmstat";
     }
     std::unreachable();
 }
@@ -157,6 +159,8 @@ constexpr ThreadEntrypointFunction get_thread_entrypoint(Command::Type t)
         return recordtrace_thread_main;
     case Snapshot:
         return snapshot_thread_main;
+    case VmStat:
+        return vmstat_thread_main;
     default:
         break;
     }
@@ -991,6 +995,20 @@ CommandBuilder::build_snapshot_command(SnapshotCommandOptions const &opts)
 {
     return build_basic_command(
         Command::Type::Snapshot, opts.common_options, /*set_output=*/true);
+}
+
+Command *
+CommandBuilder::build_vmstat_command(VmStatCommandOptions const &opts)
+{
+    Command *const command = build_basic_command(
+        Command::Type::VmStat,
+        opts.common_options,
+        /*set_output=*/true);
+    expect_content_type(
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EXEC);
+    expect_content_type(
+        command->event_sources[0].source_file, MONAD_EVENT_CONTENT_TYPE_EVMT);
+    return command;
 }
 
 Command *CommandBuilder::build_basic_command(

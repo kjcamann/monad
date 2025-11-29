@@ -151,6 +151,7 @@ struct Command
         RecordTrace,
         SectionDump,
         Snapshot,
+        VmStat,
     };
 
     explicit Command(
@@ -200,6 +201,8 @@ struct Command
             return std::same_as<T, SectionDumpCommandOptions> ? cast : nullptr;
         case Type::Snapshot:
             return std::same_as<T, SnapshotCommandOptions> ? cast : nullptr;
+        case Type::VmStat:
+            return std::same_as<T, VmStatCommandOptions> ? cast : nullptr;
         default:
             return nullptr;
         }
@@ -237,3 +240,5 @@ void recordexec_thread_main(std::span<Command *const>);
 void recordtrace_thread_main(std::span<Command *const>);
 
 void snapshot_thread_main(std::span<Command *const>);
+
+void vmstat_thread_main(std::span<Command *const>);

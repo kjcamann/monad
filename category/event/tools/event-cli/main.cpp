@@ -122,6 +122,7 @@ int main(int argc, char **argv)
     RecordExecCommandOptions recordexec_command{};
     RecordTraceCommandOptions recordtrace_command{};
     SectionDumpCommandOptions sectiondump_command{};
+    VmStatCommandOptions vmstat_command{};
 
     DigestCommandOptions digest_var{};
     std::vector<DigestCommandOptions> digest_commands;
@@ -596,6 +597,15 @@ along with the process group leader (which is monad-event-cli), e.g.:
 
 The threading model behaves the same as the dump command.)");
 
+    /*
+     * vmstat subcommand
+     */
+
+    CLI::App *const vmstat =
+        cli.add_subcommand("vmstat", "Print EVM trace statistics");
+    add_common_options(vmstat, vmstat_command.common_options, "vmstat");
+    add_tui_mode_option(vmstat, vmstat_command.tui_mode);
+
     if (std::signal(SIGINT, should_exit_handler) == SIG_ERR) {
         err_f(EX_OSERR, "signal(3) failed");
     }
@@ -644,6 +654,9 @@ The threading model behaves the same as the dump command.)");
     }
     for (SnapshotCommandOptions const &c : snapshot_commands) {
         builder.build_snapshot_command(c);
+    }
+    if (vmstat->count() > 0) {
+        builder.build_vmstat_command(vmstat_command);
     }
 
     Topology const topology = builder.finish();

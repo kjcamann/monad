@@ -45,6 +45,7 @@ add_executable(event-cli
   digest.cpp
   dump.cpp
   err_cxx.hpp
+  evm_opcodes.hpp
   execstat.cpp
   file.cpp
   file.hpp
@@ -70,7 +71,8 @@ add_executable(event-cli
   stats.hpp
   stacktrace.cpp
   util.cpp
-  util.hpp)
+  util.hpp
+  vmstat.cpp)
 
 target_compile_definitions(event-cli PRIVATE _GNU_SOURCE)
 target_compile_definitions(event-cli PRIVATE ZSTD_STATIC_LINKING_ONLY)
