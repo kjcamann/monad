@@ -20,10 +20,20 @@ include(CheckCXXSymbolExists)
 
 project(monad_core LANGUAGES C CXX ASM)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(_monad_spinlock_track_owner_default ON)
+else()
+  set(_monad_spinlock_track_owner_default OFF)
+endif()
+
 option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MONAD_CORE_FORCE_DEBUG_ASSERT
        "Enable MONAD_DEBUG_ASSERT in any build mode" OFF)
+
+option(MONAD_CORE_SPINLOCK_TRACK_OWNER
+       "Enable source location tracking of owner in spinlocks"
+       ${_monad_spinlock_track_owner_default})
 
 # ##############################################################################
 # deps
@@ -81,7 +91,6 @@ add_library(
   "bytes_hash_compare.hpp"
   "cleanup.h"
   "cleanup.c"
-  "cpu_relax.h"
   "endian.hpp"
   "format_err.c"
   "format_err.h"
@@ -104,6 +113,7 @@ add_library(
   "size_of.hpp"
   "small_prng.hpp"
   "spinlock.h"
+  "spinloop.h"
   "srcloc.h"
   "thread.h"
   "thread_linux.c"
@@ -190,6 +200,10 @@ target_include_directories(monad_core PUBLIC ${CATEGORY_MAIN_DIR})
 
 if(MONAD_CORE_FORCE_DEBUG_ASSERT)
   target_compile_definitions(monad_core PUBLIC "MONAD_CORE_FORCE_DEBUG_ASSERT")
+endif()
+
+if(MONAD_CORE_SPINLOCK_TRACK_OWNER)
+  target_compile_definitions(monad_core PUBLIC MONAD_SPINLOCK_TRACK_OWNER)
 endif()
 
 target_compile_definitions(monad_core PRIVATE "BOOST_STACKTRACE_LINK=1")

@@ -15,13 +15,13 @@
 
 #include <category/core/assert.h>
 #include <category/core/config.hpp>
-#include <category/core/cpu_relax.h>
 #include <category/core/event/event_recorder.h>
 #include <category/core/fiber/fiber_group.hpp>
 #include <category/core/fiber/priority_pool.hpp>
 #include <category/core/int.hpp>
 #include <category/core/likely.h>
 #include <category/core/result.hpp>
+#include <category/core/spinloop.h>
 #include <category/execution/ethereum/block_hash_buffer.hpp>
 #include <category/execution/ethereum/block_hash_history.hpp>
 #include <category/execution/ethereum/block_reward.hpp>
@@ -296,7 +296,7 @@ Result<std::vector<Receipt>> execute_block_transactions(
     // `record_txn_exec_result_events`. This waits for everything to finish
     // so that it's safe to assume we're the only ones using `results`.
     while (txn_exec_finished.load() < txn_count) {
-        cpu_relax();
+        monad_spinloop_hint();
     }
 
     std::vector<Receipt> retvals;

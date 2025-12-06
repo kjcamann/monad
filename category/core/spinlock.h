@@ -15,64 +15,124 @@
 
 #pragma once
 
-#include <category/core/cpu_relax.h>
+#include <string.h>
+
+#include <category/core/assert.h>
 #include <category/core/likely.h>
+#include <category/core/spinloop.h>
 #include <category/core/thread.h>
 
-#include <assert.h>
-#include <stdatomic.h>
-#include <stdbool.h>
+#if MONAD_SPINLOCK_TRACK_OWNER
+    #include <category/core/srcloc.h>
+#endif
 
-static_assert(ATOMIC_INT_LOCK_FREE == 2);
+typedef struct monad_spinlock monad_spinlock_t;
 
-typedef atomic_long spinlock_t;
-
-static inline void spinlock_init(spinlock_t *const lock)
+struct monad_spinlock
 {
-    atomic_init(lock, 0);
+    monad_tid_t owner_tid; ///< System ID of thread that owns lock
+#if MONAD_SPINLOCK_TRACK_OWNER
+    monad_source_location_t srcloc; ///< Location in code where lock taken
+#endif
+};
+
+[[gnu::always_inline]] static inline bool
+monad_spinlock_is_self_owned(monad_spinlock_t *const lock)
+{
+    return __atomic_load_n(&lock->owner_tid, __ATOMIC_ACQUIRE) ==
+           monad_thread_get_id();
 }
 
-static inline bool spinlock_try_lock(spinlock_t *const lock)
+[[gnu::always_inline]] static inline bool
+monad_spinlock_is_unowned(monad_spinlock_t *const lock)
+{
+    return __atomic_load_n(&lock->owner_tid, __ATOMIC_ACQUIRE) == 0;
+}
+
+[[gnu::always_inline]] static inline void
+monad_spinlock_init(monad_spinlock_t *const lock)
+{
+    lock->owner_tid = 0;
+#if MONAD_SPINLOCK_TRACK_OWNER
+    memset(&lock->srcloc, 0, sizeof lock->srcloc);
+#endif
+}
+
+[[gnu::always_inline]] static inline bool
+monad_spinlock_try_lock(monad_spinlock_t *const lock)
 {
     monad_tid_t expected = 0;
-    monad_tid_t const desired = monad_thread_get_id();
-    return atomic_compare_exchange_weak_explicit(
-        lock, &expected, desired, memory_order_acquire, memory_order_relaxed);
+    return __atomic_compare_exchange_n(
+        &lock->owner_tid,
+        &expected,
+        monad_thread_get_id(),
+        /*weak=*/false,
+        __ATOMIC_ACQ_REL,
+        __ATOMIC_RELAXED);
 }
 
-static inline void spinlock_lock(spinlock_t *const lock)
+[[gnu::always_inline]] static inline void
+monad_spinlock_lock(monad_spinlock_t *const lock)
 {
     monad_tid_t const desired = monad_thread_get_id();
-    for (;;) {
-        /**
-         * TODO further analysis of retry logic
-         * - if weak cmpxch fails, spin again or cpu relax?
-         * - compare intel vs arm
-         * - benchmark with real use cases
-         */
-        unsigned retries = 0;
-        while (
-            MONAD_UNLIKELY(atomic_load_explicit(lock, memory_order_relaxed))) {
-            if (MONAD_LIKELY(retries < 128)) {
-                ++retries;
-            }
-            else {
-                cpu_relax();
-            }
-        }
-        monad_tid_t expected = 0;
-        if (MONAD_LIKELY(atomic_compare_exchange_weak_explicit(
-                lock,
-                &expected,
-                desired,
-                memory_order_acquire,
-                memory_order_relaxed))) {
-            break;
-        }
+    monad_tid_t expected;
+    bool owned;
+
+    MONAD_DEBUG_ASSERT(!monad_spinlock_is_self_owned(lock));
+
+TryAgain:
+    expected = 0;
+    owned = __atomic_compare_exchange_n(
+        &lock->owner_tid,
+        &expected,
+        desired,
+        /*weak=*/true,
+        __ATOMIC_ACQ_REL,
+        __ATOMIC_RELAXED);
+    if (MONAD_UNLIKELY(!owned)) {
+        monad_spinloop_hint();
+        goto TryAgain;
     }
 }
 
-static inline void spinlock_unlock(spinlock_t *const lock)
+[[gnu::always_inline]] static inline void
+monad_spinlock_unlock(monad_spinlock_t *const lock)
 {
-    atomic_store_explicit(lock, 0, memory_order_release);
+    MONAD_DEBUG_ASSERT(monad_spinlock_is_self_owned(lock));
+    __atomic_store_n(&lock->owner_tid, 0, __ATOMIC_RELEASE);
 }
+
+#if MONAD_SPINLOCK_TRACK_OWNER
+
+[[gnu::always_inline]] static inline bool monad_spinlock_try_lock_with_srcloc(
+    monad_spinlock_t *const lock, monad_source_location_t srcloc)
+{
+    bool const have_lock = monad_spinlock_try_lock(lock);
+    if (have_lock) {
+        lock->srcloc = srcloc;
+    }
+    return have_lock;
+}
+
+[[gnu::always_inline]] static inline void monad_spinlock_lock_with_srcloc(
+    monad_spinlock_t *const lock, monad_source_location_t srcloc)
+{
+    monad_spinlock_lock(lock);
+    lock->srcloc = srcloc;
+}
+
+    #define MONAD_SPINLOCK_TRY_LOCK(LCK)                                       \
+        monad_spinlock_try_lock_with_srcloc(                                   \
+            (LCK), MONAD_SOURCE_LOCATION_CURRENT())
+
+    #define MONAD_SPINLOCK_LOCK(LCK)                                           \
+        monad_spinlock_lock_with_srcloc((LCK), MONAD_SOURCE_LOCATION_CURRENT())
+
+#else
+
+    #define MONAD_SPINLOCK_TRY_LOCK(LCK) monad_spinlock_try_lock((LCK))
+    #define MONAD_SPINLOCK_LOCK(LCK) monad_spinlock_lock((LCK))
+
+#endif // MONAD_SPINLOCK_TRACK_OWNER
+
+#define MONAD_SPINLOCK_UNLOCK(LCK) monad_spinlock_unlock((LCK))

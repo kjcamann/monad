@@ -37,3 +37,9 @@ monad_add_test(path_util_test "path_util.cpp")
 monad_add_test(priority_pool_test "priority_pool_test.cpp")
 set_tests_properties(priority_pool_test PROPERTIES RUN_SERIAL TRUE)
 monad_add_test(fiber_group_test "fiber_group_test.cpp")
+monad_add_test(spinlock_test "spinlock.cpp")
+monad_add_test(spinlock_with_options_test "spinlock.cpp")
+target_compile_definitions(
+  spinlock_with_options_test PRIVATE MONAD_SPINLOCK_TRACK_OWNER)
+set_tests_properties(spinlock_test spinlock_with_options_test
+                     PROPERTIES RUN_SERIAL TRUE)
