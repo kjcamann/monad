@@ -18,6 +18,7 @@
 #include <category/async/concepts.hpp>
 #include <category/async/erased_connected_operation.hpp>
 #include <category/core/assert.h>
+#include <category/core/thread.h>
 #include <category/mpt/config.hpp>
 #include <category/mpt/node_cache.hpp>
 #include <category/mpt/trie.hpp>
@@ -281,7 +282,7 @@ inline MONAD_ASYNC_NAMESPACE::result<void> find_request_sender<T>::operator()(
             }
             if (!tid_checked_) {
                 MONAD_ASSERT(aux_.io != nullptr);
-                if (aux_.io->owning_thread_id() != get_tl_tid()) {
+                if (aux_.io->owning_thread_id() != monad_thread_get_id()) {
                     res_ = {T{}, find_result::need_to_continue_in_io_thread};
                     return success();
                 }

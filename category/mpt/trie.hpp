@@ -32,7 +32,7 @@
 #include <category/async/io.hpp>
 #include <category/async/io_senders.hpp>
 
-#include <category/core/tl_tid.h>
+#include <category/core/thread.h>
 
 #ifdef __clang__
     #pragma clang diagnostic push
@@ -242,8 +242,8 @@ class UpdateAuxImpl
     compact_virtual_chunk_offset_t compact_offset_range_slow_{
         MIN_COMPACT_VIRTUAL_OFFSET};
 
-    std::optional<pid_t> current_upsert_tid_; // used to detect what thread is
-                                              // currently upserting
+    std::optional<monad_tid_t> current_upsert_tid_; // to detect what thread
+                                                    // is currently upserting
     bool alternate_slow_fast_writer_{false};
     bool can_write_to_fast_{true};
 
@@ -504,7 +504,7 @@ public:
             explicit constexpr holder(UpdateAuxImpl *parent)
                 : parent_(parent)
             {
-                parent_->current_upsert_tid_ = get_tl_tid();
+                parent_->current_upsert_tid_ = monad_thread_get_id();
             }
 
         public:
@@ -542,19 +542,19 @@ public:
     bool is_current_thread_concurrent_to_upsert() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ != get_tl_tid();
+               *current_upsert_tid_ != monad_thread_get_id();
     }
 
     bool is_current_thread_upserting() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ == get_tl_tid();
+               *current_upsert_tid_ == monad_thread_get_id();
     }
 
     bool has_upsert_run_since() const noexcept
     {
         return current_upsert_tid_.has_value() &&
-               *current_upsert_tid_ != get_tl_tid();
+               *current_upsert_tid_ != monad_thread_get_id();
     }
 
     void set_io(
@@ -871,7 +871,7 @@ public:
 };
 
 static_assert(
-    sizeof(UpdateAuxImpl) == 160 + sizeof(detail::TrieUpdateCollectedStats));
+    sizeof(UpdateAuxImpl) == 168 + sizeof(detail::TrieUpdateCollectedStats));
 static_assert(alignof(UpdateAuxImpl) == 8);
 
 template <lockable_or_void LockType = void>

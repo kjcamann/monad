@@ -25,6 +25,8 @@
 
 #include <category/core/mem/allocators.hpp>
 
+#include <category/core/thread.h>
+
 #include <atomic>
 #include <cassert>
 #include <concepts>
@@ -77,7 +79,7 @@ private:
         }
     };
 
-    pid_t const owning_tid_;
+    monad_tid_t const owning_tid_;
     class storage_pool *storage_pool_{nullptr};
     chunk_ref_ cnv_chunk_;
     std::vector<chunk_ref_> seq_chunks_;
@@ -129,7 +131,7 @@ public:
 
     ~AsyncIO();
 
-    pid_t owning_thread_id() const noexcept
+    monad_tid_t owning_thread_id() const noexcept
     {
         return owning_tid_;
     }

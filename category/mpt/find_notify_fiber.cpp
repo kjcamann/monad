@@ -20,7 +20,7 @@
 #include <category/async/io.hpp>
 #include <category/core/assert.h>
 #include <category/core/nibble.h>
-#include <category/core/tl_tid.h>
+#include <category/core/thread.h>
 #include <category/mpt/config.hpp>
 #include <category/mpt/detail/boost_fiber_workarounds.hpp>
 #include <category/mpt/nibbles_view.hpp>
@@ -182,7 +182,7 @@ namespace
         auto &&cont, chunk_offset_t const read_offset,
         virtual_chunk_offset_t const virtual_offset)
     {
-        if (aux.io->owning_thread_id() != get_tl_tid()) {
+        if (aux.io->owning_thread_id() != monad_thread_get_id()) {
             promise.set_value(
                 {CacheNodeCursor{},
                  find_result::need_to_continue_in_io_thread});
@@ -250,7 +250,7 @@ void find_notify_fiber_future(
             find_notify_fiber_future(aux, inflights, promise, next, next_key);
             return;
         }
-        if (aux.io->owning_thread_id() != get_tl_tid()) {
+        if (aux.io->owning_thread_id() != monad_thread_get_id()) {
             promise.set_value(
                 {NodeCursor{node, node_prefix_index},
                  find_result::need_to_continue_in_io_thread});

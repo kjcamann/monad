@@ -24,7 +24,7 @@
 #include <category/core/assert.h>
 #include <category/core/io/buffers.hpp>
 #include <category/core/io/ring.hpp>
-#include <category/core/tl_tid.h>
+#include <category/core/thread.h>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/outcome/try.hpp>
@@ -148,7 +148,7 @@ namespace detail
 }
 
 AsyncIO::AsyncIO(class storage_pool &pool, monad::io::Buffers &rwbuf)
-    : owning_tid_(get_tl_tid())
+    : owning_tid_(monad_thread_get_id())
     , storage_pool_{std::addressof(pool)}
     , cnv_chunk_{pool.chunk(storage_pool::cnv, 0)}
     , uring_(rwbuf.ring())
@@ -477,7 +477,7 @@ size_t AsyncIO::poll_uring_(bool blocking, unsigned poll_rings_mask)
     // completions
     MONAD_ASSERT((poll_rings_mask & 3) != 3);
     auto const h = detail::AsyncIO_per_thread_state().enter_completions();
-    MONAD_ASSERT(owning_tid_ == get_tl_tid());
+    MONAD_ASSERT(owning_tid_ == monad_thread_get_id());
 
     struct io_uring_cqe *cqe = nullptr;
     auto *const other_ring = &uring_.get_ring();

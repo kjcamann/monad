@@ -13,15 +13,38 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <category/core/tl_tid.h>
+#pragma once
 
-#include <unistd.h>
-
-static_assert(__builtin_types_compatible_p(pid_t, int));
-
-__thread int tl_tid = 0;
-
-void init_tl_tid()
+#ifdef __cplusplus
+extern "C"
 {
-    tl_tid = gettid();
+#endif
+
+/**
+ * @file
+ *
+ * This file contains thread routines which are not standardized in pthread(3)
+ */
+
+#include <errno.h>
+#include <stdint.h>
+
+#include <category/core/likely.h>
+
+typedef long monad_tid_t;
+extern thread_local monad_tid_t monad_tl_tid;
+
+extern void monad_tl_tid_init();
+
+/// Get the system ID of the calling thread
+[[gnu::always_inline]] static inline monad_tid_t monad_thread_get_id()
+{
+    if (MONAD_UNLIKELY(monad_tl_tid == 0)) {
+        monad_tl_tid_init();
+    }
+    return monad_tl_tid;
 }
+
+#ifdef __cplusplus
+}
+#endif

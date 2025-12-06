@@ -17,8 +17,6 @@
 
 #include <category/core/config.hpp>
 
-#include <category/core/tl_tid.h>
-
 #include <boost/fiber/algo/round_robin.hpp>
 #include <boost/fiber/fiber.hpp>
 

@@ -13,27 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#pragma once
+#include <unistd.h>
 
-#ifdef __cplusplus
-extern "C"
+#include <category/core/thread.h>
+
+thread_local monad_tid_t monad_tl_tid = 0;
+
+static_assert(sizeof(monad_tid_t) >= sizeof(pid_t));
+
+void monad_tl_tid_init()
 {
-#endif
-
-#include <category/core/likely.h>
-
-extern __thread int tl_tid;
-
-void init_tl_tid();
-
-static inline int get_tl_tid()
-{
-    if (MONAD_UNLIKELY(!tl_tid)) {
-        init_tl_tid();
-    }
-    return tl_tid;
+    monad_tl_tid = gettid();
 }
-
-#ifdef __cplusplus
-}
-#endif

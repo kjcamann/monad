@@ -18,7 +18,7 @@
 #include <category/async/detail/scope_polyfill.hpp>
 #include <category/async/erased_connected_operation.hpp>
 #include <category/async/sender_errc.hpp>
-#include <category/core/tl_tid.h>
+#include <category/core/thread.h>
 
 #include <memory>
 
@@ -158,7 +158,7 @@ namespace detail
             // the AsyncIO instance associated with this operation state
             MONAD_ASSERT(
                 this->executor() == nullptr ||
-                this->executor()->owning_thread_id() == get_tl_tid());
+                this->executor()->owning_thread_id() == monad_thread_get_id());
             this->being_executed_ = true;
             // Prevent compiler reordering write of being_executed_ after this
             // point without using actual atomics.
