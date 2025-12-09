@@ -119,6 +119,9 @@ int main(int argc, char **argv)
     RecordExecCommandOptions recordexec_var{};
     std::vector<RecordExecCommandOptions> recordexec_commands;
 
+    RecordTraceCommandOptions recordtrace_var{};
+    std::vector<RecordTraceCommandOptions> recordtrace_commands;
+
     SnapshotCommandOptions snapshot_var{};
     std::vector<SnapshotCommandOptions> snapshot_commands;
 
@@ -434,6 +437,111 @@ MiB/s payload consumption rate.)");
     });
 
     /*
+     * recordtrace subcommand
+     */
+
+    CLI::App *const recordtrace = cli.add_subcommand(
+        "recordtrace", "Record trace events in a block-aware format");
+    recordtrace->alias("rt");
+    recordtrace_var.common_options.event_source_spec =
+        g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
+    add_common_options(
+        recordtrace, recordtrace_var.common_options, "recordtrace");
+    add_seqno_range_options(recordtrace, recordtrace_var.common_options);
+    recordtrace->get_option("--output")->required();
+    recordtrace
+        ->add_option(
+            "-r,--trace",
+            recordtrace_var.trace_source_specs,
+            "Trace event ring file")
+        ->type_name("<event-source-file>");
+    recordtrace_var.worker_thread_count = 1;
+    recordtrace
+        ->add_option(
+            "-w,--worker-threads",
+            recordtrace_var.worker_thread_count,
+            "Number of sync worker threads to use")
+        ->type_name("<count>")
+        ->check(CLI::Range(1, 10))
+        ->capture_default_str();
+    recordtrace
+        ->add_option(
+            "-z,--event-zstd-level",
+            recordtrace_var.event_zstd_level,
+            "zstd compression level for finalized block sections")
+        ->type_name("<zstd-level>")
+        ->check(CLI::Range(0, 22));
+    recordtrace
+        ->add_option(
+            "-i,--index-zstd-level",
+            recordtrace_var.seqno_zstd_level,
+            "zstd compression level for sequence number index")
+        ->type_name("<zstd-level>")
+        ->check(CLI::Range(0, 22));
+
+    // XXX: make this nicer...
+
+    /*
+     * Big pool
+     */
+    recordtrace_var.big_pool_size.segment_size_shift = 26;
+    recordtrace
+        ->add_option(
+            "--big-vbuf-segment-size-shift",
+            recordtrace_var.big_pool_size.segment_size_shift,
+            "vbuf segment size shift (power of 2) [big pool]")
+        ->capture_default_str()
+        ->type_name("<vbuf-segment-size-shift>")
+        ->check(CLI::Range(12, 32));
+    recordtrace_var.big_pool_size.segment_count_shift = 9;
+    recordtrace
+        ->add_option(
+            "--big-vbuf-segment-count-shift",
+            recordtrace_var.big_pool_size.segment_count_shift,
+            "vbuf pool capacity shift (power of 2) [big pool]")
+        ->capture_default_str()
+        ->type_name("<vbuf-count-shift>")
+        ->check(CLI::Range(4, 20));
+    recordtrace->add_flag(
+        "--big-vbuf-hugetlb",
+        recordtrace_var.big_pool_size.use_hugetlb,
+        "Map vbuf segments with MAP_HUGETLB [big pool]");
+
+    /*
+     * Small pool
+     */
+    recordtrace_var.small_pool_size.segment_size_shift = 21;
+    recordtrace
+        ->add_option(
+            "--small-vbuf-segment-size-shift",
+            recordtrace_var.small_pool_size.segment_size_shift,
+            "vbuf segment size shift (power of 2) [small pool]")
+        ->capture_default_str()
+        ->type_name("<vbuf-segment-size-shift>")
+        ->check(CLI::Range(12, 32));
+    recordtrace_var.small_pool_size.segment_count_shift = 6;
+    recordtrace
+        ->add_option(
+            "--small-vbuf-segment-count-shift",
+            recordtrace_var.small_pool_size.segment_count_shift,
+            "vbuf pool capacity shift (power of 2) [small pool]")
+        ->capture_default_str()
+        ->type_name("<vbuf-count-shift>")
+        ->check(CLI::Range(4, 20));
+    recordtrace->add_flag(
+        "--small-vbuf-hugetlb",
+        recordtrace_var.small_pool_size.use_hugetlb,
+        "Map vbuf segments with MAP_HUGETLB [small pool]");
+
+    recordtrace->immediate_callback();
+    recordtrace->callback([&recordtrace_var, &recordtrace_commands] {
+        recordtrace_commands.push_back(recordtrace_var);
+        recordtrace_var = {};
+        recordtrace_var.common_options.event_source_spec =
+            g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC];
+    });
+
+    /*
      * sectiondump subcommand
      */
 
@@ -551,6 +659,9 @@ The threading model behaves the same as the dump command.)");
     }
     for (RecordExecCommandOptions const &o : recordexec_commands) {
         builder.build_recordexec_command(o);
+    }
+    for (RecordTraceCommandOptions const &o : recordtrace_commands) {
+        builder.build_recordtrace_command(o);
     }
     for (SnapshotCommandOptions const &o : snapshot_commands) {
         builder.build_snapshot_command(o);

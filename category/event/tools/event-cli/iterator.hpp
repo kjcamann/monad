@@ -128,6 +128,9 @@ struct EventIterator
     EventIteratorResult
     next(monad_event_descriptor *event, std::byte const **payload);
 
+    /// Try to set the iterator to given sequence number
+    EventIteratorResult set_seqno(uint64_t);
+
     /// Check if a payload is still valid (no-op for capture files)
     bool check_payload(monad_event_descriptor const *event) const;
 
@@ -245,6 +248,38 @@ EventIterator::next(monad_event_descriptor *event, std::byte const **payload)
     }
 
     return r;
+}
+
+inline EventIteratorResult EventIterator::set_seqno(uint64_t seqno)
+{
+    switch (iter_type) {
+    case Type::EventRing:
+        monad_event_ring_iter_set_seqno(&ring.iter, seqno);
+        return EventIteratorResult::Success;
+
+    case Type::EventCaptureSection:
+        switch (monad_evcap_event_iter_set_seqno(&evcap.iter, seqno)) {
+        case MONAD_EVCAP_READ_SUCCESS:
+            return EventIteratorResult::Success;
+        case MONAD_EVCAP_READ_END:
+            return EventIteratorResult::End;
+        case MONAD_EVCAP_READ_NO_SEQNO:
+            this->error_code = ENOENT;
+            this->last_error_msg = "event section has no linked seqno section";
+            return EventIteratorResult::Error;
+        }
+        std::unreachable();
+
+    case Type::BlockArchive:
+        // XXX: could be supported in a limited way
+        this->error_code = EISDIR;
+        this->last_error_msg = "cannot set sequence number in block archive";
+        return EventIteratorResult::Error;
+
+    default:
+        MONAD_ABORT_PRINTF(
+            "unknown source_type %hhu", std::to_underlying(iter_type));
+    }
 }
 
 inline bool

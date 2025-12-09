@@ -60,6 +60,9 @@ add_executable(event-cli
   parse.hpp
   record.cpp
   recordexec.cpp
+  recordtrace.cpp
+  recordtrace_drain.cpp
+  recordtrace_sync.cpp
   run.cpp
   sectiondump.cpp
   snapshot.cpp

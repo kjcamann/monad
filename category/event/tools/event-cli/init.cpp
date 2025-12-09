@@ -63,6 +63,7 @@
 #include <category/core/mem/align.h>
 #include <category/execution/ethereum/event/blockcap.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/vm/event/evmt_event_ctypes.h>
 
 namespace fs = std::filesystem;
 
@@ -89,10 +90,14 @@ struct EventContentTypeToDefaultFileNameEntry
         {.type_name =
              g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_TEST],
          .default_file_name = MONAD_EVENT_DEFAULT_TEST_FILE_NAME},
-    [MONAD_EVENT_CONTENT_TYPE_EXEC] = {
+    [MONAD_EVENT_CONTENT_TYPE_EXEC] =
+        {.type_name =
+             g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC],
+         .default_file_name = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME},
+    [MONAD_EVENT_CONTENT_TYPE_EVMT] = {
         .type_name =
-            g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EXEC],
-        .default_file_name = MONAD_EVENT_DEFAULT_EXEC_FILE_NAME}};
+            g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_EVMT],
+        .default_file_name = MONAD_EVENT_DEFAULT_EVMT_FILE_NAME}};
 
 #if defined(__clang__)
     #pragma GCC diagnostic pop
@@ -115,6 +120,8 @@ constexpr bool is_stream_observer_command(Command::Type t)
     case Record:
         [[fallthrough]];
     case RecordExec:
+        [[fallthrough]];
+    case RecordTrace:
         [[fallthrough]];
     case Snapshot:
         return true;
@@ -759,6 +766,58 @@ CommandBuilder::build_recordexec_command(RecordExecCommandOptions const &opts)
                 "recordexec configured in finalized block archive "
                 "mode, but {} is not an existing directory",
                 opts.common_options.output_spec);
+        }
+    }
+    return command;
+}
+
+Command *
+CommandBuilder::build_recordtrace_command(RecordTraceCommandOptions const &opts)
+{
+    Command *const command = build_basic_command(
+        Command::Type::RecordTrace,
+        opts.common_options,
+        /*set_output=*/false);
+    // Output is expected to already exist and be a directory
+    if (!fs::is_directory(opts.common_options.output_spec)) {
+        errx_f(
+            EX_USAGE,
+            "recordtrace writes to a finalized block archive, "
+            "but {} is not an existing directory",
+            opts.common_options.output_spec);
+    }
+    for (std::string const &trace_spec : opts.trace_source_specs) {
+        if (auto ex_spec = parse_event_source_spec(trace_spec)) {
+            // Parse the trailing capture specification from the event source
+            EventSourceQuery query;
+            if (auto ex_query =
+                    parse_event_source_query(ex_spec->event_source_query)) {
+                query = std::move(*ex_query);
+            }
+            else {
+                errx_f(
+                    EX_USAGE,
+                    "parse error in info event source `{}` query: {}",
+                    trace_spec,
+                    ex_query.error());
+            }
+
+            fs::path const event_source_path = resolve_event_source_file(
+                *ex_spec, named_input_map_, "recordtrace subcommand");
+            EventSourceFile *const source_file =
+                get_or_create_event_source_file(
+                    event_source_path,
+                    force_live_set_,
+                    topology_.event_source_files);
+            command->event_sources.emplace_back(
+                source_file, std::move(query), std::nullopt, std::nullopt);
+        }
+        else {
+            errx_f(
+                EX_USAGE,
+                "parse error in info event source `{}`: {}",
+                trace_spec,
+                ex_spec.error());
         }
     }
     return command;

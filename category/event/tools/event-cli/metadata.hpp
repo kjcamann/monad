@@ -21,6 +21,7 @@
 #include <category/core/event/event_ring.h>
 #include <category/core/event/test_event_ctypes.h>
 #include <category/execution/ethereum/event/exec_event_ctypes.h>
+#include <category/vm/event/evmt_event_ctypes.h>
 
 struct monad_event_metadata;
 
@@ -47,7 +48,9 @@ constexpr struct MetadataTableEntry
     [MONAD_EVENT_CONTENT_TYPE_EXEC] =
         {&g_monad_exec_event_schema_hash,
          std::span{g_monad_exec_event_metadata}},
-};
+    [MONAD_EVENT_CONTENT_TYPE_EVMT] = {
+        &g_monad_evmt_event_schema_hash,
+        std::span{g_monad_evmt_event_metadata}}};
 
 #if defined(__clang__)
     #pragma GCC diagnostic pop
