@@ -70,6 +70,7 @@ public:
     Command *build_info_command(InfoCommandOptions const &);
     Command *build_record_command(RecordCommandOptions const &);
     Command *build_recordexec_command(RecordExecCommandOptions const &);
+    Command *build_recordtrace_command(RecordTraceCommandOptions const &);
     Command *build_sectiondump_command(SectionDumpCommandOptions const &);
     Command *build_snapshot_command(SnapshotCommandOptions const &);
 

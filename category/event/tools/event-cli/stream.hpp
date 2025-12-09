@@ -98,6 +98,7 @@ extern StreamObserverOps const dump_ops;
 extern StreamObserverOps const execstat_ops;
 extern StreamObserverOps const record_ops;
 extern StreamObserverOps const recordexec_ops;
+extern StreamObserverOps const recordtrace_ops;
 extern StreamObserverOps const snapshot_ops;
 
 constexpr StreamObserverOps const *get_stream_observer_ops(Command::Type type)
@@ -116,6 +117,8 @@ constexpr StreamObserverOps const *get_stream_observer_ops(Command::Type type)
         return &record_ops;
     case RecordExec:
         return &recordexec_ops;
+    case RecordTrace:
+        return &recordtrace_ops;
     case Snapshot:
         return &snapshot_ops;
     default:

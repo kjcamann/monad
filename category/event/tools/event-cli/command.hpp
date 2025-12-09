@@ -133,6 +133,7 @@ struct Command
         Info,
         Record,
         RecordExec,
+        RecordTrace,
         SectionDump,
         Snapshot,
     };
@@ -178,6 +179,8 @@ struct Command
             return std::same_as<T, RecordCommandOptions> ? cast : nullptr;
         case Type::RecordExec:
             return std::same_as<T, RecordExecCommandOptions> ? cast : nullptr;
+        case Type::RecordTrace:
+            return std::same_as<T, RecordTraceCommandOptions> ? cast : nullptr;
         case Type::SectionDump:
             return std::same_as<T, SectionDumpCommandOptions> ? cast : nullptr;
         case Type::Snapshot:
@@ -218,6 +221,8 @@ constexpr char const *describe(Command::Type t)
         return "record";
     case RecordExec:
         return "recordexec";
+    case RecordTrace:
+        return "recordtrace";
     case SectionDump:
         return "sectiondump";
     case Snapshot:
