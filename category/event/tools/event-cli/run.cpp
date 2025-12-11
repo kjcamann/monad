@@ -51,6 +51,8 @@ int run_commands(Topology const topology)
         case Command::Type::SectionDump:
             run_sectiondump_command(command.get());
             break;
+        case Command::Type::VmStat:
+            run_vmstat_command(command.get());
         default:
             break;
         }

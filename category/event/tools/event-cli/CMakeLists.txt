@@ -72,7 +72,8 @@ add_executable(event-cli
   stream.cpp
   stream.hpp
   util.cpp
-  util.hpp)
+  util.hpp
+  vmstat.cpp)
 
 target_compile_definitions(event-cli PRIVATE _GNU_SOURCE)
 target_compile_definitions(event-cli PRIVATE ZSTD_STATIC_LINKING_ONLY)
