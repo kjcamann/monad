@@ -29,9 +29,9 @@
 namespace fs = std::filesystem;
 
 EventIterator::EventIterator()
-    : iter_type{Type::EventRing}
+    : iter_type{Type::BlockArchive}
     , finished{false}
-    , ring{}
+    , archive{}
 {
 }
 

@@ -179,3 +179,9 @@ struct SnapshotCommandOptions
     bool kill_at_end;
     bool erase_timestamps;
 };
+
+// vmstat subcommand
+struct VmStatCommandOptions
+{
+    CommonCommandOptions common_options;
+};

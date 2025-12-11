@@ -905,6 +905,13 @@ CommandBuilder::build_snapshot_command(SnapshotCommandOptions const &opts)
         Command::Type::Snapshot, opts.common_options, /*set_output=*/true);
 }
 
+Command *
+CommandBuilder::build_vmstat_command(VmStatCommandOptions const &opts)
+{
+    return build_basic_command(
+        Command::Type::VmStat, opts.common_options, /*set_output=*/true);
+}
+
 Command *CommandBuilder::build_basic_command(
     Command::Type command_type, CommonCommandOptions const &common_opts,
     bool set_output)

@@ -73,6 +73,7 @@ public:
     Command *build_recordtrace_command(RecordTraceCommandOptions const &);
     Command *build_sectiondump_command(SectionDumpCommandOptions const &);
     Command *build_snapshot_command(SnapshotCommandOptions const &);
+    Command *build_vmstat_command(VmStatCommandOptions const &);
 
 private:
     Command *build_basic_command(

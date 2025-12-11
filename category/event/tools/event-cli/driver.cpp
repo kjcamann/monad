@@ -128,6 +128,7 @@ int main(int argc, char **argv)
     HeadStatCommandOptions headstat_command{};
     InfoCommandOptions info_command{};
     SectionDumpCommandOptions sectiondump_command{};
+    VmStatCommandOptions vmstat_command{};
 
     std::vector<std::pair<std::string, std::string>> input_specs;
     std::vector<std::string> force_live_specs;
@@ -137,7 +138,7 @@ int main(int argc, char **argv)
         "--help-all", "Show full help, including all subcommands");
 
     cli.add_option("-i,--input", input_specs, "Add named event source file")
-        ->type_name("<input-name>:<file-or-ring-type>")
+        ->type_name("<input-name>:<event-source-file>")
         ->type_size(-2)
         ->delimiter(':');
 
@@ -147,8 +148,8 @@ int main(int argc, char **argv)
     cli.add_option(
            "-f,--force-live",
            force_live_specs,
-           "Force event rings to appear alive")
-        ->type_name("<ring-spec>")
+           "Force abandoned event rings to appear alive")
+        ->type_name("<ring>")
         ->delimiter(',');
 
     cli.add_flag(
@@ -629,6 +630,12 @@ along with the process group leader (which is monad-event-cli), e.g.:
 
 The threading model behaves the same as the dump command.)");
 
+    /* vmstat subcommand */
+
+    CLI::App *const vmstat =
+        cli.add_subcommand("vmstat", "Print EVM trace statistics");
+    add_common_options(vmstat, vmstat_command.common_options, "vmstat");
+
     try {
         cli.parse(argc, argv);
     }
@@ -676,6 +683,9 @@ The threading model behaves the same as the dump command.)");
     }
     if (sectiondump->count() > 0) {
         builder.build_sectiondump_command(sectiondump_command);
+    }
+    if (vmstat->count() > 0) {
+        builder.build_vmstat_command(vmstat_command);
     }
 
     return run_commands(builder.finish());
