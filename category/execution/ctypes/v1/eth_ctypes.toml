@@ -76,6 +76,17 @@ blob_versioned_hash_length = {type = "u32", doc = "Length of trailing `blob_vers
 access_list_count = {type = "u32", doc = "# of EIP-2930 AccessList entries"}
 auth_list_count = {type = "u32", doc = "# of EIP-7702 AuthorizationList entries"}
 
+[eth_intrinsic_gas]
+doc = "Components of intrinsic gas (g_0)"
+
+[eth_intrinsic_gas.fields]
+base = {type = "u64", doc = "Base cost of transaction"}
+data = {type = "u64", doc = "Cost of calldata"}
+creation = {type = "u64", doc = "Cost of contract creation"}
+init_code = {type = "u64", doc = "Cost of EIP-3860 initcode metering"}
+access_list = {type = "u64", doc = "Cost of EIP-2930 access list entries"}
+authorizations = {type = "u64", doc = "Cost of EIP-7702 authorizations"}
+
 [eth_txn_receipt]
 doc = """Result of executing a valid transaction
 
