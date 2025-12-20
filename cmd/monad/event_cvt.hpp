@@ -76,6 +76,8 @@ namespace event_cross_validation_test
             Transaction const &, std::vector<CallFrame> &, unsigned txn_num,
             ExpectedDataRecorder *);
 
+        virtual void on_enter(evmc_message const &) override;
+
         virtual void on_finish(uint64_t const gas_used) override;
 
     private:

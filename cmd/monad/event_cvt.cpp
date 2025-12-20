@@ -804,9 +804,18 @@ CVTCallTracer::CVTCallTracer(
 {
 }
 
-void CVTCallTracer::on_finish(uint64_t const gas_used)
+void CVTCallTracer::on_enter(evmc_message const &msg)
 {
-    this->CallTracer::on_finish(gas_used);
+    this->CallTracer::on_enter(msg);
+    // CVT: override the depth == 0 change
+    this->frames_.back().gas = static_cast<uint64_t>(msg.gas);
+}
+
+void CVTCallTracer::on_finish(uint64_t const /*gas_used*/)
+{
+    // this->CallTracer::on_finish(gas_used);
+    // ^ CVT: don't call this; this is what changes the top-level frame gas
+    // accounting, which is correct
     nlohmann::json call_frames_json_array = nlohmann::json::array();
     if (cvt_recorder_ != nullptr) {
         for (CallFrame const &call_frame : this->get_call_frames()) {
