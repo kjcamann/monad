@@ -58,6 +58,12 @@ namespace monad::vm
             runtime_context_->stack_unwind();
         }
 
+        /// Get the opcode tracer if available. Override in derived classes.
+        virtual runtime::OpcodeTracerBase* get_opcode_tracer() const noexcept
+        {
+            return nullptr;
+        }
+
     private:
         [[gnu::always_inline]]
         void rethrow_on_active_exception()

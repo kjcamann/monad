@@ -60,6 +60,7 @@ protected:
     BlockHeader const &header_;
     uint64_t i_;
     RevertTransactionFn revert_transaction_;
+    vm::runtime::OpcodeTracerBase* opcode_tracer_;
 
 public:
     ExecuteTransactionNoValidation(
@@ -68,6 +69,10 @@ public:
         uint64_t i,
         RevertTransactionFn const & = [](Address const &, Transaction const &,
                                          uint64_t, State &) { return false; });
+
+    void set_opcode_tracer(vm::runtime::OpcodeTracerBase* tracer) {
+        opcode_tracer_ = tracer;
+    }
 
     evmc::Result operator()(State &, EvmcHost<traits> &);
 };
@@ -82,6 +87,7 @@ class ExecuteTransaction : public ExecuteTransactionNoValidation<traits>
     using ExecuteTransactionNoValidation<traits>::header_;
     using ExecuteTransactionNoValidation<traits>::i_;
     using ExecuteTransactionNoValidation<traits>::revert_transaction_;
+    using ExecuteTransactionNoValidation<traits>::opcode_tracer_;
 
     BlockHashBuffer const &block_hash_buffer_;
     BlockState &block_state_;
