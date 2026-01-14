@@ -131,7 +131,7 @@ else()
   target_sources(monad_event PRIVATE "../core/event/event_ring_util_posix.c")
 endif()
 
-if(MONAD_EVENT_USE_O_TMPFILE_DEFAULT)
+if(MONAD_EVENT_USE_O_TMPFILE)
   target_sources(monad_event PRIVATE "../execution/ethereum/event/blockcap_archive_linux.c")
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_USE_O_TMPFILE)
 else()
