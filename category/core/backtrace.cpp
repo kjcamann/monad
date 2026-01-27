@@ -13,112 +13,77 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <category/core/assert.h>
 #include <category/core/backtrace.hpp>
 #include <category/core/config.hpp>
 
-#include <boost/stacktrace/frame.hpp>
-#include <boost/stacktrace/safe_dump_to.hpp>
-
-#include <algorithm>
-#include <cstdarg>
 #include <cstddef>
-#include <cstdio>
-#include <cstring>
-#include <memory>
-#include <new> // IWYU pragma: keep
+#include <memory_resource>
 #include <span>
-#include <stdlib.h>
+#include <stacktrace>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 MONAD_NAMESPACE_BEGIN
 
-using backtrace_address = boost::stacktrace::frame::native_frame_ptr_t;
-
-struct alignas(backtrace_address) stack_backtrace_impl final
-    : public stack_backtrace
+struct stack_backtrace_impl final : public stack_backtrace
 {
-    std::span<backtrace_address const> frames;
+    std::pmr::monotonic_buffer_resource storage_buf;
+    std::pmr::polymorphic_allocator<std::stacktrace_entry> stack_entry_alloc;
+    std::pmr::stacktrace stacktrace;
 
-    explicit stack_backtrace_impl(
-        std::span<backtrace_address> const storage) noexcept
+    explicit stack_backtrace_impl(std::span<std::byte> storage)
+        : storage_buf{storage.data(), storage.size()}
+        , stack_entry_alloc{&storage_buf}
+        , stacktrace{std::pmr::stacktrace::current(stack_entry_alloc)}
     {
-        // The count includes a terminating null address. Deep stacks retain
-        // the innermost frames that fit in the supplied storage.
-        size_t const written = boost::stacktrace::safe_dump_to(
-            static_cast<void *>(storage.data()), storage.size_bytes());
-        frames = storage.first(written == 0 ? 0 : written - 1);
     }
 
-    virtual void print(
-        int const fd, unsigned const indent,
-        bool const print_async_signal_unsafe_info) const noexcept override
+    void print(int fd, unsigned indent, bool print_async_signal_unsafe_info)
+        const noexcept override
     {
         char indent_buffer[64];
         memset(indent_buffer, ' ', 64);
         indent_buffer[indent] = 0;
-        auto write = [&](char const *fmt,
-                         ...) __attribute__((format(printf, 2, 3))) {
-            va_list args;
-            va_start(args, fmt);
-            char buffer[1024];
-            // NOTE: sprintf may call malloc, and is not guaranteed async
-            // signal safe. Chances are very good it will be async signal
-            // safe for how we're using it here.
-            auto const written = std::min(
-                size_t(::vsnprintf(buffer, sizeof(buffer), fmt, args)),
-                sizeof(buffer));
-            if (-1 == ::write(fd, buffer, written)) {
-                abort();
-            }
-            va_end(args);
-        };
-        for (auto const *const address : frames) {
-            write("\n%s   %p", indent_buffer, address);
+        for (auto const &frame : stacktrace) {
+            dprintf(fd, "\n%s   %08zx", indent_buffer, frame.native_handle());
         }
         if (print_async_signal_unsafe_info) {
-            write(
+            dprintf(
+                fd,
                 "\n\n%sAttempting async signal unsafe human readable "
                 "stacktrace (this may hang):",
                 indent_buffer);
-            for (auto const *const address : frames) {
-                boost::stacktrace::frame const frame{address};
-                write("\n%s   %p:", indent_buffer, address);
-                write(" %s", frame.name().c_str());
-                if (frame.source_line() > 0) {
-                    write(
-                        "\n%s                   [%s:%zu]",
+            for (std::stacktrace_entry const &e : stacktrace) {
+                dprintf(
+                    fd,
+                    "\n%s   %zu: %s",
+                    indent_buffer,
+                    e.native_handle(),
+                    e.description().c_str());
+                if (e.source_line() > 0) {
+                    dprintf(
+                        fd,
+                        "\n%s                   [%s:%u]",
                         indent_buffer,
-                        frame.source_file().c_str(),
-                        frame.source_line());
+                        e.source_file().c_str(),
+                        e.source_line());
                 }
             }
         }
-        write("\n");
+        dprintf(fd, "\n");
     }
 };
 
 stack_backtrace::ptr
 stack_backtrace::capture(std::span<std::byte> const storage) noexcept
 {
-    void *address = storage.data();
-    size_t remaining = storage.size();
-    if (!std::align(
-            alignof(stack_backtrace_impl),
-            sizeof(stack_backtrace_impl),
-            address,
-            remaining) ||
-        remaining <= sizeof(stack_backtrace_impl)) {
-        ::abort();
-    }
-    size_t const padding = storage.size() - remaining;
-    auto const scratch =
-        storage.subspan(padding + sizeof(stack_backtrace_impl));
-    // alignas on the implementation also aligns the storage immediately
-    // following it, because sizeof includes its trailing padding.
-    size_t const capacity = scratch.size() / sizeof(backtrace_address);
-    auto *const addresses = ::new (scratch.data()) backtrace_address[capacity];
-    return ptr(new (address) stack_backtrace_impl({addresses, capacity}));
+    MONAD_ASSERT(storage.size() > sizeof(stack_backtrace_impl));
+    return ptr(new (storage.data()) stack_backtrace_impl(
+        storage.subspan(sizeof(stack_backtrace_impl))));
 }
 
 extern "C" void monad_stack_backtrace_capture_and_print(
