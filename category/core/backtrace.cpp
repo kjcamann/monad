@@ -16,134 +16,64 @@
 #include <category/core/backtrace.hpp>
 #include <category/core/config.hpp>
 
-#include <boost/stacktrace/detail/frame_decl.hpp>
-#include <boost/stacktrace/stacktrace.hpp>
-
-#include <algorithm>
-#include <cassert>
-#include <cstdarg>
 #include <cstddef>
-#include <cstdio>
-#include <cstring>
-#include <memory>
+#include <memory_resource>
 #include <span>
-#include <stdlib.h>
-#include <type_traits>
+#include <stacktrace>
 
-#include <unistd.h>
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 MONAD_NAMESPACE_BEGIN
 
-namespace detail
-{
-    template <class T>
-    class FixedBufferAllocator
-    {
-        template <class U>
-        friend class FixedBufferAllocator;
-
-        std::span<std::byte> const buffer;
-        std::byte *&p;
-
-    public:
-        using value_type = T;
-        using size_type = std::size_t;
-        using difference_type = std::ptrdiff_t;
-        using propagate_on_container_move_assignment = std::true_type;
-        using is_always_equal = std::true_type;
-
-        constexpr FixedBufferAllocator(
-            std::span<std::byte> buffer_, std::byte *&p_)
-            : buffer(buffer_)
-            , p(p_)
-        {
-            p = buffer.data();
-        }
-
-        template <class U>
-        constexpr FixedBufferAllocator( // NOLINT
-            FixedBufferAllocator<U> const &o)
-            : buffer(o.buffer)
-            , p(o.p)
-        {
-        }
-
-        [[nodiscard]] constexpr value_type *allocate(std::size_t n)
-        {
-            auto *newp = p + sizeof(value_type) * n;
-            assert(size_t(newp - buffer.data()) <= buffer.size());
-            auto *ret = reinterpret_cast<value_type *>(p);
-            p = newp;
-            return ret;
-        }
-
-        constexpr void deallocate(value_type *, std::size_t) {}
-    };
-}
-
 struct stack_backtrace_impl final : public stack_backtrace
 {
-    using byte_allocator_type = detail::FixedBufferAllocator<std::byte>;
-    using stacktrace_allocator_type =
-        std::allocator_traits<byte_allocator_type>::rebind_alloc<
-            ::boost::stacktrace::stacktrace::allocator_type::value_type>;
-    using stacktrace_implementation_type =
-        ::boost::stacktrace::basic_stacktrace<stacktrace_allocator_type>;
-
-    std::byte *storage_end{nullptr};
-    byte_allocator_type main_alloc;
-    stacktrace_implementation_type stacktrace;
+    std::pmr::monotonic_buffer_resource storage_buf;
+    std::pmr::polymorphic_allocator<std::stacktrace_entry> stack_entry_alloc;
+    std::pmr::stacktrace stacktrace;
 
     explicit stack_backtrace_impl(std::span<std::byte> storage)
-        : main_alloc(storage, storage_end)
-        , stacktrace(stacktrace_allocator_type{main_alloc})
+        : storage_buf{storage.data(), storage.size()}
+        , stack_entry_alloc{&storage_buf}
+        , stacktrace{std::pmr::stacktrace::current(stack_entry_alloc)}
     {
     }
 
-    virtual void print(
-        int fd, unsigned indent,
-        bool print_async_signal_unsafe_info) const noexcept override
+    void print(int fd, unsigned indent, bool print_async_signal_unsafe_info)
+        const noexcept override
     {
         char indent_buffer[64];
         memset(indent_buffer, ' ', 64);
         indent_buffer[indent] = 0;
-        auto write = [&](char const *fmt,
-                         ...) __attribute__((format(printf, 2, 3))) {
-            va_list args;
-            va_start(args, fmt);
-            char buffer[1024];
-            // NOTE: sprintf may call malloc, and is not guaranteed async
-            // signal safe. Chances are very good it will be async signal
-            // safe for how we're using it here.
-            auto const written = std::min(
-                size_t(::vsnprintf(buffer, sizeof(buffer), fmt, args)),
-                sizeof(buffer));
-            if (-1 == ::write(fd, buffer, written)) {
-                abort();
-            }
-            va_end(args);
-        };
         for (auto const &frame : stacktrace) {
-            write("\n%s   %p", indent_buffer, frame.address());
+            dprintf(fd, "\n%s   %08zx", indent_buffer, frame.native_handle());
         }
         if (print_async_signal_unsafe_info) {
-            write(
+            dprintf(
+                fd,
                 "\n\n%sAttempting async signal unsafe human readable "
                 "stacktrace (this may hang):",
                 indent_buffer);
-            for (auto const &frame : stacktrace) {
-                write("\n%s   %p:", indent_buffer, frame.address());
-                write(" %s", frame.name().c_str());
-                if (frame.source_line() > 0) {
-                    write(
-                        "\n%s                   [%s:%zu]",
+            for (std::stacktrace_entry const &e : stacktrace) {
+                dprintf(
+                    fd,
+                    "\n%s   %zu: %s",
+                    indent_buffer,
+                    e.native_handle(),
+                    e.description().c_str());
+                if (e.source_line() > 0) {
+                    dprintf(
+                        fd,
+                        "\n%s                   [%s:%u]",
                         indent_buffer,
-                        frame.source_file().c_str(),
-                        frame.source_line());
+                        e.source_file().c_str(),
+                        e.source_line());
                 }
             }
         }
-        write("\n");
+        dprintf(fd, "\n");
     }
 };
 
