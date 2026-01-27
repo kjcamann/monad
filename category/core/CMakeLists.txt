@@ -33,8 +33,8 @@ include("cmake/find_our_dependency.cmake")
 
 find_package(
   Boost CONFIG REQUIRED
-  COMPONENTS context fiber stacktrace_basic
-  OPTIONAL_COMPONENTS stacktrace_backtrace)
+  COMPONENTS context fiber
+  OPTIONAL_COMPONENTS stacktrace_basic stacktrace_backtrace)
 
 function(check_if_boost_fiber_needs_ucontext_macro)
   set(prog
@@ -72,7 +72,6 @@ add_library(
   # core
   "assert.c"
   "assert.h"
-  "backtrace.cpp"
   "backtrace.hpp"
   "basic_formatter.hpp"
   "blake3.hpp"
@@ -195,14 +194,23 @@ if(MONAD_CORE_FORCE_DEBUG_ASSERT)
   target_compile_definitions(monad_core PUBLIC "MONAD_CORE_FORCE_DEBUG_ASSERT")
 endif()
 
-target_compile_definitions(monad_core PRIVATE "BOOST_STACKTRACE_LINK=1")
 if(TARGET Boost::stacktrace_backtrace)
+  target_compile_definitions(monad_core PRIVATE "BOOST_STACKTRACE_LINK=1")
   target_compile_definitions(monad_core
                              PRIVATE BOOST_STACKTRACE_USE_BACKTRACE=1)
+  target_sources(monad_core PRIVATE "backtrace_boost.cpp")
   target_link_libraries(monad_core PRIVATE Boost::stacktrace_backtrace)
-else()
+elseif(TARGET Boost::stacktrace_basic)
+  target_compile_definitions(monad_core PRIVATE "BOOST_STACKTRACE_LINK=1")
   message(WARNING "using suboptimal basic backtrace library")
+  target_sources(monad_core PRIVATE "backtrace_boost.cpp")
   target_link_libraries(monad_core PRIVATE Boost::stacktrace_basic)
+elseif(CXX_STDLIB_IS_LIBSTDCXX)
+  message(WARNING "using std C++ backtrace library")
+  target_sources(monad_core PRIVATE "backtrace_stdcxx.cpp")
+  target_link_libraries(monad_core PRIVATE -lstdc++exp)
+else()
+  message(FATAL_ERROR "no backtrace implementation available")
 endif()
 
 target_link_libraries(monad_core PUBLIC ankerl_hash)
