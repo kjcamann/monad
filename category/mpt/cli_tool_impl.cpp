@@ -36,7 +36,6 @@
 #include <evmc/hex.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <bit>
 #include <cctype>
 #include <cerrno>
@@ -52,6 +51,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -65,8 +65,6 @@
 
 #include <archive.h>
 #include <archive_entry.h>
-#include <bits/time.h>
-#include <bits/types/struct_sched_param.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
