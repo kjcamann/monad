@@ -43,15 +43,21 @@
 
 #include <quill/Quill.h>
 
-#include <asm-generic/ioctl.h>
 #include <fcntl.h>
 #include <linux/falloc.h>
+#include <linux/fs.h>
 #include <linux/limits.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <unistd.h>
+
+#if defined(__GLIBC__)
+using ioctl_op_t = unsigned long;
+#else
+using ioctl_op_t = int;
+#endif
 
 MONAD_ASYNC_NAMESPACE_BEGIN
 
@@ -109,9 +115,7 @@ std::pair<file_offset_t, file_offset_t> storage_pool::device_t::capacity() const
         used += metadata_->chunk_capacity;
         MONAD_ASSERT_PRINTF(
             !ioctl(
-                readwritefd_,
-                _IOR(0x12, 114, size_t) /*BLKGETSIZE64*/,
-                &capacity),
+                readwritefd_, static_cast<ioctl_op_t>(BLKGETSIZE64), &capacity),
             "failed due to %s",
             std::strerror(errno));
         auto const chunks = this->chunks();
@@ -211,8 +215,8 @@ storage_pool::chunk_t::clone_contents_into(chunk_t &other, uint32_t bytes)
     bytes = std::min(uint32_t(size()), bytes);
     auto const rdfd = read_fd();
     auto const wrfd = other.write_fd(bytes);
-    auto off_in = off64_t(rdfd.second);
-    auto off_out = off64_t(wrfd.second);
+    auto off_in = off_t(rdfd.second);
+    auto off_out = off_t(wrfd.second);
     auto bytescopied =
         copy_file_range(rdfd.first, &off_in, wrfd.first, &off_out, bytes, 0);
     if (bytescopied == -1) {
@@ -309,7 +313,7 @@ bool storage_pool::chunk_t::try_trim_contents(uint32_t bytes)
             MONAD_ASSERT(range[1] <= capacity_);
             MONAD_ASSERT((range[1] & (DISK_PAGE_SIZE - 1)) == 0);
             MONAD_ASSERT_PRINTF(
-                !ioctl(write_fd_, _IO(0x12, 119) /*BLKDISCARD*/, &range),
+                !ioctl(write_fd_, static_cast<ioctl_op_t>(BLKDISCARD), &range),
                 "failed due to %s",
                 std::strerror(errno));
         }
@@ -368,7 +372,7 @@ storage_pool::device_t storage_pool::make_device_(
         MONAD_ASSERT_PRINTF(
             !ioctl(
                 readwritefd,
-                _IOR(0x12, 114, size_t) /*BLKGETSIZE64*/,
+                static_cast<ioctl_op_t>(BLKGETSIZE64),
                 &stat.st_size),
             "failed due to %s",
             std::strerror(errno));
@@ -434,7 +438,10 @@ storage_pool::device_t storage_pool::make_device_(
                 break;
             case device_t::type_t_::block_device: {
                 uint64_t range[2] = {0, uint64_t(stat.st_size)};
-                if (ioctl(readwritefd, _IO(0x12, 119) /*BLKDISCARD*/, &range)) {
+                if (ioctl(
+                        readwritefd,
+                        static_cast<ioctl_op_t>(BLKDISCARD),
+                        &range)) {
                     MONAD_ABORT_PRINTF(
                         "ioctl failed due to %s", std::strerror(errno));
                 }
