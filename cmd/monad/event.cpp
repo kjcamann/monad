@@ -51,6 +51,22 @@
 
 namespace fs = std::filesystem;
 
+#if defined(MONAD_SYSCALL_RENAMEAT2)
+
+    #include <sys/syscall.h>
+
+    #define RENAME_NOREPLACE (1 << 0)
+
+extern "C" int renameat2(
+    int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
+    unsigned int flags)
+{
+    return (int)syscall(
+        SYS_renameat2, olddirfd, oldpath, newdirfd, newpath, flags);
+}
+
+#endif // defined(MONAD_SYSCALL_RENAMEAT2)
+
 MONAD_ANONYMOUS_NAMESPACE_BEGIN
 
 template <std::integral I>

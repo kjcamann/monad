@@ -15,6 +15,13 @@
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
+include(CheckSymbolExists)
+
+# musl libc 1.2.5 (the most recent release) does not wrap this new
+# syscall yet
+set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+check_symbol_exists(renameat2 "stdio.h" LIBC_HAS_RENAMEAT2)
+
 find_package(CLI11 REQUIRED)
 
 add_executable(
@@ -52,6 +59,10 @@ endif()
 target_compile_definitions(monad PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
 target_compile_definitions(monad-cli
                            PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
+if(NOT LIBC_HAS_RENAMEAT2)
+  target_compile_definitions(monad PRIVATE MONAD_SYSCALL_RENAMEAT2)
+endif()
 
 add_subdirectory(vm/parser)
 
