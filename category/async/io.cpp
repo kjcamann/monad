@@ -46,41 +46,68 @@
 #include <memory>
 #include <ostream>
 #include <span>
-#include <sys/poll.h>
 #include <utility>
 #include <vector>
 
 #include <stdlib.h>
 #include <string.h>
 
-#include <bits/types/struct_iovec.h>
 #include <fcntl.h>
 #include <liburing.h>
 #include <liburing/io_uring.h>
 #include <linux/ioprio.h>
 #include <poll.h>
 #include <sys/resource.h> // for setrlimit
+#include <sys/types.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
-#define MONAD_ASYNC_IO_URING_RETRYABLE2(unique, ...)                           \
-    ({                                                                         \
-        int unique;                                                            \
-        for (;;) {                                                             \
-            unique = (__VA_ARGS__);                                            \
-            if (unique < 0) {                                                  \
-                if (unique == -EINTR) {                                        \
-                    continue;                                                  \
+#if defined(__GLIBC__)
+
+    #define MONAD_ASYNC_IO_URING_RETRYABLE2(unique, ...)                       \
+        ({                                                                     \
+            int unique;                                                        \
+            for (;;) {                                                         \
+                unique = (__VA_ARGS__);                                        \
+                if (unique < 0) {                                              \
+                    if (unique == -EINTR) {                                    \
+                        continue;                                              \
+                    }                                                          \
+                    char buffer[256] = "unknown error";                        \
+                    if (strerror_r(-unique, buffer, 256) != nullptr) {         \
+                        buffer[255] = 0;                                       \
+                    }                                                          \
+                    MONAD_ABORT_PRINTF("FATAL: %s", buffer)                    \
                 }                                                              \
-                char buffer[256] = "unknown error";                            \
-                if (strerror_r(-unique, buffer, 256) != nullptr) {             \
-                    buffer[255] = 0;                                           \
-                }                                                              \
-                MONAD_ABORT_PRINTF("FATAL: %s", buffer)                        \
+                break;                                                         \
             }                                                                  \
-            break;                                                             \
-        }                                                                      \
-        unique;                                                                \
-    })
+            unique;                                                            \
+        })
+
+#else // defined(__GLIBC__)
+
+    #define MONAD_ASYNC_IO_URING_RETRYABLE2(unique, ...)                       \
+        ({                                                                     \
+            int unique;                                                        \
+            for (;;) {                                                         \
+                unique = (__VA_ARGS__);                                        \
+                if (unique < 0) {                                              \
+                    if (unique == -EINTR) {                                    \
+                        continue;                                              \
+                    }                                                          \
+                    char buffer[256] = "unknown error";                        \
+                    if (strerror_r(-unique, buffer, 256) != 0) {               \
+                        buffer[255] = 0;                                       \
+                    }                                                          \
+                    MONAD_ABORT_PRINTF("FATAL: %s", buffer)                    \
+                }                                                              \
+                break;                                                         \
+            }                                                                  \
+            unique;                                                            \
+        })
+
+#endif // defined(__GLIBC__)
+
 #define MONAD_ASYNC_IO_URING_RETRYABLE(...)                                    \
     MONAD_ASYNC_IO_URING_RETRYABLE2(BOOST_OUTCOME_TRY_UNIQUE_NAME, __VA_ARGS__)
 
@@ -743,9 +770,9 @@ void AsyncIO::dump_fd_to(size_t which, std::filesystem::path const &path)
         tofd != -1, "creat failed due to %s", std::strerror(errno));
     auto const untodfd = make_scope_exit([tofd]() noexcept { ::close(tofd); });
     auto const fromfd = seq_chunks_[which].chunk.read_fd();
-    MONAD_ASSERT(fromfd.second <= std::numeric_limits<off64_t>::max());
-    off64_t off_in = static_cast<off64_t>(fromfd.second);
-    off64_t off_out = 0;
+    MONAD_ASSERT(fromfd.second <= std::numeric_limits<off_t>::max());
+    off_t off_in = static_cast<off_t>(fromfd.second);
+    off_t off_out = 0;
     auto const copied = copy_file_range(
         fromfd.first,
         &off_in,
