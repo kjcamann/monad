@@ -31,7 +31,6 @@
 
 #include <gtest/gtest.h>
 
-#include <bits/time.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>

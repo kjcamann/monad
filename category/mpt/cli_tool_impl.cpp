@@ -69,8 +69,6 @@
 
 #include <archive.h>
 #include <archive_entry.h>
-#include <bits/time.h>
-#include <bits/types/struct_sched_param.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>

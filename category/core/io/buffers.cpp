@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <bits/types/struct_iovec.h>
 #include <category/core/io/buffers.hpp>
 
 #include <category/core/assert.h>
@@ -22,6 +21,7 @@
 #include <category/core/io/ring.hpp>
 
 #include <liburing.h>
+#include <sys/uio.h>
 
 #include <bit>
 #include <cstddef>
@@ -68,7 +68,7 @@ Buffers::Buffers(
                 io_uring_register_buffers(ring, iovecs, nr_iovecs);
             errcode < 0) {
             std::cerr
-                << "FATAL: io_uring_register_buffers in buffer.cpp at line "
+                << "FATAL: io_uring_register_buffers in buffers.cpp at line "
                 << loc.line() << " failed with '" << strerror(-errcode)
                 << "'. iovecs[0] = { " << iovecs[0].iov_base << ", "
                 << iovecs[0].iov_len << " }" << std::endl;
