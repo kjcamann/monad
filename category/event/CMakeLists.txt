@@ -104,6 +104,20 @@ if(APPLE OR NOT LIBC_HAS_STDBIT)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/os-compat>
     $<INSTALL_INTERFACE:include>)
 
+  if(APPLE)
+    target_sources(monad_event_os_compat PRIVATE
+      "os-compat/memfd_create.c"
+      "os-compat/posix_fallocate.c")
+
+    target_sources(monad_event_os_compat PUBLIC
+      FILE_SET event_headers_os_compat
+      TYPE HEADERS
+      BASE_DIRS "./os-compat"
+      FILES
+      "./os-compat/fcntl.h"
+      "./os-compat/sys/mman.h")
+  endif()
+
   if(NOT LIBC_HAS_STDBIT)
     target_sources(monad_event_os_compat PUBLIC
       FILE_SET event_headers_os_compat
