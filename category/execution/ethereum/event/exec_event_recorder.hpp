@@ -267,6 +267,30 @@ ReservedExecEvent<T> ExecutionEventRecorder::reserve_block_event(
     event->content_ext[MONAD_FLOW_TXN_ID] = 0;
     event->content_ext[MONAD_FLOW_ACCOUNT_INDEX] = 0;
 
+    // TODO(ken): remove the memset(3) below if the C++ standard evolves
+    //
+    // Both the C23 and C++20 standards specify that an initialization of the
+    // form `S s = {}` will zero-initialize the entire bit representation of
+    // the aggregate `S`, including padding bits. As of C23 and C++26, neither
+    // specifies what happens to the padding bits if any designated
+    // initializers are present. Designated initializers in aggregates is
+    // how the memory of `payload_buf` is usually initialized and the execution
+    // events ABI requires all padding bits to be zeroed.
+    //
+    // 1. As an extension, clang-20 and later always explicitly zero-initialize
+    //    padding bits, but only in C23 and not C++, see:
+    //    https://clang.llvm.org/docs/LanguageExtensions.html#union-and-aggregate-initialization-in-c
+    //    https://github.com/llvm/llvm-project/commit/7a086e1b2dc05f54afae3591614feede727601fa
+    //
+    // 2. In gcc, zero-init of padding bits can be guaranteed in both languages,
+    //    in all contexts, via -fzero-init-padding-bits=all; this is both
+    //    too heavy-handed and doesn't work in clang++
+    //
+    // If at some point, the clang C extension behavior becomes standard, then
+    // the below memset(3) can be removed. Because the current function is
+    // inlineable, the dead stores created by this memset are eliminated, and
+    // it has minimal performance impact.
+    memset(payload_buf, 0, sizeof(T));
     return {event, reinterpret_cast<T *>(payload_buf), seqno};
 }
 
