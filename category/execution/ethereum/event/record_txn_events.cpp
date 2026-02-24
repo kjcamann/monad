@@ -52,27 +52,29 @@ void init_txn_header_start(
     Transaction const &txn, Address const &sender,
     monad_exec_txn_header_start *const event)
 {
-    event->txn_hash = to_bytes(keccak256(rlp::encode_transaction(txn)));
-    event->sender = sender;
-    auto &header = event->txn_header;
-    header.nonce = txn.nonce;
-    header.gas_limit = txn.gas_limit;
-    header.max_fee_per_gas = txn.max_fee_per_gas;
-    header.max_priority_fee_per_gas = txn.max_priority_fee_per_gas;
-    header.value = txn.value;
-    header.to = txn.to ? *txn.to : Address{};
-    header.is_contract_creation = !txn.to;
-    header.txn_type = std::bit_cast<monad_c_transaction_type>(txn.type);
-    header.r = txn.sc.r;
-    header.s = txn.sc.s;
-    header.y_parity = txn.sc.y_parity == 1;
-    header.chain_id = txn.sc.chain_id.value_or(0);
-    header.data_length = static_cast<uint32_t>(txn.data.size());
-    header.blob_versioned_hash_length =
-        static_cast<uint32_t>(txn.blob_versioned_hashes.size());
-    header.access_list_count = static_cast<uint32_t>(txn.access_list.size());
-    header.auth_list_count =
-        static_cast<uint32_t>(txn.authorization_list.size());
+    *event = monad_exec_txn_header_start{
+        .txn_hash = to_bytes(keccak256(rlp::encode_transaction(txn))),
+        .sender = sender,
+        .txn_header = {
+            .txn_type = std::bit_cast<monad_c_transaction_type>(txn.type),
+            .chain_id = txn.sc.chain_id.value_or(0),
+            .nonce = txn.nonce,
+            .gas_limit = txn.gas_limit,
+            .max_fee_per_gas = txn.max_fee_per_gas,
+            .max_priority_fee_per_gas = txn.max_priority_fee_per_gas,
+            .value = txn.value,
+            .to = txn.to ? *txn.to : Address{},
+            .is_contract_creation = !txn.to,
+            .r = txn.sc.r,
+            .s = txn.sc.s,
+            .y_parity = txn.sc.y_parity == 1,
+            .max_fee_per_blob_gas = txn.max_fee_per_blob_gas,
+            .data_length = static_cast<uint32_t>(txn.data.size()),
+            .blob_versioned_hash_length =
+                static_cast<uint32_t>(txn.blob_versioned_hashes.size()),
+            .access_list_count = static_cast<uint32_t>(txn.access_list.size()),
+            .auth_list_count =
+                static_cast<uint32_t>(txn.authorization_list.size())}};
 }
 
 // Tracks information about an accessed account, including (1) the prestate and
