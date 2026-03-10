@@ -505,14 +505,11 @@ Node::SharedPtr create_node_from_children_if_any(
                     aux.physical_to_virtual(child.offset);
                 MONAD_DEBUG_ASSERT(
                     child_virtual_offset != INVALID_VIRTUAL_OFFSET);
-                std::tie(child.min_offset_fast, child.min_offset_slow) =
+                child.min_offsets =
                     calc_min_offsets(*child.ptr, child_virtual_offset);
-                if (sm.compact()) {
-                    MONAD_DEBUG_ASSERT(
-                        child.min_offset_fast >= aux.compact_offset_fast);
-                    MONAD_DEBUG_ASSERT(
-                        child.min_offset_slow >= aux.compact_offset_slow);
-                }
+                MONAD_DEBUG_ASSERT(
+                    !(sm.compact() &&
+                      child.min_offsets.any_below(aux.compact_offsets)));
             }
             // apply cache based on state machine state, always cache node that
             // is a single child
@@ -945,10 +942,7 @@ void dispatch_updates_impl_(
                 }
                 else if (
                     sm.compact() &&
-                    (child.min_offset_fast < aux.compact_offset_fast ||
-                     child.min_offset_slow < aux.compact_offset_slow)) {
-                    bool const copy_node_for_fast =
-                        child.min_offset_fast < aux.compact_offset_fast;
+                    child.min_offsets.any_below(aux.compact_offsets)) {
                     auto compact_tnode = CompactTNode::make(
                         tnode.get(), index, std::move(child.ptr));
                     compact_(
@@ -956,7 +950,7 @@ void dispatch_updates_impl_(
                         sm,
                         std::move(compact_tnode),
                         child.offset,
-                        copy_node_for_fast);
+                        child.min_offsets.fast_below(aux.compact_offsets));
                 }
                 else {
                     --tnode->npending;
@@ -1048,15 +1042,12 @@ void mismatch_handler_(
                         tnode.get(), branch, index, std::move(child.ptr));
                     expire_(aux, sm, std::move(expire_tnode), INVALID_OFFSET);
                 }
-                else if (auto const [min_offset_fast, min_offset_slow] =
+                else if (auto const child_min_offsets =
                              calc_min_offsets(*child.ptr);
                          // same as old, TODO: can optimize by passing in the
                          // min offsets stored in old's parent
                          sm.compact() &&
-                         (min_offset_fast < aux.compact_offset_fast ||
-                          min_offset_slow < aux.compact_offset_slow)) {
-                    bool const copy_node_for_fast =
-                        min_offset_fast < aux.compact_offset_fast;
+                         child_min_offsets.any_below(aux.compact_offsets)) {
                     auto compact_tnode = CompactTNode::make(
                         tnode.get(), index, std::move(child.ptr));
                     compact_(
@@ -1064,7 +1055,7 @@ void mismatch_handler_(
                         sm,
                         std::move(compact_tnode),
                         INVALID_OFFSET,
-                        copy_node_for_fast);
+                        child_min_offsets.fast_below(aux.compact_offsets));
                 }
                 else {
                     --tnode->npending;
@@ -1144,9 +1135,8 @@ void expire_(
                 tnode.get(), branch, index, node.move_next(index));
             expire_(aux, sm, std::move(child_tnode), node.fnext(index));
         }
-        else if (
-            node.min_offset_fast(index) < aux.compact_offset_fast ||
-            node.min_offset_slow(index) < aux.compact_offset_slow) {
+        else if (auto const child_min_offsets = node.min_offsets(index);
+                 child_min_offsets.any_below(aux.compact_offsets)) {
             auto child_tnode =
                 CompactTNode::make(tnode.get(), index, node.move_next(index));
             compact_(
@@ -1154,7 +1144,7 @@ void expire_(
                 sm,
                 std::move(child_tnode),
                 node.fnext(index),
-                node.min_offset_fast(index) < aux.compact_offset_fast);
+                child_min_offsets.fast_below(aux.compact_offsets));
         }
         else {
             --tnode->npending;
@@ -1181,11 +1171,11 @@ void fillin_parent_after_expiration(
         auto const new_node_virtual_offset =
             aux.physical_to_virtual(new_offset);
         MONAD_DEBUG_ASSERT(new_node_virtual_offset != INVALID_VIRTUAL_OFFSET);
-        auto const &[min_offset_fast, min_offset_slow] =
+        auto const min_offsets =
             calc_min_offsets(*new_node, new_node_virtual_offset);
         MONAD_DEBUG_ASSERT(
-            min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET ||
-            min_offset_slow != INVALID_COMPACT_VIRTUAL_OFFSET);
+            min_offsets.fast != INVALID_COMPACT_VIRTUAL_OFFSET ||
+            min_offsets.slow != INVALID_COMPACT_VIRTUAL_OFFSET);
         auto const min_version = calc_min_version(*new_node);
         MONAD_ASSERT(min_version >= aux.curr_upsert_auto_expire_version);
         if (parent->type == tnode_type::update) {
@@ -1194,8 +1184,7 @@ void fillin_parent_after_expiration(
             child.offset = new_offset;
             MONAD_DEBUG_ASSERT(cache_node);
             child.ptr = std::move(new_node);
-            child.min_offset_fast = min_offset_fast;
-            child.min_offset_slow = min_offset_slow;
+            child.min_offsets = min_offsets;
             child.subtrie_min_version = min_version;
         }
         else {
@@ -1206,8 +1195,7 @@ void fillin_parent_after_expiration(
             }
             expire_parent->node->set_next(index, std::move(new_node));
             expire_parent->node->set_subtrie_min_version(index, min_version);
-            expire_parent->node->set_min_offset_fast(index, min_offset_fast);
-            expire_parent->node->set_min_offset_slow(index, min_offset_slow);
+            expire_parent->node->set_min_offsets(index, min_offsets);
             expire_parent->node->set_fnext(index, new_offset);
         }
     }
@@ -1297,10 +1285,10 @@ void compact_(
         }
         compact_virtual_chunk_offset_t const compacted_virtual_offset{
             virtual_node_offset};
-        return (virtual_node_offset.in_fast_list() &&
-                compacted_virtual_offset >= aux.compact_offset_fast) ||
-               (!virtual_node_offset.in_fast_list() &&
-                compacted_virtual_offset >= aux.compact_offset_slow);
+        auto const threshold = virtual_node_offset.in_fast_list()
+                                   ? aux.compact_offsets.fast
+                                   : aux.compact_offsets.slow;
+        return compacted_virtual_offset >= threshold;
     }();
 
     Node &node = *tnode->node;
@@ -1312,8 +1300,8 @@ void compact_(
         node.get_disk_size());
 
     for (unsigned j = 0; j < node.number_of_children(); ++j) {
-        if (node.min_offset_fast(j) < aux.compact_offset_fast ||
-            node.min_offset_slow(j) < aux.compact_offset_slow) {
+        if (auto const child_min_offsets = node.min_offsets(j);
+            child_min_offsets.any_below(aux.compact_offsets)) {
             auto child_tnode =
                 CompactTNode::make(tnode.get(), j, node.move_next(j));
             compact_(
@@ -1321,7 +1309,7 @@ void compact_(
                 sm,
                 std::move(child_tnode),
                 node.fnext(j),
-                node.min_offset_fast(j) < aux.compact_offset_fast);
+                child_min_offsets.fast_below(aux.compact_offsets));
         }
         else {
             --tnode->npending;
@@ -1339,10 +1327,9 @@ void try_fillin_parent_with_rewritten_node(
         tnode.release();
         return;
     }
-    auto [min_offset_fast, min_offset_slow] =
-        calc_min_offsets(*tnode->node, INVALID_VIRTUAL_OFFSET);
+    auto min_offsets = calc_min_offsets(*tnode->node, INVALID_VIRTUAL_OFFSET);
     // If subtrie contains nodes from fast list, write itself to fast list too
-    if (min_offset_fast != INVALID_COMPACT_VIRTUAL_OFFSET) {
+    if (min_offsets.fast != INVALID_COMPACT_VIRTUAL_OFFSET) {
         tnode->rewrite_to_fast = true; // override that
     }
     auto const new_offset =
@@ -1353,15 +1340,14 @@ void try_fillin_parent_with_rewritten_node(
         new_node_virtual_offset};
     // update min offsets in subtrie
     if (tnode->rewrite_to_fast) {
-        min_offset_fast =
-            std::min(min_offset_fast, truncated_new_virtual_offset);
+        min_offsets.fast =
+            std::min(min_offsets.fast, truncated_new_virtual_offset);
     }
     else {
-        min_offset_slow =
-            std::min(min_offset_slow, truncated_new_virtual_offset);
+        min_offsets.slow =
+            std::min(min_offsets.slow, truncated_new_virtual_offset);
     }
-    MONAD_DEBUG_ASSERT(min_offset_fast >= aux.compact_offset_fast);
-    MONAD_DEBUG_ASSERT(min_offset_slow >= aux.compact_offset_slow);
+    MONAD_DEBUG_ASSERT(!min_offsets.any_below(aux.compact_offsets));
     TNodeBase *parent = tnode->parent();
     auto const index = tnode->index;
     if (parent->type == tnode_type::update) {
@@ -1370,15 +1356,13 @@ void try_fillin_parent_with_rewritten_node(
         auto &child = p->children[index];
         child.ptr = std::move(tnode->node);
         child.offset = new_offset;
-        child.min_offset_fast = min_offset_fast;
-        child.min_offset_slow = min_offset_slow;
+        child.min_offsets = min_offsets;
     }
     else if (parent->type == tnode_type::compact) {
         auto *const p = static_cast<CompactTNode *>(parent);
         MONAD_ASSERT(p->node);
         p->node->set_fnext(index, new_offset);
-        p->node->set_min_offset_fast(index, min_offset_fast);
-        p->node->set_min_offset_slow(index, min_offset_slow);
+        p->node->set_min_offsets(index, min_offsets);
         if (tnode->cache_node) {
             p->node->set_next(index, std::move(tnode->node));
         }
@@ -1388,8 +1372,7 @@ void try_fillin_parent_with_rewritten_node(
         auto *const p = static_cast<ExpireTNode *>(parent);
         MONAD_ASSERT(p->node);
         p->node->set_fnext(index, new_offset);
-        p->node->set_min_offset_fast(index, min_offset_fast);
-        p->node->set_min_offset_slow(index, min_offset_slow);
+        p->node->set_min_offsets(index, min_offsets);
         // Delay tnode->node deallocation to parent ExpireTNode
         p->node->set_next(index, std::move(tnode->node));
         if (tnode->cache_node) {

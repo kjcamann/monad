@@ -98,10 +98,9 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
     };
     ensure_total_bytes_written(0, eightMB, 0, eightMB);
 
-    auto [trie_min_offset_fast, trie_min_offset_slow] =
-        calc_min_offsets(*this->root);
-    EXPECT_EQ(trie_min_offset_fast, 0);
-    EXPECT_EQ(trie_min_offset_slow, 0);
+    auto const trie_min_offsets = calc_min_offsets(*this->root);
+    EXPECT_EQ(trie_min_offsets.fast, 0);
+    EXPECT_EQ(trie_min_offsets.slow, 0);
 
     struct TraverseCalculateAndVerifyMinTruncatedOffsets
         : public TraverseMachine
@@ -114,10 +113,7 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
             Node const *node{nullptr};
             // record the calculated min truncated inorder offsets of trie
             // rooted at node in traversal
-            compact_virtual_chunk_offset_t test_min_offset_fast{
-                INVALID_COMPACT_VIRTUAL_OFFSET};
-            compact_virtual_chunk_offset_t test_min_offset_slow{
-                INVALID_COMPACT_VIRTUAL_OFFSET};
+            compact_offset_pair test_min_offsets{};
         };
 
         std::stack<traverse_record_t> root_to_node_records;
@@ -144,18 +140,16 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
                 parent->fnext(parent->to_child_index(branch_in_parent));
             auto const virtual_node_offset =
                 aux.physical_to_virtual(node_offset);
+            compact_offset_pair node_offsets;
             if (virtual_node_offset.in_fast_list()) {
-                root_to_node_records.push(
-                    {&node,
-                     compact_virtual_chunk_offset_t{virtual_node_offset},
-                     INVALID_COMPACT_VIRTUAL_OFFSET});
+                node_offsets.fast =
+                    compact_virtual_chunk_offset_t{virtual_node_offset};
             }
             else {
-                root_to_node_records.push(
-                    {&node,
-                     INVALID_COMPACT_VIRTUAL_OFFSET,
-                     compact_virtual_chunk_offset_t{virtual_node_offset}});
+                node_offsets.slow =
+                    compact_virtual_chunk_offset_t{virtual_node_offset};
             }
+            root_to_node_records.push({&node, node_offsets});
             return true;
         }
 
@@ -168,36 +162,27 @@ TEST_F(OnDiskMerkleTrieGTest, min_truncated_offsets)
             root_to_node_records.pop();
             if (root_to_node_records.empty()) { // node is root
                 // verify that offset equals calculated one in traversal
-                auto [node_branch_min_fast_off, node_branch_min_slow_off] =
-                    calc_min_offsets(
-                        *const_cast<Node *>(&node),
-                        aux.physical_to_virtual(aux.get_latest_root_offset()));
-                EXPECT_EQ(
-                    node_record.test_min_offset_fast, node_branch_min_fast_off);
-                EXPECT_EQ(
-                    node_record.test_min_offset_slow, node_branch_min_slow_off);
+                auto const expected_min_offsets = calc_min_offsets(
+                    *const_cast<Node *>(&node),
+                    aux.physical_to_virtual(aux.get_latest_root_offset()));
+                EXPECT_EQ(node_record.test_min_offsets, expected_min_offsets);
             }
             else {
                 auto &parent_record = root_to_node_records.top();
                 Node *const parent = const_cast<Node *>(parent_record.node);
-                auto const node_branch_min_fast_off = parent->min_offset_fast(
-                    parent->to_child_index(branch_in_parent));
-                auto const node_branch_min_slow_off = parent->min_offset_slow(
+                auto const stored_min_offsets = parent->min_offsets(
                     parent->to_child_index(branch_in_parent));
                 // verify that min offset stored in parent equals the calculated
                 // one during traversal
-                EXPECT_EQ(
-                    node_branch_min_fast_off, node_record.test_min_offset_fast);
-                EXPECT_EQ(
-                    node_branch_min_slow_off, node_record.test_min_offset_slow);
+                EXPECT_EQ(stored_min_offsets, node_record.test_min_offsets);
 
                 // update parent record.
-                parent_record.test_min_offset_fast = std::min(
-                    parent_record.test_min_offset_fast,
-                    node_record.test_min_offset_fast);
-                parent_record.test_min_offset_slow = std::min(
-                    parent_record.test_min_offset_slow,
-                    node_record.test_min_offset_slow);
+                parent_record.test_min_offsets.fast = std::min(
+                    parent_record.test_min_offsets.fast,
+                    node_record.test_min_offsets.fast);
+                parent_record.test_min_offsets.slow = std::min(
+                    parent_record.test_min_offsets.slow,
+                    node_record.test_min_offsets.slow);
             }
         }
 

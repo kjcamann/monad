@@ -254,6 +254,9 @@ public:
     min_offset_slow(unsigned index) const noexcept;
     void set_min_offset_slow(
         unsigned index, compact_virtual_chunk_offset_t) noexcept;
+    //! combined fast/slow min_offset pair
+    compact_offset_pair min_offsets(unsigned index) const noexcept;
+    void set_min_offsets(unsigned index, compact_offset_pair) noexcept;
 
     //! subtrie min version array
     unsigned char *child_min_version_data() noexcept;
@@ -334,10 +337,7 @@ struct ChildData
     chunk_offset_t offset{INVALID_OFFSET}; // physical offsets
     unsigned char data[32] = {0};
     int64_t subtrie_min_version{std::numeric_limits<int64_t>::max()};
-    compact_virtual_chunk_offset_t min_offset_fast{
-        INVALID_COMPACT_VIRTUAL_OFFSET};
-    compact_virtual_chunk_offset_t min_offset_slow{
-        INVALID_COMPACT_VIRTUAL_OFFSET};
+    compact_offset_pair min_offsets{};
 
     uint8_t branch{INVALID_BRANCH};
     uint8_t len{0};

@@ -243,10 +243,8 @@ public:
     static constexpr unsigned cnv_chunks_for_db_metadata = 1;
 
     int64_t curr_upsert_auto_expire_version{0};
-    compact_virtual_chunk_offset_t compact_offset_fast{
-        MIN_COMPACT_VIRTUAL_OFFSET};
-    compact_virtual_chunk_offset_t compact_offset_slow{
-        MIN_COMPACT_VIRTUAL_OFFSET};
+    compact_offset_pair compact_offsets{
+        MIN_COMPACT_VIRTUAL_OFFSET, MIN_COMPACT_VIRTUAL_OFFSET};
 
     // On disk stuff
     MONAD_ASYNC_NAMESPACE::AsyncIO *io{nullptr};
@@ -751,22 +749,20 @@ inline constexpr unsigned num_pages(file_offset_t const offset, unsigned bytes)
     return (bytes + DISK_PAGE_SIZE - 1) >> DISK_PAGE_BITS;
 }
 
-inline std::pair<compact_virtual_chunk_offset_t, compact_virtual_chunk_offset_t>
-calc_min_offsets(
+inline compact_offset_pair calc_min_offsets(
     Node &node,
     virtual_chunk_offset_t node_virtual_offset = INVALID_VIRTUAL_OFFSET)
 {
-    auto fast_ret = INVALID_COMPACT_VIRTUAL_OFFSET;
-    auto slow_ret = INVALID_COMPACT_VIRTUAL_OFFSET;
+    compact_offset_pair ret;
     if (node_virtual_offset != INVALID_VIRTUAL_OFFSET) {
-        auto &ret = node_virtual_offset.in_fast_list() ? fast_ret : slow_ret;
-        ret = compact_virtual_chunk_offset_t{node_virtual_offset};
+        auto &r = node_virtual_offset.in_fast_list() ? ret.fast : ret.slow;
+        r = compact_virtual_chunk_offset_t{node_virtual_offset};
     }
     for (unsigned i = 0; i < node.number_of_children(); ++i) {
-        fast_ret = std::min(fast_ret, node.min_offset_fast(i));
-        slow_ret = std::min(slow_ret, node.min_offset_slow(i));
+        ret.fast = std::min(ret.fast, node.min_offset_fast(i));
+        ret.slow = std::min(ret.slow, node.min_offset_slow(i));
     }
-    return {fast_ret, slow_ret};
+    return ret;
 }
 
 MONAD_MPT_NAMESPACE_END

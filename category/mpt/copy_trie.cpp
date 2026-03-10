@@ -50,9 +50,8 @@ Node::SharedPtr create_node_add_new_branch(
             if (aux.is_on_disk()) {
                 child.offset =
                     async_write_node_set_spare(aux, *child.ptr, true);
-                std::tie(child.min_offset_fast, child.min_offset_slow) =
-                    calc_min_offsets(
-                        *child.ptr, aux.physical_to_virtual(child.offset));
+                child.min_offsets = calc_min_offsets(
+                    *child.ptr, aux.physical_to_virtual(child.offset));
             }
             ++j;
         }
@@ -62,8 +61,7 @@ Node::SharedPtr create_node_add_new_branch(
             child.ptr = node->move_next(old_j);
             child.subtrie_min_version = node->subtrie_min_version(old_j);
             if (aux.is_on_disk()) {
-                child.min_offset_fast = node->min_offset_fast(old_j);
-                child.min_offset_slow = node->min_offset_slow(old_j);
+                child.min_offsets = node->min_offsets(old_j);
                 child.offset = node->fnext(old_j);
                 MONAD_ASSERT(child.offset != INVALID_OFFSET);
             }
@@ -98,8 +96,7 @@ Node::SharedPtr create_node_with_two_children(
         child.branch = branch0;
         if (aux.is_on_disk()) {
             child.offset = async_write_node_set_spare(aux, *child.ptr, true);
-            std::tie(child.min_offset_fast, child.min_offset_slow) =
-                calc_min_offsets(*child.ptr);
+            child.min_offsets = calc_min_offsets(*child.ptr);
         }
     }
     {
@@ -109,8 +106,7 @@ Node::SharedPtr create_node_with_two_children(
         child.branch = branch1;
         if (aux.is_on_disk()) {
             child.offset = async_write_node_set_spare(aux, *child.ptr, true);
-            std::tie(child.min_offset_fast, child.min_offset_slow) =
-                calc_min_offsets(*child.ptr);
+            child.min_offsets = calc_min_offsets(*child.ptr);
         }
     }
     return make_node(
@@ -142,9 +138,8 @@ Node::SharedPtr copy_trie_impl(
         child.subtrie_min_version = calc_min_version(*child.ptr);
         if (aux.is_on_disk()) {
             child.offset = async_write_node_set_spare(aux, *child.ptr, true);
-            std::tie(child.min_offset_fast, child.min_offset_slow) =
-                calc_min_offsets(
-                    *child.ptr, aux.physical_to_virtual(child.offset));
+            child.min_offsets = calc_min_offsets(
+                *child.ptr, aux.physical_to_virtual(child.offset));
         }
         return make_node(
             static_cast<uint16_t>(1u << child.branch),
@@ -273,10 +268,7 @@ Node::SharedPtr copy_trie_impl(
             auto const &[p, i] = parents_and_indexes.top();
             auto &node = *p->next(i);
             p->set_fnext(i, async_write_node_set_spare(aux, node, true));
-            auto const [min_offset_fast, min_offset_slow] =
-                calc_min_offsets(node);
-            p->set_min_offset_fast(i, min_offset_fast);
-            p->set_min_offset_slow(i, min_offset_slow);
+            p->set_min_offsets(i, calc_min_offsets(node));
             p->set_subtrie_min_version(i, calc_min_version(node));
             parents_and_indexes.pop();
         }

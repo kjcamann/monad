@@ -173,6 +173,18 @@ void Node::set_min_offset_slow(
         sizeof(compact_virtual_chunk_offset_t));
 }
 
+compact_offset_pair Node::min_offsets(unsigned const index) const noexcept
+{
+    return {min_offset_fast(index), min_offset_slow(index)};
+}
+
+void Node::set_min_offsets(
+    unsigned const index, compact_offset_pair const offsets) noexcept
+{
+    set_min_offset_fast(index, offsets.fast);
+    set_min_offset_slow(index, offsets.slow);
+}
+
 unsigned char *Node::child_min_version_data() noexcept
 {
     return child_min_offset_slow_data() +
@@ -459,8 +471,7 @@ void ChildData::copy_old_child(Node *const old, unsigned const i)
     MONAD_DEBUG_ASSERT(i < 16);
     branch = static_cast<uint8_t>(i);
     offset = old->fnext(index);
-    min_offset_fast = old->min_offset_fast(index);
-    min_offset_slow = old->min_offset_slow(index);
+    min_offsets = old->min_offsets(index);
     subtrie_min_version = old->subtrie_min_version(index);
     cache_node = ptr != nullptr;
 
@@ -557,8 +568,7 @@ Node::SharedPtr make_node(
     for (unsigned index = 0; auto &child : children) {
         if (child.is_valid()) {
             node->set_fnext(index, child.offset);
-            node->set_min_offset_fast(index, child.min_offset_fast);
-            node->set_min_offset_slow(index, child.min_offset_slow);
+            node->set_min_offsets(index, child.min_offsets);
             node->set_subtrie_min_version(index, child.subtrie_min_version);
             node->set_next(index, std::move(child.ptr));
             node->set_child_data(index, {child.data, child.len});
