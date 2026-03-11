@@ -266,7 +266,8 @@ impl App {
 
         let mut event_reader = event_ring.create_reader();
 
-        let mut block_builder = CommitStateBlockBuilder::new(ExecutedBlockBuilder::new(false));
+        let mut block_builder =
+            CommitStateBlockBuilder::new(ExecutedBlockBuilder::new(false, false));
 
         let tick_rate = Duration::from_millis(100);
         let mut last_tick = Instant::now();
@@ -574,7 +575,12 @@ impl App {
     }
 
     fn render_block(&mut self, frame: &mut Frame<'_>, area: Rect) {
-        let ExecutedBlock { start, end, txns } = self.block_current.as_ref().unwrap().as_ref();
+        let ExecutedBlock {
+            start,
+            end,
+            txns,
+            account_accesses: _,
+        } = self.block_current.as_ref().unwrap().as_ref();
 
         let areas =
             Layout::vertical([Constraint::Length(3), Constraint::Fill(u16::MAX)]).split(area);
