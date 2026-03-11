@@ -24,8 +24,8 @@ pub use self::bindings::{
     monad_exec_block_verified, monad_exec_evm_error, monad_exec_storage_access,
     monad_exec_txn_access_list_entry, monad_exec_txn_auth_list_entry, monad_exec_txn_call_frame,
     monad_exec_txn_evm_output, monad_exec_txn_header_start, monad_exec_txn_log,
-    monad_exec_txn_reject, MONAD_TXN_EIP1559, MONAD_TXN_EIP2930, MONAD_TXN_EIP4844,
-    MONAD_TXN_EIP7702, MONAD_TXN_LEGACY,
+    monad_exec_txn_reject, MONAD_EXEC_EVENT_COUNT, MONAD_TXN_EIP1559, MONAD_TXN_EIP2930,
+    MONAD_TXN_EIP4844, MONAD_TXN_EIP7702, MONAD_TXN_LEGACY,
 };
 pub(crate) use self::bindings::{
     g_monad_exec_event_schema_hash, monad_exec_event_type, MONAD_EXEC_ACCOUNT_ACCESS,
@@ -140,3 +140,20 @@ pub(crate) fn monad_exec_iter_block_id_prev(
 
     success.then_some(c_event_descriptor)
 }
+
+/// The default filename that the execution daemon uses when it creates the
+/// execution events file.
+///
+/// This is just the filename, not the full path: the full path is determined
+/// by the pathname resolution process followed by
+/// [`EventRingPath::resolve`](::monad_event_ring::EventRingPath::resolve). If
+/// a user just wants "the default path" to the live execution events file,
+/// they should resolve this filename.
+pub const DEFAULT_FILE_NAME: &str = unsafe {
+    std::str::from_utf8_unchecked(
+        std::ffi::CStr::from_bytes_with_nul_unchecked(
+            self::bindings::MONAD_EVENT_DEFAULT_EXEC_FILE_NAME,
+        )
+        .to_bytes(),
+    )
+};
