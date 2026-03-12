@@ -226,10 +226,7 @@ try {
     try {
         cli.parse(argc, argv);
     }
-    catch (CLI::CallForHelp const &e) {
-        return cli.exit(e);
-    }
-    catch (CLI::RequiredError const &e) {
+    catch (CLI::ParseError const &e) {
         return cli.exit(e);
     }
 
@@ -510,5 +507,13 @@ try {
 catch (monad::MonadException const &e) {
     LOG_ERROR("MonadException: {}", e.message());
     e.print();
+    return EXIT_FAILURE;
+}
+catch (std::exception const &e) {
+    LOG_ERROR("Unhandled std::exception: {}", e.what());
+    return EXIT_FAILURE;
+}
+catch (...) {
+    LOG_ERROR("Unhandled unknown exception");
     return EXIT_FAILURE;
 }
