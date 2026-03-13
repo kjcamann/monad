@@ -509,11 +509,3 @@ catch (monad::MonadException const &e) {
     e.print();
     return EXIT_FAILURE;
 }
-catch (std::exception const &e) {
-    LOG_ERROR("Unhandled std::exception: {}", e.what());
-    return EXIT_FAILURE;
-}
-catch (...) {
-    LOG_ERROR("Unhandled unknown exception");
-    return EXIT_FAILURE;
-}
