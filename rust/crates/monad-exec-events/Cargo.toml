@@ -13,8 +13,10 @@ alloy-primitives = { workspace = true, optional = true }
 alloy-rpc-types = { workspace = true, optional = true }
 itertools = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+similar = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
+zstd = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -32,9 +34,13 @@ serde_json = { workspace = true }
 strum = { workspace = true }
 
 [features]
-default = []
+default = ["alloy"]
 alloy = ["dep:alloy-consensus", "dep:alloy-eips", "dep:alloy-primitives", "dep:alloy-rpc-types"]
 
 [[bench]]
 name = "snapshot_exec"
 harness = false
+
+[[example]]
+name = "event_cvt_cli"
+required-features = ["alloy"]
