@@ -32,25 +32,52 @@
 
 namespace
 {
-    std::filesystem::path tmp_dbname()
+    struct TempDb
     {
-        std::filesystem::path dbname(
-            MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
-            "monad_db_snapshot_test_XXXXXX");
-        int const fd = ::mkstemp((char *)dbname.native().data());
-        MONAD_ASSERT(fd != -1);
-        MONAD_ASSERT(
-            -1 !=
-            ::ftruncate(fd, static_cast<off_t>(8ULL * 1024 * 1024 * 1024)));
-        ::close(fd);
-        char const *const path = dbname.c_str();
-        monad::OnDiskMachine machine;
-        monad::mpt::Db const db{
-            machine,
-            monad::mpt::OnDiskDbConfig{
-                .append = false, .dbname_paths = {path}}};
-        return dbname;
-    }
+        int fd;
+        std::string path;
+
+        TempDb()
+            : fd{MONAD_ASYNC_NAMESPACE::make_temporary_inode()}
+            , path{"/proc/self/fd/" + std::to_string(fd)}
+        {
+            MONAD_ASSERT(
+                -1 !=
+                ::ftruncate(fd, static_cast<off_t>(8ULL * 1024 * 1024 * 1024)));
+        }
+
+        TempDb(TempDb const &) = delete;
+        TempDb &operator=(TempDb const &) = delete;
+
+        ~TempDb()
+        {
+            ::close(fd);
+        }
+    };
+
+    struct TempDir
+    {
+        std::filesystem::path path;
+
+        TempDir()
+        {
+            std::filesystem::path tmpl =
+                MONAD_ASYNC_NAMESPACE::working_temporary_directory() /
+                "monad_snapshot_test_XXXXXX";
+            char *const result = ::mkdtemp((char *)tmpl.native().data());
+            MONAD_ASSERT(result != nullptr);
+            path = result;
+        }
+
+        TempDir(TempDir const &) = delete;
+        TempDir &operator=(TempDir const &) = delete;
+
+        ~TempDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    };
 }
 
 TEST(DbBinarySnapshot, Basic)
@@ -58,14 +85,16 @@ TEST(DbBinarySnapshot, Basic)
     using namespace monad;
     using namespace monad::mpt;
 
-    auto const src_db = tmp_dbname();
+    TempDb const src_db;
+    TempDb const dest_db;
+    TempDir const snapshot_dir;
 
     bytes32_t root_hash;
     Code code_delta;
     BlockHeader last_header;
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
+        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db.path}}};
         Node::SharedPtr root{};
         for (uint64_t i = 0; i < 100; ++i) {
             root = load_header(std::move(root), db, BlockHeader{.number = i});
@@ -105,13 +134,11 @@ TEST(DbBinarySnapshot, Basic)
         root_hash = tdb.state_root();
     }
 
-    auto const dest_db = tmp_dbname();
     {
-        auto const root = std::filesystem::temp_directory_path() / "snapshot";
         auto *const context =
             monad_db_snapshot_filesystem_write_user_context_create(
-                root.c_str(), 100);
-        char const *dbname_paths[] = {src_db.c_str()};
+                snapshot_dir.path.c_str(), 100);
+        char const *dbname_paths[] = {src_db.path.c_str()};
         EXPECT_TRUE(monad_db_dump_snapshot(
             dbname_paths,
             1,
@@ -125,16 +152,23 @@ TEST(DbBinarySnapshot, Basic)
 
         monad_db_snapshot_filesystem_write_user_context_destroy(context);
 
-        char const *dbname_paths_new[] = {dest_db.c_str()};
+        {
+            OnDiskMachine machine;
+            mpt::Db dest_init{
+                machine, OnDiskDbConfig{.dbname_paths = {dest_db.path}}};
+        }
+        char const *dbname_paths_new[] = {dest_db.path.c_str()};
         monad_db_snapshot_load_filesystem(
-            dbname_paths_new, 1, static_cast<unsigned>(-1), root.c_str(), 100);
-
-        std::filesystem::remove_all(root);
+            dbname_paths_new,
+            1,
+            static_cast<unsigned>(-1),
+            snapshot_dir.path.c_str(),
+            100);
     }
 
     {
         AsyncIOContext io_context{
-            ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
+            ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db.path}}};
         mpt::Db db{io_context};
         TrieDb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
@@ -152,9 +186,6 @@ TEST(DbBinarySnapshot, Basic)
                 byte_string_view(icode->code(), icode->size()));
         }
     }
-
-    std::filesystem::remove(src_db);
-    std::filesystem::remove(dest_db);
 }
 
 TEST(DbBinarySnapshot, MultipleShards)
@@ -162,14 +193,17 @@ TEST(DbBinarySnapshot, MultipleShards)
     using namespace monad;
     using namespace monad::mpt;
 
-    auto const src_db = tmp_dbname();
+    TempDb const src_db;
+    TempDb const dest_db;
+    TempDir const base_root;
+    TempDir const combined_root;
 
     bytes32_t root_hash;
     Code code_delta;
     BlockHeader last_header;
     {
         OnDiskMachine machine;
-        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db}}};
+        mpt::Db db{machine, OnDiskDbConfig{.dbname_paths = {src_db.path}}};
         Node::SharedPtr root{};
         for (uint64_t i = 0; i < 100; ++i) {
             root = load_header(std::move(root), db, BlockHeader{.number = i});
@@ -209,27 +243,19 @@ TEST(DbBinarySnapshot, MultipleShards)
         root_hash = tdb.state_root();
     }
 
-    auto const dest_db = tmp_dbname();
     {
         constexpr uint64_t NUM_SHARDS = 4;
-        std::filesystem::path const base_root =
-            std::filesystem::temp_directory_path() / "snapshot_sharded";
-
-        if (std::filesystem::exists(base_root)) {
-            std::filesystem::remove_all(base_root);
-        }
-        std::filesystem::create_directories(base_root);
 
         std::vector<std::filesystem::path> shard_roots;
         for (uint64_t shard = 0; shard < NUM_SHARDS; ++shard) {
             auto const shard_root =
-                base_root / ("shard_" + std::to_string(shard));
+                base_root.path / ("shard_" + std::to_string(shard));
             shard_roots.push_back(shard_root);
 
             auto *const context =
                 monad_db_snapshot_filesystem_write_user_context_create(
                     shard_root.c_str(), 100);
-            char const *dbname_paths[] = {src_db.c_str()};
+            char const *dbname_paths[] = {src_db.path.c_str()};
             EXPECT_TRUE(monad_db_dump_snapshot(
                 dbname_paths,
                 1,
@@ -244,14 +270,7 @@ TEST(DbBinarySnapshot, MultipleShards)
             monad_db_snapshot_filesystem_write_user_context_destroy(context);
         }
 
-        auto const combined_root =
-            std::filesystem::temp_directory_path() / "snapshot_combined";
-
-        if (std::filesystem::exists(combined_root)) {
-            std::filesystem::remove_all(combined_root);
-        }
-
-        auto const combined_version_dir = combined_root / "100";
+        auto const combined_version_dir = combined_root.path / "100";
         std::filesystem::create_directories(combined_version_dir);
 
         uint64_t total_shards_copied = 0;
@@ -280,20 +299,22 @@ TEST(DbBinarySnapshot, MultipleShards)
         }
 
         EXPECT_EQ(total_shards_copied, 256u);
-        char const *dbname_paths_new[] = {dest_db.c_str()};
+        {
+            OnDiskMachine machine;
+            mpt::Db dest_init{
+                machine, OnDiskDbConfig{.dbname_paths = {dest_db.path}}};
+        }
+        char const *dbname_paths_new[] = {dest_db.path.c_str()};
         monad_db_snapshot_load_filesystem(
             dbname_paths_new,
             1,
             static_cast<unsigned>(-1),
-            combined_root.c_str(),
+            combined_root.path.c_str(),
             100);
-
-        std::filesystem::remove_all(base_root);
-        std::filesystem::remove_all(combined_root);
     }
     {
         AsyncIOContext io_context{
-            ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db}}};
+            ReadOnlyOnDiskDbConfig{.dbname_paths = {dest_db.path}}};
         mpt::Db db{io_context};
         TrieDb tdb{db};
         for (uint64_t i = 0; i < 100; ++i) {
@@ -311,7 +332,4 @@ TEST(DbBinarySnapshot, MultipleShards)
                 byte_string_view(icode->code(), icode->size()));
         }
     }
-
-    std::filesystem::remove(src_db);
-    std::filesystem::remove(dest_db);
 }
