@@ -100,7 +100,7 @@ function(monad_compile_options target)
   target_compile_definitions(${target} PUBLIC "JSON_HAS_RANGES=0")
 endfunction()
 
-find_package(Boost REQUIRED COMPONENTS fiber json CONFIG)
+find_package(Boost REQUIRED COMPONENTS context filesystem json CONFIG)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
 pkg_check_modules(crypto++ REQUIRED IMPORTED_TARGET libcrypto++)
@@ -136,6 +136,22 @@ add_subdirectory("third_party/cthash")
 # ethash
 set(ETHASH_TESTING NO)
 add_subdirectory("third_party/ethash")
+
+# fiber (boost)
+# Boost.Fiber's CMakeLists.txt expects granular Boost targets from the
+# superproject build. The system-installed Boost only provides Boost::headers
+# for header-only libs. Create shim targets so fiber can link them.
+foreach(_boost_hdr_lib assert config core intrusive predef smart_ptr algorithm format)
+  if(NOT TARGET Boost::${_boost_hdr_lib})
+    add_library(boost_${_boost_hdr_lib} INTERFACE)
+    target_link_libraries(boost_${_boost_hdr_lib} INTERFACE Boost::headers)
+    add_library(Boost::${_boost_hdr_lib} ALIAS boost_${_boost_hdr_lib})
+  endif()
+endforeach()
+add_subdirectory("third_party/fiber" SYSTEM)
+# Boost.Fiber triggers warnings under C++23 strict flags.
+target_compile_options(boost_fiber PRIVATE -Wno-deprecated-declarations -Wno-conversion)
+target_compile_options(boost_fiber_numa PRIVATE -Wno-deprecated-declarations -Wno-conversion)
 
 # immer
 option(immer_BUILD_TESTS OFF)

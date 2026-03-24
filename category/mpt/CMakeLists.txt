@@ -28,7 +28,7 @@ option(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ##############################################################################
 
 find_package(Boost 1.83 # 1.83 really is the minimum
-             CONFIG REQUIRED COMPONENTS context fiber json thread)
+             CONFIG REQUIRED COMPONENTS context json thread)
 find_package(GTest)
 
 pkg_check_modules(archive REQUIRED IMPORTED_TARGET libarchive)

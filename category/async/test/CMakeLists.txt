@@ -13,10 +13,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-find_package(
-  Boost
-  CONFIG REQUIRED COMPONENTS fiber)
-
 add_async_test(TARGET io_test SOURCES "io.cpp")
 
 monad_add_test_death(
