@@ -4,18 +4,18 @@
 
 #include <gtest/gtest.h>
 
-#include <monad/mem/cma/cma_bump_alloc.h>
+#include <category/core/mem/cma/cma_bump.h>
 
 TEST(cma_malloc, basic)
 {
     constexpr size_t array_size = 256;
     alignas(int) std::byte buf[sizeof(int) * array_size];
-    monad_memblk_t const stack_memblk = {.ptr = buf, .size = sizeof buf};
-    monad_memblk_t alloc_desc;
-    monad_cma_bump_alloc block_allocator;
-    monad_allocator_t *alloc;
+    monad_memblk const stack_memblk = {.ptr = buf, .size = sizeof buf};
+    monad_memblk alloc_desc;
+    monad_cma_bump block_allocator;
+    monad_allocator *alloc;
 
-    monad_cma_bump_alloc_init(&block_allocator, stack_memblk, &alloc);
+    monad_cma_bump_init(&block_allocator, stack_memblk, &alloc);
 
     // Allocate all the memory
     int rc = monad_cma_calloc(
@@ -27,7 +27,7 @@ TEST(cma_malloc, basic)
     ASSERT_EQ(0, std::bit_cast<std::uintptr_t>(alloc_desc.ptr) % alignof(int));
 
     // Check that we get ENOMEM now that the memory is gone
-    monad_memblk_t other_blk;
+    monad_memblk other_blk;
     rc = monad_cma_alloc(alloc, sizeof(int), alignof(int), &other_blk);
     ASSERT_EQ(ENOMEM, rc);
     ASSERT_EQ(nullptr, other_blk.ptr);
@@ -72,7 +72,7 @@ TEST(cma_malloc, basic)
         alloc, array_size / 2, sizeof(int), alignof(int), &other_blk);
     ASSERT_EQ(0, rc);
     ASSERT_EQ(
-        std::bit_cast<std::byte const *>(stack_memblk.ptr) +
+        static_cast<std::byte const *>(stack_memblk.ptr) +
             stack_memblk.size / 2,
         other_blk.ptr);
     ASSERT_EQ(stack_memblk.size / 2, other_blk.size);
@@ -101,7 +101,7 @@ TEST(cma_malloc, basic)
         alloc, array_size / 2 + 1, sizeof(int), alignof(int), &other_blk);
     ASSERT_EQ(ENOMEM, rc);
     ASSERT_EQ(
-        std::bit_cast<std::byte const *>(stack_memblk.ptr) +
+        static_cast<std::byte const *>(stack_memblk.ptr) +
             stack_memblk.size / 2,
         other_blk.ptr);
     ASSERT_EQ(stack_memblk.size / 2, other_blk.size);
@@ -118,7 +118,7 @@ TEST(cma_malloc, basic)
         alloc, array_size / 2, sizeof(int), alignof(int), &alloc_desc);
     ASSERT_EQ(0, rc);
     ASSERT_EQ(
-        std::bit_cast<std::byte const *>(stack_memblk.ptr) +
+        static_cast<std::byte const *>(stack_memblk.ptr) +
             stack_memblk.size / 2,
         alloc_desc.ptr);
     ASSERT_EQ(stack_memblk.size / 2, alloc_desc.size);

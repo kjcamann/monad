@@ -148,6 +148,12 @@ add_library(
   "io/config.hpp"
   # mem
   "mem/align.h"
+  "mem/cma/cma_alloc.c"
+  "mem/cma/cma_alloc.h"
+  "mem/cma/cma_bump.c"
+  "mem/cma/cma_bump.h"
+  "mem/cma/cma_fallback.c"
+  "mem/cma/cma_fallback.h"
   # rlp
   "rlp/config.hpp"
   "rlp/encode.hpp"

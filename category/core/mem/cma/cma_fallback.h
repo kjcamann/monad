@@ -1,22 +1,22 @@
 #pragma once
 
-#include <monad/mem/cma/cma_alloc.h>
+#include <category/core/mem/cma/cma_alloc.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-struct monad_cma_fallback_alloc
+struct monad_cma_fallback
 {
-    monad_allocator_t self;
-    monad_allocator_t *primary;
-    monad_allocator_t *secondary;
+    struct monad_allocator self;
+    struct monad_allocator *primary;
+    struct monad_allocator *secondary;
 };
 
-int monad_cma_fallback_alloc_init(
-    struct monad_cma_fallback_alloc *fallback, monad_allocator_t *primary,
-    monad_allocator_t *secondary, monad_allocator_t **ma);
+int monad_cma_fallback_init(
+    struct monad_cma_fallback *fallback, struct monad_allocator *primary,
+    struct monad_allocator *secondary, struct monad_allocator **ma);
 
 #ifdef __cplusplus
 } // extern "C"

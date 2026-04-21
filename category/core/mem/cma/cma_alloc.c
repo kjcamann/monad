@@ -1,16 +1,15 @@
 #include <errno.h>
-#include <stdatomic.h>
 #include <stdbit.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <monad/core/assert.h>
-#include <monad/core/likely.h>
-#include <monad/mem/align.h>
-#include <monad/mem/cma/cma_alloc.h>
+#include <category/core/assert.h>
+#include <category/core/likely.h>
+#include <category/core/mem/align.h>
+#include <category/core/mem/cma/cma_alloc.h>
 
-static atomic_uintptr_t g_global_allocator;
+static struct monad_allocator *g_global_allocator;
 
 /*
  * Null allocator
@@ -27,12 +26,13 @@ static struct monad_allocator_ops g_null_allocator_ops = {
     .dealloc = null_dealloc,
     .owns = null_owns};
 
-static monad_allocator_t g_null_allocator = {.vtable = &g_null_allocator_ops};
+static struct monad_allocator g_null_allocator = {
+    .vtable = &g_null_allocator_ops};
 
 static int
-null_alloc(monad_allocator_t *ma, size_t, size_t, monad_memblk_t *blk)
+null_alloc(struct monad_allocator *ma, size_t, size_t, struct monad_memblk *blk)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_null_allocator);
+    MONAD_ASSERT(ma == &g_null_allocator);
     if (MONAD_UNLIKELY(blk == nullptr)) {
         return EFAULT;
     }
@@ -42,9 +42,9 @@ null_alloc(monad_allocator_t *ma, size_t, size_t, monad_memblk_t *blk)
 }
 
 static int null_realloc(
-    monad_allocator_t *ma, size_t, size_t, [[maybe_unused]] monad_memblk_t *blk)
+    struct monad_allocator *ma, size_t, size_t, struct monad_memblk *blk)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_null_allocator);
+    MONAD_ASSERT(ma == &g_null_allocator);
     if (MONAD_UNLIKELY(blk == nullptr)) {
         return EFAULT;
     }
@@ -52,20 +52,20 @@ static int null_realloc(
     return ENOMEM;
 }
 
-static void
-null_dealloc(monad_allocator_t *ma, [[maybe_unused]] monad_memblk_t blk)
+static void null_dealloc(struct monad_allocator *ma, struct monad_memblk blk)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_null_allocator);
+    MONAD_ASSERT(ma == &g_null_allocator);
     MONAD_ASSERT(blk.ptr == nullptr);
 }
 
-static bool null_owns(monad_allocator_t *ma, monad_memblk_t /*unused*/)
+static bool
+null_owns(struct monad_allocator *ma, struct monad_memblk /*unused*/)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_null_allocator);
+    MONAD_ASSERT(ma == &g_null_allocator);
     return false;
 }
 
-monad_allocator_t *monad_cma_get_null_allocator()
+struct monad_allocator *monad_cma_get_null_allocator()
 {
     return &g_null_allocator;
 }
@@ -84,16 +84,18 @@ static struct monad_allocator_ops g_malloc_allocator_ops = {
     .dealloc = malloc_dealloc,
     .owns = nullptr};
 
-static monad_allocator_t g_malloc_allocator = {
+static struct monad_allocator g_malloc_allocator = {
     .vtable = &g_malloc_allocator_ops};
 
 static int malloc_alloc(
-    monad_allocator_t *ma, size_t size, size_t align, monad_memblk_t *blk)
+    struct monad_allocator *ma, size_t size, size_t align,
+    struct monad_memblk *blk)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_malloc_allocator);
+    MONAD_ASSERT(ma == &g_malloc_allocator);
     if (MONAD_UNLIKELY(blk == nullptr)) {
         return EFAULT;
     }
+    __builtin_memset(blk, 0, sizeof *blk);
     if (MONAD_UNLIKELY(!stdc_has_single_bit(align))) {
         return EINVAL;
     }
@@ -108,10 +110,11 @@ static int malloc_alloc(
 }
 
 static int malloc_realloc(
-    monad_allocator_t *ma, size_t size, size_t align, monad_memblk_t *blk)
+    struct monad_allocator *ma, size_t size, size_t align,
+    struct monad_memblk *blk)
 {
     void *new_mem;
-    MONAD_DEBUG_ASSERT(ma == &g_malloc_allocator);
+    MONAD_ASSERT(ma == &g_malloc_allocator);
     if (MONAD_UNLIKELY(blk == nullptr)) {
         return EFAULT;
     }
@@ -148,35 +151,59 @@ static int malloc_realloc(
     return 0;
 }
 
-static void malloc_dealloc(monad_allocator_t *ma, monad_memblk_t blk)
+static void malloc_dealloc(struct monad_allocator *ma, struct monad_memblk blk)
 {
-    MONAD_DEBUG_ASSERT(ma == &g_malloc_allocator);
+    MONAD_ASSERT(ma == &g_malloc_allocator);
     free(blk.ptr);
 }
 
-monad_allocator_t *monad_cma_get_malloc_allocator()
+struct monad_allocator *monad_cma_get_malloc_allocator()
 {
     return &g_malloc_allocator;
 }
 
-monad_allocator_t *monad_cma_get_default_allocator()
+#if MONAD_CMA_NO_ATOMICS
+struct monad_allocator *monad_cma_get_default_allocator()
 {
-    uintptr_t malloc_addr;
-    uintptr_t default_alloc_addr =
-        atomic_load_explicit(&g_global_allocator, memory_order_relaxed);
-    if (MONAD_UNLIKELY(default_alloc_addr == 0)) {
-        malloc_addr = (uintptr_t)monad_cma_get_malloc_allocator();
-        if (atomic_compare_exchange_strong(
-                &g_global_allocator, &default_alloc_addr, malloc_addr)) {
-            default_alloc_addr = malloc_addr;
-        }
-    }
-    return (monad_allocator_t *)default_alloc_addr;
+    return g_global_allocator;
 }
 
-monad_allocator_t *
-monad_cma_set_default_allocator(monad_allocator_t *new_default)
+struct monad_allocator *
+monad_cma_set_default_allocator(struct monad_allocator *new_default)
 {
-    return (monad_allocator_t *)atomic_exchange_explicit(
-        &g_global_allocator, (uintptr_t)new_default, memory_order_acq_rel);
+    struct monad_allocator *const last_allocator = g_global_allocator;
+    g_global_allocator = new_default;
+    return last_allocator;
 }
+#else
+struct monad_allocator *monad_cma_get_default_allocator()
+{
+    struct monad_allocator *ma_malloc;
+    struct monad_allocator *ma_default =
+        __atomic_load_n(&g_global_allocator, __ATOMIC_RELAXED);
+    if (MONAD_UNLIKELY(ma_default == nullptr)) {
+        // No default allocator was set; set the default to the malloc allocator
+        // ourselves if it's still unset (it could be changed by another thread
+        // at any time)
+        ma_malloc = monad_cma_get_malloc_allocator();
+        if (__atomic_compare_exchange_n(
+                &g_global_allocator,
+                &ma_default,
+                ma_malloc,
+                /*weak*/ false,
+                __ATOMIC_RELAXED,
+                __ATOMIC_RELAXED)) {
+            ma_default = ma_malloc;
+        }
+    }
+    return ma_default;
+}
+
+struct monad_allocator *
+monad_cma_set_default_allocator(struct monad_allocator *new_default)
+{
+    return __atomic_exchange_n(
+        &g_global_allocator, new_default, __ATOMIC_ACQ_REL);
+}
+
+#endif

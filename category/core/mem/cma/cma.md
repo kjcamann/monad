@@ -9,13 +9,13 @@ memory will be allocated.
 
 Accepting such allocation functions is a common pattern in C library code.
 Instead of directly passing function pointers, we pass an object that uses
-C-style inheritance, called `monad_allocator_t`. This design allows us to
-create stateful allocators more easily.
+C-style inheritance, called `struct monad_allocator`. This design allows us
+to create stateful allocators more easily.
 
 ## Example code
 
 The following example shows a function `foo` that dynamically allocates
-memory using a `monad_allocator_t`. In the example:
+memory using a `struct monad_allocator`. In the example:
 
 - The libc `calloc(3)` is replaced with `monad_cma_calloc` and `free(3)`
   with `monad_cma_dealloc`
@@ -23,13 +23,13 @@ memory using a `monad_allocator_t`. In the example:
   two different allocators: the default allocator and one that uses local
   stack space of the function
 
-```.c
-void foo(size_t number_of_foos, monad_allocator_t *ma)
+```c
+void foo(size_t number_of_foos, struct monad_allocator *ma)
 {
     int return_code; // errno(3) domain result of trying to allocate memory
     struct foo *f;   // Set to base address of dynamic foo array
     struct foo *end; // Set to end address of dynamic foo array
-    monad_memblk_t mem_block; // Descriptor for allocated memory block
+    struct monad_memblk mem_block; // Descriptor for allocated memory block
 
     return_code = monad_cma_calloc(
         ma, number_of_foos, sizeof *f, alignof *f, &mem_block);
@@ -50,7 +50,7 @@ void call_foo_with_default_allocator()
     // If `nullptr` is passed to the `monad_cma_` functions, they will first
     // call `monad_cma_get_default_allocator()` and you will get the
     // process-wide default allocator (which you may also change)
-    monad_allocator_t *const my_allocator = nullptr;
+    struct monad_allocator *const my_allocator = nullptr;
 
     // This will dynamically allocate memory for 1024 foo objects using
     // the default allocator
@@ -62,8 +62,8 @@ int call_foo_with_stack_allocator(size_t foo_count)
     // In this example, we'll use alloca(3) to grab a large block of stack
     // space, then allocate from it. This kind of allocator is sometimes
     // called a "bump pointer allocator".
-    monad_memblk_t stack_space;
-    struct monad_cma_bump_alloc stack_alloc;
+    struct monad_memblk stack_space;
+    struct monad_cma_bump stack_alloc;
     int rc;
 
     // Note: the extra alignof factor here is because we don't know if the
@@ -75,9 +75,9 @@ int call_foo_with_stack_allocator(size_t foo_count)
     }
 
     stack_space.ptr = alloca(stack_space.size);
-    rc = monad_cma_bump_alloc_init(&stack_alloc, stack_space);
+    rc = monad_cma_bump_init(&stack_alloc, stack_space);
     if (rc != 0) {
-        errc(1, rc, "monad_cma_bump_alloc_init failed!");
+        errc(1, rc, "monad_cma_bump_init failed!");
     }
 
     foo(foo_count, &stack_alloc);
@@ -87,12 +87,12 @@ int call_foo_with_stack_allocator(size_t foo_count)
 The interface is similar to the `stdlib.h` memory management functions,
 except:
 
-- The caller is explicitly given a structure type (`monad_memblk_t` or
+- The caller is explicitly given a structure type (`struct monad_memblk` or
   "memory block") that represents the address and total size of the
   allocation (the total size might be larger than requested)
 
-- The allocation functions accept a pointer to a `monad_allocator_t` object,
-  which uses C-style inheritance and holds the state of a particular
+- The allocation functions accept a pointer to a `struct monad_allocator`
+  object, which uses C-style inheritance and holds the state of a particular
   allocator
 
 ## Implementation details
@@ -111,4 +111,4 @@ memory allocation strategies together, thus our implementation uses the name
 
 This is not a complete implementation, and it is also not a straight
 reimplementation of the exact system Alexandrescu designed. The fancier
-features of the original will be added only if the need arises.
+features of the original will be added later, and only if the need arises.
