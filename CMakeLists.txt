@@ -102,6 +102,8 @@ function(monad_compile_options target)
   target_compile_definitions(${target} PUBLIC "JSON_HAS_RANGES=0")
 endfunction()
 
+include(ExternalProject)
+
 find_package(Boost REQUIRED COMPONENTS context filesystem json CONFIG)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(brotli REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec)
@@ -175,6 +177,30 @@ endif()
 # komihash
 add_library(komihash INTERFACE)
 target_include_directories(komihash INTERFACE "third_party/komihash")
+
+# libhugetlbfs
+set(LIBHUGETLBFS_INSTALL_DIR ${CMAKE_BINARY_DIR}/libhugetlbfs-install)
+ExternalProject_Add(
+  libhugetlbfs_ext
+  GIT_REPOSITORY https://github.com/libhugetlbfs/libhugetlbfs.git
+  GIT_TAG 1322884fb0d55dc55f53563c1aa6328d118997e7
+  PREFIX ${CMAKE_BINARY_DIR}/libhugetlbfs
+  INSTALL_DIR ${LIBHUGETLBFS_INSTALL_DIR}
+  CONFIGURE_COMMAND COMMAND /bin/sh autogen.sh
+                   COMMAND env CC=${CMAKE_C_COMPILER} ./configure --prefix=${LIBHUGETLBFS_INSTALL_DIR}
+  BUILD_COMMAND make -C <SOURCE_DIR> libs CC=${CMAKE_C_COMPILER} PREFIX=${LIBHUGETLBFS_INSTALL_DIR}
+               BUILDTYPE=NATIVEONLY
+  INSTALL_COMMAND make -C <SOURCE_DIR> install-libs CC=${CMAKE_C_COMPILER} PREFIX=${LIBHUGETLBFS_INSTALL_DIR}
+                  BUILDTYPE=NATIVEONLY
+  BUILD_IN_SOURCE 1
+  BUILD_BYPRODUCTS ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so)
+add_library(libhugetlbfs SHARED IMPORTED GLOBAL)
+add_dependencies(libhugetlbfs libhugetlbfs_ext)
+file(MAKE_DIRECTORY ${LIBHUGETLBFS_INSTALL_DIR}/include)
+set_target_properties(
+  libhugetlbfs
+  PROPERTIES IMPORTED_LOCATION ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so
+             INTERFACE_INCLUDE_DIRECTORIES ${LIBHUGETLBFS_INSTALL_DIR}/include)
 
 # magic_enum
 add_subdirectory("third_party/magic_enum")
