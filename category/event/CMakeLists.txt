@@ -88,10 +88,20 @@ target_compile_options(monad_event PRIVATE -Wall -Wextra -Wconversion -Werror)
 target_link_libraries(monad_event PRIVATE ${libzstd_file})
 
 if(MONAD_EVENT_USE_LIBHUGETLBFS)
+  if(${CMAKE_PROJECT_NAME} STREQUAL "monad")
+    # We're building as a subproject of `monad`: link the libhugetlbfs built by
+    # its third_party build infrastructure
+    target_link_libraries(monad_event PRIVATE libhugetlbfs)
+  else()
+    # We're building freestanding or as part of some other external project;
+    # whomever called CMake must ensure libhugetlbfs is found on a default
+    # search path or must set `libhugetlbfs` to the library file
+    find_library(libhugetlbfs NAMES hugetlbfs REQUIRED)
+    target_link_libraries(monad_event PRIVATE hugetlbfs)
+  endif()
   target_sources(monad_event PRIVATE
     "../core/mem/hugetlb_path.c"
     "../core/mem/hugetlb_path.h")
-  target_link_libraries(monad_event PRIVATE libhugetlbfs)
 else()
   target_compile_definitions(monad_event PRIVATE MONAD_EVENT_DISABLE_LIBHUGETLBFS)
 endif()
@@ -99,7 +109,7 @@ endif()
 option(MONAD_EVENT_BUILD_EXAMPLE
     "Build the example program that shows how to use the API" ON)
 
-if (MONAD_EVENT_BUILD_EXAMPLE)
+if(MONAD_EVENT_BUILD_EXAMPLE)
   add_executable(eventwatch "example/eventwatch.c")
   target_compile_options(eventwatch PRIVATE -Wall -Wextra -Wconversion -Werror)
   target_link_libraries(eventwatch PRIVATE monad_event)
