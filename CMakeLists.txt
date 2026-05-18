@@ -183,9 +183,10 @@ set(LIBHUGETLBFS_INSTALL_DIR ${CMAKE_BINARY_DIR}/libhugetlbfs-install)
 ExternalProject_Add(
   libhugetlbfs_ext
   GIT_REPOSITORY https://github.com/libhugetlbfs/libhugetlbfs.git
-  GIT_TAG 1322884fb0d55dc55f53563c1aa6328d118997e7
+  GIT_TAG 2.24
   PREFIX ${CMAKE_BINARY_DIR}/libhugetlbfs
   INSTALL_DIR ${LIBHUGETLBFS_INSTALL_DIR}
+  UPDATE_DISCONNECTED TRUE
   CONFIGURE_COMMAND COMMAND /bin/sh autogen.sh
                    COMMAND env CC=${CMAKE_C_COMPILER} ./configure --prefix=${LIBHUGETLBFS_INSTALL_DIR}
   BUILD_COMMAND make -C <SOURCE_DIR> libs CC=${CMAKE_C_COMPILER} PREFIX=${LIBHUGETLBFS_INSTALL_DIR}
@@ -193,14 +194,25 @@ ExternalProject_Add(
   INSTALL_COMMAND make -C <SOURCE_DIR> install-libs CC=${CMAKE_C_COMPILER} PREFIX=${LIBHUGETLBFS_INSTALL_DIR}
                   BUILDTYPE=NATIVEONLY
   BUILD_IN_SOURCE 1
-  BUILD_BYPRODUCTS ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so)
-add_library(libhugetlbfs SHARED IMPORTED GLOBAL)
-add_dependencies(libhugetlbfs libhugetlbfs_ext)
+  BUILD_BYPRODUCTS ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.a
+                   ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so)
+add_library(libhugetlbfs_shared SHARED IMPORTED GLOBAL)
+add_library(libhugetlbfs_static STATIC IMPORTED GLOBAL)
+add_dependencies(libhugetlbfs_shared libhugetlbfs_ext)
+add_dependencies(libhugetlbfs_static libhugetlbfs_ext)
 file(MAKE_DIRECTORY ${LIBHUGETLBFS_INSTALL_DIR}/include)
 set_target_properties(
-  libhugetlbfs
-  PROPERTIES IMPORTED_LOCATION ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so
-             INTERFACE_INCLUDE_DIRECTORIES ${LIBHUGETLBFS_INSTALL_DIR}/include)
+  libhugetlbfs_shared libhugetlbfs_static
+  PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${LIBHUGETLBFS_INSTALL_DIR}/include)
+set_target_properties(libhugetlbfs_shared
+  PROPERTIES IMPORTED_LOCATION ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.so)
+set_target_properties(libhugetlbfs_static
+  PROPERTIES IMPORTED_LOCATION ${LIBHUGETLBFS_INSTALL_DIR}/lib64/libhugetlbfs.a)
+if(BUILD_SHARED_LIBS)
+  add_library(libhugetlbfs ALIAS libhugetlbfs_shared)
+else()
+  add_library(libhugetlbfs ALIAS libhugetlbfs_static)
+endif()
 
 # magic_enum
 add_subdirectory("third_party/magic_enum")
