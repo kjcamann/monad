@@ -369,8 +369,7 @@ TYPED_TEST(RuntimeTraitsTest, ExtCodeHash)
     using traits = TestFixture::Trait;
     auto hash = TestFixture::wrap(extcodehash<traits>);
 
-    this->host_.accounts[address_from_uint256(addr)].codehash =
-        bytes32_from_uint256(713682);
+    this->host_.accounts[address_from_uint256(addr)].codehash = to_evmc(713682);
 
     this->ctx_.gas_remaining = 10'000;
 
