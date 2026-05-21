@@ -26,6 +26,7 @@ find_library(libzstd_file zstd REQUIRED)
 
 add_library(
   monad_event
+  "../core/address.c"
   "../core/assert.c"
   "../core/cleanup.c"
   "../core/format_err.c"
@@ -40,6 +41,7 @@ target_sources(monad_event PUBLIC
   TYPE HEADERS
   BASE_DIRS ".."
   FILES
+  "../core/address.h"
   "../core/assert.h"
   "../core/bytes32.h"
   "../core/cleanup.h"

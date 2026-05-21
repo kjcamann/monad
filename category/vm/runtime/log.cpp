@@ -49,7 +49,7 @@ namespace monad::vm::runtime
 
         ctx->host->emit_log(
             ctx->context,
-            &ctx->env.recipient,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
             ctx->memory.data + *offset,
             *size,
             topics.data(),
