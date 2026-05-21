@@ -250,9 +250,9 @@ TEST(Address, usable_in_unordered_set)
 // evmc_address implicit conversion
 // ---------------------------------------------------------------------------
 
-TEST(Address, implicit_from_evmc_address)
+TEST(Address, implicit_from_monad_address)
 {
-    evmc_address raw{};
+    monad_address raw{};
     raw.bytes[19] = 0x07;
     Address const wrapped = raw;
     EXPECT_EQ(wrapped.bytes[19], 0x07);
@@ -310,10 +310,10 @@ TEST(Address, standard_layout_and_trivially_copyable)
 // evmc_address round-trip (base slicing)
 // ---------------------------------------------------------------------------
 
-TEST(Address, roundtrip_through_evmc_address)
+TEST(Address, roundtrip_through_monad_address)
 {
     Address const original{uint64_t{0xDEADBEEF}};
-    evmc_address const &base = original;
+    monad_address const &base = original;
     Address const recovered{base};
     EXPECT_EQ(original, recovered);
 }

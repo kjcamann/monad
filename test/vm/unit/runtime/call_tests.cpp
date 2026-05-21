@@ -40,7 +40,7 @@ TYPED_TEST(RuntimeTraitsTest, CallBasic)
 
     this->ctx_.gas_remaining = 100000;
     this->host_.call_result = TestFixture::success_result(2000);
-    this->host_.access_account(address_from_uint256(0));
+    this->host_.access_account(to_evmc(address_from_uint256(0)));
 
     auto res = do_call(10000, 0, 0, 0, 0, 0, 32);
 
@@ -301,7 +301,7 @@ TYPED_TEST(RuntimeTraitsTest, DelegatedCall)
 
     ASSERT_EQ(res, 1);
     ASSERT_EQ(
-        this->host_.access_account(address_from_uint256(0xC0FFEE)),
+        this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
         EVMC_ACCESS_WARM);
     TestFixture::assert_delegated(delegate_addr);
 }
@@ -329,7 +329,7 @@ TYPED_TEST(RuntimeTraitsTest, DelegatedStaticCall)
 
     ASSERT_EQ(res, 1);
     ASSERT_EQ(
-        this->host_.access_account(address_from_uint256(0xC0FFEE)),
+        this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
         EVMC_ACCESS_WARM);
     TestFixture::assert_delegated(delegate_addr);
 }
@@ -358,12 +358,12 @@ TYPED_TEST(RuntimeTraitsTest, DelegatedDelegateCall)
     ASSERT_EQ(res, 1);
     if constexpr (TestFixture::Trait::evm_rev() <= EVMC_ISTANBUL) {
         ASSERT_EQ(
-            this->host_.access_account(address_from_uint256(0xC0FFEE)),
+            this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
             EVMC_ACCESS_COLD);
     }
     else {
         ASSERT_EQ(
-            this->host_.access_account(address_from_uint256(0xC0FFEE)),
+            this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
             EVMC_ACCESS_WARM);
     }
     TestFixture::assert_delegated(delegate_addr);
@@ -391,12 +391,12 @@ TYPED_TEST(RuntimeTraitsTest, DelegatedCallcode)
     ASSERT_EQ(res, 1);
     if constexpr (TestFixture::Trait::evm_rev() <= EVMC_ISTANBUL) {
         ASSERT_EQ(
-            this->host_.access_account(address_from_uint256(0xC0FFEE)),
+            this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
             EVMC_ACCESS_COLD);
     }
     else {
         ASSERT_EQ(
-            this->host_.access_account(address_from_uint256(0xC0FFEE)),
+            this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
             EVMC_ACCESS_WARM);
     }
     TestFixture::assert_delegated(delegate_addr);
@@ -421,7 +421,7 @@ TYPED_TEST(RuntimeTraitsTest, DelegatedCallPrecompile)
     ASSERT_EQ(res, 1);
     ASSERT_EQ(this->ctx_.result.status, StatusCode::Success);
     ASSERT_EQ(
-        this->host_.access_account(address_from_uint256(0xC0FFEE)),
+        this->host_.access_account(to_evmc(address_from_uint256(0xC0FFEE))),
         EVMC_ACCESS_WARM);
     ASSERT_EQ(this->host_.recorded_calls.size(), 1);
 

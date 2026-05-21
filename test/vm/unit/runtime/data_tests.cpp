@@ -64,7 +64,7 @@ TYPED_TEST(RuntimeTraitsTest, BalanceWarm)
 {
     auto f = TestFixture::wrap(balance<typename TestFixture::Trait>);
     TestFixture::set_balance(addr, wei);
-    this->host_.access_account(address_from_uint256(addr));
+    this->host_.access_account(to_evmc(address_from_uint256(addr)));
 
     this->ctx_.gas_remaining = 0;
     ASSERT_EQ(f(addr), wei);
@@ -295,7 +295,7 @@ TYPED_TEST(RuntimeTraitsTest, ExtCodeCopy)
     using traits = TestFixture::Trait;
     auto copy = TestFixture::wrap(extcodecopy<traits>);
 
-    this->host_.accounts[address_from_uint256(addr)].code =
+    this->host_.accounts[to_evmc(address_from_uint256(addr))].code =
         evmc::bytes(this->code_.begin(), this->code_.end());
 
     constexpr auto initial_gas = [] {
@@ -323,7 +323,7 @@ TYPED_TEST(RuntimeTraitsTest, ExtCodeCopyOutOfBounds)
     using traits = TestFixture::Trait;
     auto copy = TestFixture::wrap(extcodecopy<traits>);
 
-    this->host_.accounts[address_from_uint256(addr)].code =
+    this->host_.accounts[to_evmc(address_from_uint256(addr))].code =
         evmc::bytes(this->code_.begin(), this->code_.end());
 
     constexpr auto initial_gas = [] {
@@ -355,7 +355,7 @@ TYPED_TEST(RuntimeTraitsTest, ExtCodeSize)
     using traits = TestFixture::Trait;
     auto size = TestFixture::wrap(extcodesize<traits>);
 
-    this->host_.accounts[address_from_uint256(addr)].code =
+    this->host_.accounts[to_evmc(address_from_uint256(addr))].code =
         evmc::bytes(this->code_.begin(), this->code_.end());
 
     this->ctx_.gas_remaining = 10'000;
@@ -369,7 +369,8 @@ TYPED_TEST(RuntimeTraitsTest, ExtCodeHash)
     using traits = TestFixture::Trait;
     auto hash = TestFixture::wrap(extcodehash<traits>);
 
-    this->host_.accounts[address_from_uint256(addr)].codehash = to_evmc(713682);
+    this->host_.accounts[to_evmc(address_from_uint256(addr))].codehash =
+        to_evmc(713682);
 
     this->ctx_.gas_remaining = 10'000;
 

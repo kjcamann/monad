@@ -98,7 +98,7 @@ namespace monad::vm::runtime
             .depth = ctx->env.depth + 1,
             .gas = gas,
             .recipient = {},
-            .sender = ctx->env.recipient,
+            .sender = to_evmc(ctx->env.recipient),
             .input_data = (*size > 0) ? ctx->memory.data + *offset : nullptr,
             .input_size = *size,
             .value = to_evmc(value),

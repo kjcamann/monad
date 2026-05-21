@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <category/core/address.h>
 #include <category/core/address.hpp>
 #include <category/core/byte_string.hpp>
 #include <category/core/int.hpp>
@@ -1918,9 +1919,9 @@ struct LinkedListTrait<u64_be, Address>
 
     static constexpr Ptr sentinel()
     {
-        return Ptr{{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
+        return monad_address{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     }
 
     static constexpr Ptr empty()

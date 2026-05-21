@@ -38,8 +38,8 @@ namespace monad::vm::runtime
         auto address = address_from_uint256(*address_ptr);
 
         if constexpr (traits::eip_2929_active()) {
-            auto const access_status =
-                ctx->host->access_account(ctx->context, &address);
+            auto const access_status = ctx->host->access_account(
+                ctx->context, reinterpret_cast<evmc_address const *>(&address));
             if (access_status == EVMC_ACCESS_COLD) {
                 // +100 for the warm account access cost.
                 ctx->deduct_gas(traits::cold_account_cost() + 100);
@@ -47,14 +47,15 @@ namespace monad::vm::runtime
         }
 
         auto const non_zero_transfer = [ctx] {
-            auto const balance = static_cast<bytes32_t>(
-                ctx->host->get_balance(ctx->context, &ctx->env.recipient));
+            auto const balance = static_cast<bytes32_t>(ctx->host->get_balance(
+                ctx->context,
+                reinterpret_cast<evmc_address const *>(&ctx->env.recipient)));
             return balance != bytes32_t{};
         }();
 
         if (non_zero_transfer) {
-            auto const exists =
-                ctx->host->account_exists(ctx->context, &address);
+            auto const exists = ctx->host->account_exists(
+                ctx->context, reinterpret_cast<evmc_address const *>(&address));
 
             if (!exists) {
                 ctx->deduct_gas(25000);
@@ -62,7 +63,9 @@ namespace monad::vm::runtime
         }
 
         auto const result = ctx->host->selfdestruct(
-            ctx->context, &ctx->env.recipient, &address);
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+            reinterpret_cast<evmc_address const *>(&address));
 
         if constexpr (traits::evm_rev() < EVMC_LONDON) {
             if (result) {

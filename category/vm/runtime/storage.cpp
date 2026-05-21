@@ -39,14 +39,18 @@ namespace monad::vm::runtime
 
         if constexpr (traits::eip_2929_active()) {
             auto const access_status = ctx->host->access_storage(
-                ctx->context, &ctx->env.recipient, &key);
+                ctx->context,
+                reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+                &key);
             if (access_status == EVMC_ACCESS_COLD) {
                 ctx->deduct_gas(traits::cold_storage_cost());
             }
         }
 
-        evmc_bytes32 const value =
-            ctx->host->get_storage(ctx->context, &ctx->env.recipient, &key);
+        evmc_bytes32 const value = ctx->host->get_storage(
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+            &key);
 
         *result_ptr = uint256_from_bytes32(value);
     }
@@ -78,14 +82,19 @@ namespace monad::vm::runtime
         auto access_status = EVMC_ACCESS_COLD;
         if constexpr (traits::eip_2929_active()) {
             access_status = ctx->host->access_storage(
-                ctx->context, &ctx->env.recipient, &key);
+                ctx->context,
+                reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+                &key);
             if (access_status == EVMC_ACCESS_COLD) {
                 ctx->deduct_gas(traits::cold_storage_cost() + min_gas);
             }
         }
 
         auto const storage_status = ctx->host->set_storage(
-            ctx->context, &ctx->env.recipient, &key, &value);
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+            &key,
+            &value);
 
         auto [gas_used, gas_refund] = store_cost<traits>(storage_status);
 
@@ -111,7 +120,9 @@ namespace monad::vm::runtime
         if (offset == 0) {
             evmc_bytes32 const base_key = to_evmc(base);
             evmc_bytes32 const base_value = ctx->host->get_transient_storage(
-                ctx->context, &ctx->env.recipient, &base_key);
+                ctx->context,
+                reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+                &base_key);
             if (base_value != bytes32_t{}) {
                 // If this transient storage location has already been written,
                 // then we are likely in a loop. We return early in this case
@@ -127,7 +138,10 @@ namespace monad::vm::runtime
             auto const s = x < magic ? x + 1 : x;
             evmc_bytes32 const value = to_evmc(s);
             ctx->host->set_transient_storage(
-                ctx->context, &ctx->env.recipient, &key, &value);
+                ctx->context,
+                reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+                &key,
+                &value);
         }
         return true;
     }

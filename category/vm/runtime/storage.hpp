@@ -39,7 +39,9 @@ namespace monad::vm::runtime
         evmc_bytes32 const key = to_evmc(*key_ptr);
 
         evmc_bytes32 const value = ctx->host->get_transient_storage(
-            ctx->context, &ctx->env.recipient, &key);
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+            &key);
 
         *result_ptr = uint256_from_bytes32(value);
     }
@@ -56,7 +58,10 @@ namespace monad::vm::runtime
         evmc_bytes32 const val = to_evmc(*val_ptr);
 
         ctx->host->set_transient_storage(
-            ctx->context, &ctx->env.recipient, &key, &val);
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient),
+            &key,
+            &val);
     }
 
     bool debug_tstore_stack(

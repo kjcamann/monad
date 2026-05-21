@@ -209,13 +209,13 @@ evmc_message ExecuteTransactionNoValidation<traits>::to_message(
         .flags = 0,
         .depth = 0,
         .gas = static_cast<int64_t>(tx_.gas_limit - intrinsic_gas<traits>(tx_)),
-        .recipient = to_address.second,
-        .sender = sender_,
+        .recipient = to_evmc(to_address.second),
+        .sender = to_evmc(sender_),
         .input_data = tx_.data.data(),
         .input_size = tx_.data.size(),
         .value = {},
         .create2_salt = {},
-        .code_address = to_address.second,
+        .code_address = to_evmc(to_address.second),
         .memory_handle = msg_memory.get(),
         .memory = msg_memory.get(),
         .memory_capacity = msg_memory_capacity,
@@ -253,7 +253,7 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
 
     // EIP-3651
     if constexpr (traits::evm_rev() >= EVMC_SHANGHAI) {
-        host.access_account(header_.beneficiary);
+        host.access_account(to_evmc(header_.beneficiary));
     }
 
     state.access_account(sender_);
@@ -275,7 +275,7 @@ evmc::Result ExecuteTransactionNoValidation<traits>::operator()(
         if (tx_.to.has_value()) {
             if (auto const delegate = vm::evm::resolve_delegation(
                     &host.get_interface(), host.to_context(), *tx_.to)) {
-                msg.code_address = *delegate;
+                msg.code_address = to_evmc(*delegate);
                 msg.flags |= EVMC_DELEGATED;
                 state.access_account(*delegate);
             }

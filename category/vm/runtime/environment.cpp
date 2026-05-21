@@ -52,8 +52,9 @@ namespace monad::vm::runtime
 
     void selfbalance(Context *const ctx, uint256_t *const result_ptr)
     {
-        auto const balance = static_cast<bytes32_t>(
-            ctx->host->get_balance(ctx->context, &ctx->env.recipient));
+        auto const balance = static_cast<bytes32_t>(ctx->host->get_balance(
+            ctx->context,
+            reinterpret_cast<evmc_address const *>(&ctx->env.recipient)));
         *result_ptr = uint256_from_bytes32(balance);
     }
 

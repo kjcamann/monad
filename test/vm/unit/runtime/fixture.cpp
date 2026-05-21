@@ -47,9 +47,10 @@ namespace monad::vm::compiler::test
 
             host.tx_context = evmc_tx_context{
                 .tx_gas_price = to_evmc(56762),
-                .tx_origin = 0x000000000000000000000000000000005CA1AB1E_address,
+                .tx_origin =
+                    to_evmc(0x000000000000000000000000000000005CA1AB1E_address),
                 .block_coinbase =
-                    0x00000000000000000000000000000000BA5EBA11_address,
+                    to_evmc(0x00000000000000000000000000000000BA5EBA11_address),
                 .block_number = 23784,
                 .block_timestamp = 1733494490,
                 .block_gas_limit = 30000000,
@@ -128,7 +129,7 @@ namespace monad::vm::compiler::test
             .output_data = output_data.data(),
             .output_size = output_data.size(),
             .release = nullptr,
-            .create_address = prog_addr,
+            .create_address = to_evmc(prog_addr),
             .padding = {},
         };
     }
@@ -151,7 +152,8 @@ namespace monad::vm::compiler::test
     void
     RuntimeTestBase::set_balance(uint256_t const addr, uint256_t const balance)
     {
-        host_.accounts[address_from_uint256(addr)].balance = to_evmc(balance);
+        host_.accounts[to_evmc(address_from_uint256(addr))].balance =
+            to_evmc(balance);
     }
 
     std::basic_string_view<uint8_t> RuntimeTestBase::result_data()
@@ -179,7 +181,7 @@ namespace monad::vm::compiler::test
             .transient_storage = {},
         };
         auto const [_, inserted] =
-            host_.accounts.insert({contract_addr, account});
+            host_.accounts.insert({to_evmc(contract_addr), account});
         ASSERT_TRUE(inserted);
     }
 }

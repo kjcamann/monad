@@ -70,6 +70,8 @@ add_library(
   # config
   "config.hpp"
   # core
+  "address.c"
+  "address.h"
   "address.hpp"
   "assert.c"
   "assert.h"

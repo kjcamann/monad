@@ -129,7 +129,7 @@ static evmone::test::TestState initial_state()
     auto init = evmone::test::TestState{};
     // Genesis account with some large balance, but sufficiently small
     // so that token supply will not overflow uint256.
-    init[genesis_address] = {
+    init[to_evmc(genesis_address)] = {
         .balance = std::numeric_limits<intx::uint256>::max() / 2,
         .storage = {},
         .code = {}};
@@ -140,8 +140,8 @@ static Transaction tx_from(State &state, Address const &addr) noexcept
 {
     auto tx = Transaction{};
     tx.gas_limit = block_gas_limit;
-    tx.sender = addr;
-    tx.nonce = state.get_or_insert(addr).nonce;
+    tx.sender = to_evmc(addr);
+    tx.nonce = state.get_or_insert(to_evmc(addr)).nonce;
     return tx;
 }
 
@@ -226,8 +226,8 @@ static Address deploy_contract(
 {
     auto code = bytes{code_.data(), code_.size()};
 
-    auto const create_address =
-        compute_create_address(from, state.get_or_insert(from).nonce++);
+    auto const create_address = compute_create_address(
+        to_evmc(from), state.get_or_insert(to_evmc(from)).nonce++);
     MONAD_DEBUG_ASSERT(state.find(create_address) == nullptr);
 
     state.insert(
@@ -577,7 +577,7 @@ static void do_run(
                 contract_addresses,
                 {genesis_address},
                 [&](auto const &address) {
-                    if (auto *found = evmone_state.find(address);
+                    if (auto *found = evmone_state.find(to_evmc(address));
                         found != nullptr) {
                         return found->code;
                     }
