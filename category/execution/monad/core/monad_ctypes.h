@@ -29,7 +29,7 @@
  * Ethereum
  */
 
-#include <category/execution/ethereum/core/base_ctypes.h>
+#include <category/core/uint256.h>
 #include <stdint.h>
 
 // clang-format off
@@ -42,8 +42,8 @@ extern "C"
 /// and are extensions, i.e., they are not part of the Ethereum specification
 struct monad_c_native_block_input
 {
-    monad_c_uint256_ne base_fee_trend;  ///< Trend accumulator
-    monad_c_uint256_ne base_fee_moment; ///< Moment accumulator
+    monad_uint256_he base_fee_trend;  ///< Trend accumulator
+    monad_uint256_he base_fee_moment; ///< Moment accumulator
 };
 
 // clang-format on

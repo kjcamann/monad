@@ -30,6 +30,7 @@
 
 #include <category/core/address.h>
 #include <category/core/bytes32.h>
+#include <category/core/uint256.h>
 #include <category/execution/ethereum/core/base_ctypes.h>
 #include <stdint.h>
 
@@ -59,12 +60,12 @@ struct monad_c_access_list_entry
 /// Entry in an EIP-7702 authorization_list
 struct monad_c_auth_list_entry
 {
-    monad_c_uint256_ne chain_id; ///< Chain where authorization is valid
-    monad_address address;       ///< Delegation contract address
-    uint64_t nonce;              ///< Nonce of signing authority
-    bool y_parity;               ///< y parity of authority ECDSA signature
-    monad_c_uint256_ne r;        ///< r of authority ECDSA signature
-    monad_c_uint256_ne s;        ///< s of authority ECDSA signature
+    monad_uint256_he chain_id; ///< Chain where authorization is valid
+    monad_address address;     ///< Delegation contract address
+    uint64_t nonce;            ///< Nonce of signing authority
+    bool y_parity;             ///< y parity of authority ECDSA signature
+    monad_uint256_he r;        ///< r of authority ECDSA signature
+    monad_uint256_he s;        ///< s of authority ECDSA signature
 };
 
 /// Fields of an Ethereum transaction that are recognized by the monad EVM
@@ -76,22 +77,22 @@ struct monad_c_auth_list_entry
 struct monad_c_eth_txn_header
 {
     enum monad_c_transaction_type
-        txn_type;                        ///< EIP-2718 transaction type
-    monad_c_uint256_ne chain_id;         ///< T_c: EIP-155 blockchain identifier
-    uint64_t nonce;                      ///< T_n: num txns sent by this sender
-    uint64_t gas_limit;                  ///< T_g: max usable gas (upfront xfer)
-    monad_c_uint256_ne max_fee_per_gas;  ///< T_m in EIP-1559 txns or T_p (gasPrice)
-    monad_c_uint256_ne
-        max_priority_fee_per_gas;        ///< T_f in EIP-1559 txns, 0 otherwise
-    monad_c_uint256_ne value;            ///< T_v: wei xfered or contract endowment
-    monad_address to;                    ///< T_t: recipient
-    bool is_contract_creation;           ///< True -> interpret T_t == 0 as null
-    monad_c_uint256_ne r;                ///< T_r: r value of ECDSA signature
-    monad_c_uint256_ne s;                ///< T_s: s value of ECDSA signature
-    bool y_parity;                       ///< Signature Y parity (see YP App. F)
-    monad_c_uint256_ne
-        max_fee_per_blob_gas;            ///< EIP-4844 contribution to max fee
-    uint32_t data_length;                ///< Length of trailing `data` array
+        txn_type;                      ///< EIP-2718 transaction type
+    monad_uint256_he chain_id;         ///< T_c: EIP-155 blockchain identifier
+    uint64_t nonce;                    ///< T_n: num txns sent by this sender
+    uint64_t gas_limit;                ///< T_g: max usable gas (upfront xfer)
+    monad_uint256_he max_fee_per_gas;  ///< T_m in EIP-1559 txns or T_p (gasPrice)
+    monad_uint256_he
+        max_priority_fee_per_gas;      ///< T_f in EIP-1559 txns, 0 otherwise
+    monad_uint256_he value;            ///< T_v: wei xfered or contract endowment
+    monad_address to;                  ///< T_t: recipient
+    bool is_contract_creation;         ///< True -> interpret T_t == 0 as null
+    monad_uint256_he r;                ///< T_r: r value of ECDSA signature
+    monad_uint256_he s;                ///< T_s: s value of ECDSA signature
+    bool y_parity;                     ///< Signature Y parity (see YP App. F)
+    monad_uint256_he
+        max_fee_per_blob_gas;          ///< EIP-4844 contribution to max fee
+    uint32_t data_length;              ///< Length of trailing `data` array
     uint32_t blob_versioned_hash_length; ///< Length of trailing `blob_versioned_hashes` array
     uint32_t access_list_count;          ///< # of EIP-2930 AccessList entries
     uint32_t auth_list_count;            ///< # of EIP-7702 AuthorizationList entries
@@ -121,28 +122,28 @@ struct monad_c_eth_txn_log
 /// Account state sigma[a] (except for storage root hash, sigma[a]_s)
 struct monad_c_eth_account_state
 {
-    uint64_t nonce;             ///< sigma[a]_n: num tx sent from address
-    monad_c_uint256_ne balance; ///< sigma[a]_b: wei owned by address
-    monad_bytes32 code_hash;    ///< sigma[a]_c: EVM code hash
+    uint64_t nonce;           ///< sigma[a]_n: num tx sent from address
+    monad_uint256_he balance; ///< sigma[a]_b: wei owned by address
+    monad_bytes32 code_hash;  ///< sigma[a]_c: EVM code hash
 };
 
 /// Fields of an Ethereum block header which are known at the start of execution
 struct monad_c_eth_block_input
 {
-    monad_bytes32 ommers_hash;           ///< H_o: hash of ommer blocks
-    monad_address beneficiary;           ///< H_c: recipient addr of prio gas fees
-    monad_bytes32 transactions_root;     ///< H_t: hash of block txn list
-    uint64_t difficulty;                 ///< H_d: PoW difficulty scaling param
-    uint64_t number;                     ///< H_i: # of ancestor blocks ("height")
-    uint64_t gas_limit;                  ///< H_l: max gas expenditure we're allowed
-    uint64_t timestamp;                  ///< H_s: UNIX epoch timestamp of block inception
-    monad_bytes32 extra_data;            ///< H_x: extra metadata about this block
-    uint64_t extra_data_length;          ///< Number of bytes used in H_x
-    monad_bytes32 prev_randao;           ///< H_a: source of randomness
-    monad_c_b64 nonce;                   ///< H_n: PoW puzzle solution; now zero
-    monad_c_uint256_ne base_fee_per_gas; ///< H_f: wei burned per unit gas
-    monad_bytes32 withdrawals_root;      ///< H_w: consensus-initiated withdrawals
-    uint64_t txn_count;                  ///< Number of transactions in block
+    monad_bytes32 ommers_hash;         ///< H_o: hash of ommer blocks
+    monad_address beneficiary;         ///< H_c: recipient addr of prio gas fees
+    monad_bytes32 transactions_root;   ///< H_t: hash of block txn list
+    uint64_t difficulty;               ///< H_d: PoW difficulty scaling param
+    uint64_t number;                   ///< H_i: # of ancestor blocks ("height")
+    uint64_t gas_limit;                ///< H_l: max gas expenditure we're allowed
+    uint64_t timestamp;                ///< H_s: UNIX epoch timestamp of block inception
+    monad_bytes32 extra_data;          ///< H_x: extra metadata about this block
+    uint64_t extra_data_length;        ///< Number of bytes used in H_x
+    monad_bytes32 prev_randao;         ///< H_a: source of randomness
+    monad_c_b64 nonce;                 ///< H_n: PoW puzzle solution; now zero
+    monad_uint256_he base_fee_per_gas; ///< H_f: wei burned per unit gas
+    monad_bytes32 withdrawals_root;    ///< H_w: consensus-initiated withdrawals
+    uint64_t txn_count;                ///< Number of transactions in block
 };
 
 /// Fields of an Ethereum block header which are produced as a result of

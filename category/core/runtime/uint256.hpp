@@ -22,6 +22,7 @@
 #include <category/core/runtime/uint256/intrinsics.hpp>
 #include <category/core/runtime/uint256/portable.hpp>
 #include <category/core/runtime/uint256/types.hpp>
+#include <category/core/uint256.h>
 
 #include <algorithm>
 #include <array>
@@ -146,7 +147,7 @@ div(uint64_t u_hi, uint64_t u_lo, uint64_t const v) noexcept
 
 inline constexpr uint256_t byteswap(uint256_t const &x) noexcept;
 
-struct uint256_t
+struct uint256_t : monad_uint256_he
 {
     using word_type = uint64_t;
     static constexpr auto word_num_bits = sizeof(word_type) * 8;
@@ -154,15 +155,12 @@ struct uint256_t
     static constexpr auto num_bytes = num_bits / 8;
     static constexpr auto num_words = num_bits / word_num_bits;
 
-private:
-    std::array<uint64_t, num_words> words_{0, 0, 0, 0};
-
 public:
     template <typename... T>
     [[gnu::always_inline]] constexpr explicit(false) uint256_t(T... v) noexcept
         requires std::conjunction_v<std::is_convertible<T, uint64_t>...> &&
                  ((sizeof(T) <= sizeof(uint64_t)) && ...)
-        : words_{static_cast<uint64_t>(v)...}
+        : monad_uint256_he{static_cast<uint64_t>(v)...}
     {
     }
 
@@ -170,7 +168,7 @@ public:
     [[gnu::always_inline]] constexpr explicit(false) uint256_t(T x0) noexcept
         requires std::is_convertible_v<T, uint64_t> &&
                  (sizeof(T) <= sizeof(uint64_t))
-        : words_{static_cast<uint64_t>(x0), 0, 0, 0}
+        : monad_uint256_he{static_cast<uint64_t>(x0), 0, 0, 0}
     {
         // GCC produces better code for words_{x0, 0, 0, 0} than for
         // words_{x0}
@@ -178,7 +176,7 @@ public:
 
     [[gnu::always_inline]] constexpr explicit(true)
         uint256_t(std::array<uint64_t, 4> const &x) noexcept
-        : words_{x}
+        : monad_uint256_he{x}
     {
     }
 

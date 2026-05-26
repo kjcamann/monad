@@ -37,17 +37,6 @@
 #include <array>
 #include <cstdint>
 
-#if MONAD_CXX_CTYPES_USE_MONAD_INTS
-    #include <category/core/int.hpp>
-    using monad_c_uint256_ne = monad::uint256_t;
-#else
-    // See comment in the C version of this below
-    struct monad_c_uint256_ne
-    {
-        std::uint64_t limbs[4];
-    };
-#endif
-
 using monad_c_b64 = std::array<std::uint8_t, 8>;
 using monad_c_bloom256 = std::array<std::uint8_t, 256>;
 
@@ -63,17 +52,6 @@ typedef struct monad_c_b64
 {
     uint8_t bytes[8];
 } monad_c_b64;
-
-// 256-bit integer stored in native endian byte order; the rationale for the
-// storage layout as `uint64_t[4]` instead of `uint8_t[32]` is that this ensures
-// the type is suitably-aligned to unsafely cast the underlying bits into a type
-// in an extended-precision integer library, if that library internally uses a
-// uint64_t[4] "limbs"-style representation. Both the C++ intx library and
-// Rust's ruint package use this representation.
-typedef struct monad_c_uint256_ne
-{
-    uint64_t limbs[4];
-} monad_c_uint256_ne;
 
 typedef struct monad_c_bloom256
 {

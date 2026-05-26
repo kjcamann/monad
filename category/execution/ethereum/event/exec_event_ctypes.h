@@ -31,6 +31,7 @@
 #include <category/core/address.h>
 #include <category/core/bytes32.h>
 #include <category/core/event/event_metadata.h>
+#include <category/core/uint256.h>
 #include <category/execution/ethereum/core/eth_ctypes.h>
 #include <category/execution/monad/core/monad_ctypes.h>
 #include <stddef.h>
@@ -111,7 +112,7 @@ struct monad_exec_block_start
     uint64_t round;                   ///< Round when block was proposed
     uint64_t epoch;                   ///< Epoch when block was proposed
     __uint128_t proposal_epoch_nanos; ///< UNIX epoch nanosecond timestamp
-    monad_c_uint256_ne chain_id;      ///< Blockchain we're associated with
+    monad_uint256_he chain_id;        ///< Blockchain we're associated with
     struct monad_c_secp256k1_pubkey
         author;                       ///< Public key of block author
     monad_bytes32 parent_eth_hash;    ///< Hash of Ethereum parent block
@@ -230,7 +231,7 @@ struct monad_exec_txn_call_frame
     monad_address caller;      ///< Address initiating call
     monad_address call_target; ///< Address receiving call (or deployment addr)
     uint8_t opcode;            ///< EVM opcode that creates frame
-    monad_c_uint256_ne value;  ///< I_v: value passed to account during execution
+    monad_uint256_he value;    ///< I_v: value passed to account during execution
     uint64_t gas;              ///< g: gas available for message execution
     uint64_t gas_used;         ///< Gas used by call
     int32_t evmc_status;       ///< evmc_status_code of call
@@ -266,7 +267,7 @@ struct monad_exec_account_access
     bool is_nonce_modified;                ///< True -> modified_nonce meaningful
     struct monad_c_eth_account_state
         prestate;                          ///< Read (or original) balance
-    monad_c_uint256_ne modified_balance;   ///< New balance, if modified
+    monad_uint256_he modified_balance;     ///< New balance, if modified
     uint64_t modified_nonce;               ///< New nonce, if modified
     uint32_t storage_key_count;            ///< Number of trailing storage_access events
     uint32_t transient_count;              ///< As above, but for transient storage

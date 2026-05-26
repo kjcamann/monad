@@ -645,8 +645,10 @@ Result<std::pair<uint64_t, uint64_t>> runloop_monad(
 
             monad_c_native_block_input monad_block_input = {};
             if constexpr (requires { header.base_fee_trend; }) {
-                monad_block_input.base_fee_trend = header.base_fee_trend;
-                monad_block_input.base_fee_moment = header.base_fee_moment;
+                monad_block_input.base_fee_trend =
+                    uint256_t{header.base_fee_trend};
+                monad_block_input.base_fee_moment =
+                    uint256_t{header.base_fee_moment};
             };
 
             record_block_start(
