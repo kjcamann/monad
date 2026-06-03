@@ -32,7 +32,9 @@
 #include <category/core/srcloc.h>
 
 thread_local char _g_monad_event_ring_error_buf[1024];
-static size_t const PAGE_2MB = 1UL << 21, HEADER_SIZE = PAGE_2MB;
+
+constexpr size_t PAGE_2MB = 1UL << 21;
+constexpr size_t HEADER_SIZE = PAGE_2MB;
 
 #define FORMAT_ERRC(...)                                                       \
     monad_format_err(                                                          \
