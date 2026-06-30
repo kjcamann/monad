@@ -31,6 +31,7 @@
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <category/core/assert.h>
 
@@ -49,3 +50,15 @@ monad_round_size_to_align(size_t const size, size_t const align)
     return (size + align - 1) & ~(align - 1);
 }
 #endif
+
+[[gnu::always_inline]] static inline void *
+monad_ptr_align(void *p, size_t align)
+{
+    return (void *)monad_round_size_to_align((uintptr_t)p, align);
+}
+
+[[gnu::always_inline]] static inline void const *
+monad_cptr_align(void const *p, size_t align)
+{
+    return (void const *)monad_round_size_to_align((uintptr_t)p, align);
+}
