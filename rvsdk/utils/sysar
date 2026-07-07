@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+
+"""Create/update Monad RISC-V VM shared library archive files
+
+A "shared library archive" is a collection of all the shared objects we want
+to load in the VM. They are passed to the VM as a single globbed file which is
+mmap'ed into a single address range. There is a simple index at the start of
+the file describing all the libraries in the file, and where they are located.
+It is parsed by the VM dynamic linker at startup.
+
+  struct sysar_table_entry {
+    char name[32];    // DT_SONAME of shared object
+    uint8_t hash[32]; // Keccak hash of contents
+    uint64_t offset;  // Page aligned offset in the file
+    uint64_t size;    // File size in bytes
+  };
+
+  struct sysar_file_header {
+    char magic[8];                      // 'MRVSYS01'
+    uint64_t table_size;                // # of items following in `entries`
+    struct sysar_table_entry entries[]; // Description of each shared object
+  };
+
+The rationale for the archive file is that the blockchain would need to
+maintain every version of an ABI change to a library ever released. This file
+is meant to be updated / maintained like ar(5) static library archives. The
+tooling for maintaining and versioning them is meant to go into this tool,
+whenever it is needed. For now, it is just a quick-and-dirty solution.
+"""
+
+import argparse
+import ctypes
+import hashlib
+import io
+import mmap
+import pathlib
+import sys
+import tarfile
+import typing
+
+from dataclasses import dataclass
+
+SYSAR_MAGIC = b'MRVSYS01'
+SYSAR_NAME_MAX = 31
+SYSAR_PAGE_ALIGN = mmap.PAGESIZE
+
+class sysar_file_header(ctypes.LittleEndianStructure):
+  _fields_ = [
+    ('magic', ctypes.c_byte * 8),
+    ('table_size', ctypes.c_uint64),
+  ]
+
+class sysar_table_entry(ctypes.LittleEndianStructure):
+  _fields_ = [
+    ('name', ctypes.c_char * (SYSAR_NAME_MAX + 1)),
+    ('hash', ctypes.c_byte * 32),
+    ('offset', ctypes.c_uint64),
+    ('size', ctypes.c_uint64),
+  ]
+
+@dataclass
+class ParsedSystemArchive:
+  header: sysar_file_header
+  entry_table: tuple[sysar_table_entry]
+  contents: None | tuple[bytes]
+
+parser = argparse.ArgumentParser(
+  prog='sysar', description='Create system shared archive files')
+
+parser.add_argument('-l', '--list', action='store_true',
+  help='List contents of a sysar file')
+
+parser.add_argument('-o', '--output',
+  help='System shared archive file')
+
+parser.add_argument('input', nargs='*', help='Archive inputs')
+
+def load_libraries_from_tar(file_name: str, tar: tarfile.TarFile) -> dict[str, bytes]:
+  libraries = dict()
+
+  for member in tar:
+    if member.isfile():
+      if len(member.name) > SYSAR_NAME_MAX:
+        raise ValueError(f'tar file {file_name} member {member.name} name too long')
+      libraries[member.name] = tar.extractfile(member).read()
+
+  return libraries
+
+def parse_sysar(sysar_file: io.BufferedRandom,
+                parse_contents: bool) -> ParsedSystemArchive:
+  entries = list()
+  content_list = list()
+
+  with mmap.mmap(sysar_file.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+    header_len = ctypes.sizeof(sysar_file_header)
+    entry_len = ctypes.sizeof(sysar_table_entry)
+
+    if len(mm) < header_len or mm[:len(SYSAR_MAGIC)] != SYSAR_MAGIC:
+      raise ValueError(f'{sysar_file.name} is not a sysar file')
+
+    header = sysar_file_header.from_buffer_copy(mm[:header_len])
+    table_len = header.table_size * ctypes.sizeof(sysar_table_entry)
+    if len(mm) - header_len < table_len:
+      raise ValueError(f'{sysar_file.name} has malformed sysar entry table')
+
+    offset = header_len
+    for _ in range(header.table_size):
+      entry = sysar_table_entry.from_buffer_copy(mm[offset:offset+entry_len])
+      entries.append(entry)
+      offset += entry_len
+      if parse_contents:
+        content_list.append(mm[entry.offset:entry.offset+entry.size])
+
+  return ParsedSystemArchive(header, tuple(entries), tuple(content_list) or None)
+
+def load_libraries_from_sysar(sysar_file: io.BufferedRandom) -> dict[str, bytes]:
+  parsed = parse_sysar(sysar_file, parse_contents=True)
+  return { entry.name.decode('utf-8') : contents
+           for entry, contents in zip(parsed.entries, parsed.contents) }
+
+def load_libraries_from_files(inputs: list[str]) -> dict[str, bytes]:
+  libraries = dict()
+
+  for i in inputs:
+    input_path = pathlib.Path(i)
+
+    if not input_path.is_file():
+      raise ValueError(f'{i} is not an accessible regular file')
+
+    if tarfile.is_tarfile(i):
+      with tarfile.open(i) as tar:
+        libraries |= load_libraries_from_tar(tar)
+        continue
+
+      if len(member.name) > SYSAR_NAME_MAX:
+        raise ValueError(f'tar file {file_name} member {member.name} name too long')
+
+    with open(input_path, 'rb') as input_file:
+      filename = input_path.name
+      contents = input_file.peek(8)
+      if contents[:4] == b'\x7fELF':
+        # An ELF file; we don't validate that this is ET_DYN, we'll let the
+        # loader die if we get it wrong
+        libraries[filename] = input_file.read()
+      elif contents[:8] == SYSAR_MAGIC:
+        libraries |= load_libraries_from_sysar(input_file)
+      else:
+        raise ValueError(f'do not understand the format of input file `{i}`')
+
+  return libraries
+
+def round_size_to_align(n: int, base: int) -> int:
+  assert base.bit_count() == 1
+  return (n + base - 1) & ~(base - 1)
+
+def write_sysar(libraries: dict[str, bytes], out: typing.BinaryIO):
+  table_entries = list()
+  offsets = list()
+
+  next_data_offset = round_size_to_align(ctypes.sizeof(sysar_file_header) +
+      len(libraries) * ctypes.sizeof(sysar_table_entry), SYSAR_PAGE_ALIGN)
+
+  file_header = sysar_file_header((ctypes.c_byte * 8)(*SYSAR_MAGIC), len(libraries))
+  for name, shared_lib_bytes in libraries.items():
+    code_hash = hashlib.new('keccak-256', shared_lib_bytes).digest()
+    entry = sysar_table_entry(name.encode(), (ctypes.c_byte * 32)(*code_hash), next_data_offset,
+                              len(shared_lib_bytes))
+    table_entries.append(entry)
+    next_data_offset = \
+        round_size_to_align(next_data_offset + len(shared_lib_bytes), SYSAR_PAGE_ALIGN)
+
+  out.truncate(next_data_offset) # Truncate to final size so we can seek
+
+  out.write(bytes(file_header))
+  for entry in table_entries:
+    out.write(bytes(entry))
+
+  for entry, shared_lib_bytes in zip(table_entries, libraries.values()):
+    out.seek(entry.offset, io.SEEK_SET)
+    out.write(shared_lib_bytes)
+
+def list_sysar(inputs: list[str]):
+  print(f'{"ABI_NAME":<32} {"OFFSET":>8} {"LENGTH":>8}  HASH', file=sys.stdout)
+  for i in inputs:
+    input_path = pathlib.Path(i)
+
+    if not input_path.is_file():
+      raise ValueError(f'{i} is not an accessible regular file')
+    with open(input_path, 'rb') as input_file:
+      parsed = parse_sysar(input_file, parse_contents=False)
+    for entry in parsed.entry_table:
+      name = entry.name.decode('utf-8')
+      print(f'{name:<32} {entry.offset:8} {entry.size:8}  {bytes(entry.hash).hex()}',
+            file=sys.stdout)
+
+def main(args: argparse.Namespace) -> int:
+  if args.list:
+    list_sysar(args.input)
+    return 0
+
+  libraries = load_libraries_from_files(args.input)
+
+  if args.output:
+    with open(args.output, 'wb') as out:
+      write_sysar(libraries, out)
+
+if __name__ == '__main__':
+  sys.exit(main(parser.parse_args()))

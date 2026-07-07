@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+import argparse
+import compression.zstd
+import hashlib
+import pathlib
+import struct
+import sys
+
+parser = argparse.ArgumentParser(
+  prog='mrvcdump',
+  description='Dump contents of .mrvc files')
+
+parser.add_argument('-c', '--code-hash', action='store_true',
+  help='Print the code_hash of the MRVC file')
+
+parser.add_argument('-f', '--force', action='store_true',
+  help='Force extraction even if file exists')
+
+parser.add_argument('-x', '--extract', action='store_true',
+  help='Extract ELF file')
+
+parser.add_argument('input', type=argparse.FileType('rb'))
+
+def extract_elf(name: str, contents: bytes) -> bytes:
+  if len(contents) < 7:
+    raise ValueError(f'{name} is not a valid MRVC file: header underflow')
+  (h0, h1, h2, code_length) = struct.unpack('<cccI', contents[:7])
+  if (h0+h1+h2) != b'\xae\x00\x01':
+    raise ValueError(f'{name} is not a valid MRVC file: wrong prefix')
+
+  code = contents[7:]
+  if code_length > len(code):
+    raise ValueError(f'{name} is not a valid MRVC file: code_length overflow')
+  if code[:4] == b'\x7fELF':
+    return code
+  return compression.zstd.decompress(code)
+
+def main(args: argparse.Namespace) -> int:
+  contents = args.input.read()
+
+  # Do this first, to validate that it is correct
+  elf = extract_elf(args.input.name, contents)
+
+  if args.code_hash:
+    # Code hash includes the escape prefix
+    code_hash = hashlib.new('keccak-256', contents).digest()
+    print(f'{args.input.name} => {code_hash.hex()}', file=sys.stdout)
+    return 0
+
+  if args.extract:
+    elf_path = pathlib.Path(args.input.name).with_suffix('')
+    if elf_path.exists() and not args.force:
+      print(f'error: {elf_path} already exists, will not overwrite without -f|--force',
+            file=sys.stderr)
+      return 1
+    with open(elf_path, 'wb') as out_file:
+      out_file.write(elf)
+
+  return 0
+
+if __name__ == '__main__':
+  sys.exit(main(parser.parse_args()))

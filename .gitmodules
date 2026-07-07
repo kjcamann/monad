@@ -65,3 +65,9 @@
 [submodule "third_party/fiber"]
 	path = third_party/fiber
 	url = https://github.com/category-labs/fiber.git
+[submodule "rvsdk/third_party/yyjson"]
+	path = rvsdk/third_party/yyjson
+	url = https://github.com/ibireme/yyjson.git
+[submodule "rvsdk/third_party/libucl"]
+	path = rvsdk/third_party/libucl
+	url = https://github.com/kjcamann/libucl.git

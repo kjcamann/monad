@@ -164,6 +164,11 @@ static monad_abi_err_t monad_solabi_uint_he_from_bytes32(
 static monad_abi_err_t monad_solabi_address_from_bytes32(
     struct monad_bytes32 const *b32, struct monad_address const **addr_p);
 
+/// Given a byte view containing a single encoded byte array, initialize
+/// the byte view parameter `array` to refer to the bytes of this array
+static monad_abi_err_t
+monad_solabi_decode_bytes(struct monad_bv bytes, struct monad_bv *array);
+
 /// Given a byte view containing a single encoded UTF-8 string, initialize
 /// the string view parameter `str` to refer to the bytes of this string
 static monad_abi_err_t
@@ -358,7 +363,7 @@ inline monad_abi_err_t monad_solabi_uint_he_from_bytes32(
 }
 
 [[gnu::always_inline]] inline monad_abi_err_t
-monad_solabi_decode_string(struct monad_bv bytes, struct monad_sv *str)
+monad_solabi_decode_bytes(struct monad_bv bytes, struct monad_bv *array)
 {
     monad_abi_err_t err;
     struct monad_soldec_ctx ctx;
@@ -367,8 +372,13 @@ monad_solabi_decode_string(struct monad_bv bytes, struct monad_sv *str)
     if (err) {
         return err;
     }
-    return monad_soldec_tuple_get_bytes(
-        &ctx.top_level, 0, (struct monad_bv *)str);
+    return monad_soldec_tuple_get_bytes(&ctx.top_level, 0, array);
+}
+
+[[gnu::always_inline]] inline monad_abi_err_t
+monad_solabi_decode_string(struct monad_bv bytes, struct monad_sv *str)
+{
+    return monad_solabi_decode_bytes(bytes, (struct monad_bv *)str);
 }
 
 [[gnu::always_inline]] inline monad_abi_err_t monad_solabi_decode_address(
