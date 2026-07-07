@@ -1,0 +1,4 @@
+ERR_DEF(MRV_EVM_ERR_UNKNOWN,    "Unknown ABI error")
+ERR_DEF(MRV_EVM_ERR_NO_ACCOUNT, "Account does not exist")
+ERR_DEF(MRV_EVM_ERR_REVERT,     "Message execution revert")
+ERR_DEF(MRV_EVM_ERR_OUT_OF_GAS, "Out of gas")
