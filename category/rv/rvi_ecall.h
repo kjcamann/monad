@@ -1,0 +1,74 @@
+#pragma once
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+enum rvi_exit_type
+{
+    RVI_EXIT_STOP,
+    RVI_EXIT_RETURN,
+    RVI_EXIT_REVERT,
+};
+
+enum rvi_ecall_domain : uint32_t
+{
+    RVI_ECALL_DOMAIN_EVM = 0,
+    RVI_ECALL_DOMAIN_LIBC = 1,
+    RVI_ECALL_DOMAIN_STDLIB = 2,
+};
+
+enum rvi_evm_ecall : uint64_t
+{
+    RVI_ECALL_EVM_CALL = (uint64_t)RVI_ECALL_DOMAIN_EVM << 32,
+    RVI_ECALL_EVM_CALLDATA,
+    RVI_ECALL_EVM_EXIT,
+    RVI_ECALL_EVM_GAS,
+    RVI_ECALL_EVM_KECCAK,
+    RVI_ECALL_EVM_LOG,
+    RVI_ECALL_EVM_MSG_SENDER,
+    RVI_ECALL_EVM_RETURNDATA,
+    RVI_ECALL_EVM_SLOAD,
+    RVI_ECALL_EVM_SSTORE,
+};
+
+enum rvi_libc_ecall : uint64_t
+{
+    RVI_ECALL_C_ABORT = (uint64_t)RVI_ECALL_DOMAIN_LIBC << 32,
+    RVI_ECALL_C_ALIGNED_ALLOC,
+    RVI_ECALL_C_CALLOC,
+    RVI_ECALL_C_FREE,
+    RVI_ECALL_C_MALLOC,
+    RVI_ECALL_C_MEMCHR,
+    RVI_ECALL_C_MEMCMP,
+    RVI_ECALL_C_MEMCPY,
+    RVI_ECALL_C_MEMMOVE,
+    RVI_ECALL_C_MEMSET,
+    RVI_ECALL_C_REALLOC,
+    RVI_ECALL_C_STPCPY,
+    RVI_ECALL_C_STPNCPY,
+    RVI_ECALL_C_STRCHR,
+    RVI_ECALL_C_STRCPY,
+    RVI_ECALL_C_STRERROR,
+    RVI_ECALL_C_STRLCPY,
+    RVI_ECALL_C_STRLEN,
+    RVI_ECALL_C_STRNCPY,
+    RVI_ECALL_C_STRRCHR,
+    RVI_ECALL_C_VSNPRINTF,
+    RVI_ECALL_C_VSPRINTF,
+};
+
+enum rvi_stdlib_ecall : uint64_t
+{
+    RVI_ECALL_STD_ASSERT_FAILED = (uint64_t)RVI_ECALL_DOMAIN_STDLIB << 32,
+    RVI_ECALL_STD_UINT256_ADD,
+    RVI_ECALL_STD_UINT256_LT,
+    RVI_ECALL_STD_UINT256_SUB,
+};
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
