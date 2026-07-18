@@ -195,6 +195,7 @@ static int expect_object_type(
     return 0;
 }
 
+#if 0
 static int expect_array_elt(
     ucl_object_t const **elt_p, struct parse_ctx *const ctx,
     ucl_object_t const *const array, size_t const i,
@@ -232,6 +233,7 @@ static int expect_array_elt(
     *elt_p = elt;
     return 0;
 }
+#endif
 
 static int parse_monad_address_key(
     struct monad_address *const addr, struct parse_ctx const ctx,
@@ -276,31 +278,8 @@ static int mmap_system_archive(
     return 0;
 }
 
-// Parse a single system_archive element, which is possibly part of
-// an array
+// <system-archive> = <path-string>;
 static int parse_system_archive(
-    struct monad_rv_vm_config *const conf, struct parse_ctx ctx,
-    ucl_object_t const *obj_system_archive)
-{
-    struct monad_bv const *mappings;
-    char const *const path = ucl_object_tostring(obj_system_archive);
-
-    mappings = realloc(
-        (void *)conf->sys_archives,
-        sizeof(struct monad_bv *) * (conf->sys_archive_count + 1));
-    if (mappings == nullptr) {
-        return PARSE_ERR(errno, "realloc(3) of riscv_vm sys_archives failed");
-    }
-    conf->sys_archives = mappings;
-    return mmap_system_archive(
-        ctx,
-        path,
-        (struct monad_bv *)&conf->sys_archives[conf->sys_archive_count++]);
-}
-
-// A system_archive is either an object in `riscv_vm` of string type, or it is
-// an array of strings
-static int parse_system_archives(
     struct monad_rv_vm_config *const conf, struct parse_ctx *prev_ctx,
     ucl_object_t const *const obj_riscv_vm)
 {
@@ -314,32 +293,12 @@ static int parse_system_archives(
         obj_riscv_vm,
         "system_archive",
         UCL_STRING,
-        EF_ALLOW_ARRAY);
+        EF_DEFAULT);
     if (rc != 0 || obj_system_archive == nullptr) {
-        return rc; // Error or no system_archive keys present
+        return rc; // Error or no system_archive key present
     }
-
-    if (ucl_object_type(obj_system_archive) == UCL_STRING) {
-        // Single entry
-        return parse_system_archive(conf, ctx, obj_system_archive);
-    }
-
-    for (size_t i = 0; i < ucl_array_size(obj_system_archive); ++i) {
-        ucl_object_t const *elt;
-        struct parse_ctx elt_ctx = push_parse_ctx(prev_ctx);
-
-        rc = expect_array_elt(
-            &elt, &elt_ctx, obj_system_archive, i, UCL_STRING, EF_REQUIRED);
-        if (rc != 0) {
-            return rc;
-        }
-        rc = parse_system_archive(conf, elt_ctx, elt);
-        if (rc != 0) {
-            return rc;
-        }
-    }
-
-    return 0;
+    return mmap_system_archive(
+        ctx, ucl_object_tostring(obj_system_archive), &conf->sys_archive);
 }
 
 // Parse the top-level `riscv_vm` object
@@ -357,7 +316,7 @@ static int parse_riscv_vm_config(
         return rc; // Error or no riscv_vm section present
     }
 
-    return parse_system_archives(conf, &ctx, obj_riscv_vm);
+    return parse_system_archive(conf, &ctx, obj_riscv_vm);
 }
 
 static int parse_dso_override(
@@ -497,10 +456,7 @@ int rvc_config_parse(
 
 void rvc_config_free(struct rvc_config *const conf)
 {
-    for (size_t i = 0; i < conf->riscv_vm_config.sys_archive_count; i++) {
-        struct monad_bv const mapping = conf->riscv_vm_config.sys_archives[i];
-        munmap((void *)mapping.begin, monad_bv_len(mapping));
-    }
+    munmap((void *)conf->riscv_vm_config.sys_archive.begin, monad_bv_len(conf->riscv_vm_config.sys_archive));
 
     for (size_t i = 0; i < conf->host_exec_config.dso_override_count; ++i) {
         struct dso_override *const override =

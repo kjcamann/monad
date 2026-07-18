@@ -17,9 +17,6 @@ target_sources(mrvrun PUBLIC
   ../../../category/core/assert.c
   ../../lib/stdlib/host/backtrace.c)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBARCHIVE IMPORTED_TARGET libarchive)
-
 if(APPLE)
   find_package(OpenSSL REQUIRED)
   target_sources(mrvrun PUBLIC compat/macos/keccak.c)
@@ -37,4 +34,4 @@ target_include_directories(mrvrun PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../incl
 target_compile_definitions(mrvrun PUBLIC _GNU_SOURCE)
 target_compile_features(mrvrun PUBLIC c_std_23)
 target_link_libraries(mrvrun PRIVATE monad_core_limited
-  evmc::evmc evmc::loader rvc_loader yyjson PkgConfig::LIBARCHIVE)
+  evmc::evmc evmc::loader rvc_loader yyjson)

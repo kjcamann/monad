@@ -32,8 +32,7 @@ static void
 file_logger_publish(void *const log_ctx, struct rvc_log_msg const *const msg)
 {
     FILE *const file = get_file_from_context(log_ctx);
-    uint8_t const level = get_syslog_level_from_context(log_ctx);
-    (void)fprintf(file, "[%6s] %s\n", get_priority_name(level), msg->message);
+    (void)fprintf(file, "[%-6s] %s\n", get_priority_name(msg->syslog_level), msg->message);
 }
 
 static uint8_t file_logger_max_level(void *const log_ctx)

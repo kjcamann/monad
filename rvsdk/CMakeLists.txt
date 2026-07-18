@@ -330,21 +330,19 @@ endfunction()
 add_subdirectory(examples)
 
 if(MRV_EVM_PLATFORM STREQUAL "host")
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(LIBARCHIVE IMPORTED_TARGET libarchive)
-
   find_library(libzstd_file zstd REQUIRED)
 
   add_library(monad_rv STATIC
     ../category/rv/rv_code.c
     ../category/rv/rv_code_cache.c
+    ../category/rv/rv_link_map.c
     ../category/rv/rv_log_observer.c
     ../category/rv/rv_vm.c
-    ../category/rv/rvi_dynlink.c
+    #../category/rv/rvi_dynlink.c
     ../category/rv/rvi_log_writer.c)
   target_include_directories(monad_rv PRIVATE third_party/musl)
   target_link_libraries(monad_rv PUBLIC monad_core_limited)
-  target_link_libraries(monad_rv PRIVATE ${libzstd_file} PkgConfig::LIBARCHIVE)
+  target_link_libraries(monad_rv PRIVATE ${libzstd_file})
 
   add_subdirectory(tools)
 endif()
