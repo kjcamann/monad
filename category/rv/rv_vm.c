@@ -7,19 +7,19 @@
 #include <category/rv/rvi_dynlink.h>
 
 #include "rv_vm_internal.h"
+#include "rvi_dynlink.h"
 #include "rvi_log_writer.h"
 
 static int init_linker(
     struct monad_rv_vm *const vm,
     struct monad_rv_vm_config const *const vm_config)
 {
-    struct rvi_dynlink_config const linker_config = {
-        .sys_archives = vm_config->sys_archives,
-        .sys_archive_count = vm_config->sys_archive_count,
-        .sys_lib_alloc = nullptr,
-    };
-
-    return rvi_dynlink_create(&vm->linker, vm, &linker_config);
+    if (monad_bv_empty(vm_config->sys_archive) && !vm_config->no_system_libs) {
+        VM_ERRX("dynamic linker needs a system archive to initialize");
+    }
+    // Create the dynamic linker, which will load all the system shared
+    // libraries and resolve their relocations
+    return rvi_dynlink_create(&vm->linker, vm, vm_config->sys_code_hugepages);
 }
 
 int monad_rv_vm_create(
@@ -34,21 +34,34 @@ int monad_rv_vm_create(
     log_wr = rvi_log_writer_init(log_obs, config->max_log_level);
     *vm_p = vm = malloc(sizeof *vm);
     if (vm == nullptr) {
-        rc = errno;
-        return RVI_LOG_WRITE(
-                   log_wr, LOG_ERR, rc, "malloc(3) of monad_rv_failed"),
-               rc;
+        return LW_ERR(errno, "malloc(3) of monad_rv_failed");
     }
     memset(vm, 0, sizeof *vm);
     vm->log_wr = log_wr;
 
-    return init_linker(vm, config);
+    rc = init_linker(vm, config);
+    if (rc != 0) {
+        monad_rv_vm_destroy(vm);
+        return rc;
+    }
+
+#if 0
+    rc = init_code_cache(vm, config);
+    if (rc != 0) {
+        monad_rv_vm_destroy(vm);
+        return rc;
+    }
+#endif
+
+    return 0;
 }
 
 void monad_rv_vm_destroy(struct monad_rv_vm *vm)
 {
     if (vm != nullptr) {
+        // XXX: need to free the link map
         rvi_dynlink_destroy(vm->linker);
+        // rvi_code_cache_destroy(vm->code_cache);
         free(vm);
     }
 }

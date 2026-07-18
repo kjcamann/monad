@@ -14,7 +14,9 @@ enum rvi_addr_space : uint8_t
 {
     RVI_AS_PSABI,
     RVI_AS_CONTRACT_CODE,
+    RVI_AS_CONTRACT_DATA,
     RVI_AS_SYSTEM_CODE,
+    RVI_AS_SYSTEM_DATA,
 };
 
 typedef enum rvi_addr_space rvi_addr_space_t;
@@ -24,7 +26,7 @@ constexpr size_t RVI_ADDR_SPACE_OFFSET_BITS = 64 - RVI_ADDR_SPACE_TAG_BITS;
 constexpr size_t RVI_ADDR_SPACE_TAG_SHIFT = RVI_ADDR_SPACE_OFFSET_BITS;
 
 constexpr rvi_addr_t RVI_ADDR_SPACE_OFFSET_MASK =
-    ((rvi_addr_t)1ULL << RVI_ADDR_SPACE_OFFSET_BITS) - 1;
+    ((rvi_addr_t)1U << RVI_ADDR_SPACE_OFFSET_BITS) - 1;
 
 constexpr rvi_addr_t RVI_ADDR_SPACE_TAG_MASK = ~RVI_ADDR_SPACE_OFFSET_MASK;
 

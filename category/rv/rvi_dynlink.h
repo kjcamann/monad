@@ -4,35 +4,44 @@
 #include <stdint.h>
 
 #include <category/core/byteview.h>
+#include <category/rv/rv_link_map.h>
+
+#include "rvi_log_writer.h"
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-struct monad_allocator;
 struct monad_rv_vm;
 struct rvi_dynlink;
 struct rvi_elf;
 
-struct rvi_dynlink_config
+// Description of an object file in the system archive (an input to the dynamic
+// linker)
+struct rvi_dynlink_ar_object
 {
-    struct monad_bv const *sys_archives;
-    size_t sys_archive_count;
-    struct monad_allocator *sys_lib_alloc;
+    struct monad_rv_syslib_meta meta;
+    struct monad_bv ar_bytes;
+    STAILQ_ENTRY(rvi_dynlink_ar_object) next;
 };
 
-// XXX: ability to return the linkmap
-// XXX: ability to return the range in both address spaces of the system code
-// map
+// Full dynamic linker input: a list of the system archive ET_REL object files
+// and some metadata about them
+struct rvi_dynlink_input
+{
+    STAILQ_HEAD(, rvi_dynlink_ar_object) ar_objs;
+    uint32_t ar_objs_count;
+    uint32_t symbol_count;
+};
 
-int rvi_dynlink_create(
-    struct rvi_dynlink **, struct monad_rv_vm *,
-    struct rvi_dynlink_config const *);
+int rvi_dynlink_create(struct rvi_dynlink **, struct monad_rv_vm *, bool use_hugepages);
 
 void rvi_dynlink_destroy(struct rvi_dynlink *);
 
 int rvi_dynlink_relocate(struct rvi_dynlink *, struct rvi_elf *);
+
+int rvi_dynlink_build_input(struct rvi_dynlink_input *, struct monad_bv sys_archive, bool bare_metal, rvi_log_writer_t);
 
 #ifdef __cplusplus
 } // extern "C"

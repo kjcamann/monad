@@ -39,5 +39,5 @@ int rvi_log_writer_vpublish_observer(
     else {
         log.msglen = (size_t)rc;
     }
-    return monad_rv_log_publish(o, &log);
+    return o->vtable->publish(o, &log);
 }

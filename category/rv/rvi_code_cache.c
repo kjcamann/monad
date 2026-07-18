@@ -11,7 +11,7 @@
 #include <category/core/address.h>
 #include <category/core/assert.h>
 #include <category/rv/rv_code.h>
-#include <category/rv/rv_code_cache.h>
+#include <category/rv/rvi_code_cache.h>
 
 alignas(4096) static thread_local uint8_t
     s_validate_code_buf[MONAD_RV_CODE_MAX_SIZE];

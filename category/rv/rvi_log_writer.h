@@ -22,6 +22,10 @@ constexpr uintptr_t RVI_LOG_WRITER_LEVEL_MASK = 0x7;
     rvi_log_writer_publish(                                                    \
         (WRITER), &MONAD_SOURCE_LOCATION_CURRENT(), __VA_ARGS__)
 
+#define LW_ERR(ERR, ...) (void)RVI_LOG_WRITE(log_wr, LOG_ERR, (ERR), __VA_ARGS__), (ERR)
+#define LW_ERRX(...) RVI_LOG_WRITE(log_wr, LOG_ERR, 0, __VA_ARGS__)
+#define LW_DEBUG(...) RVI_LOG_WRITE(log_wr, LOG_DEBUG, 0, __VA_ARGS__)
+
 extern int rvi_log_writer_vpublish_observer(
     struct monad_rv_log_observer *, monad_source_location_t const *,
     uint8_t level, int err, char const *format, va_list);
@@ -43,7 +47,7 @@ extern int rvi_log_writer_vpublish_observer(
         return 0;
     }
     o = (struct monad_rv_log_observer *)(wr & ~RVI_LOG_WRITER_LEVEL_MASK);
-    if (MONAD_LIKELY(level > monad_rv_log_max_level(o))) {
+    if (MONAD_LIKELY(level > o->vtable->max_level(o))) {
         return 0;
     }
     return rvi_log_writer_vpublish_observer(o, srcloc, level, err, format, ap);
@@ -72,7 +76,7 @@ rvi_log_writer_flush(rvi_log_writer_t const wr, uint8_t const level)
         return;
     }
     o = (struct monad_rv_log_observer *)(wr & ~RVI_LOG_WRITER_LEVEL_MASK);
-    monad_rv_log_flush(o);
+    o->vtable->flush(o);
 }
 
 #ifdef __cplusplus

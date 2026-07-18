@@ -10,6 +10,7 @@ struct evmc_message;
 struct evmc_result;
 
 struct monad_address;
+struct monad_rv_link_map;
 struct monad_rv_log_observer;
 struct monad_rv_vm;
 struct monad_rv_vm_config;
@@ -24,6 +25,8 @@ int monad_rv_vm_create(
     struct monad_rv_vm_config const *);
 
 void monad_rv_vm_destroy(struct monad_rv_vm *);
+
+struct monad_rv_link_map const *monad_rv_vm_get_link_map(struct monad_rv_vm *);
 
 monad_rv_validate_code_result_t monad_rv_vm_pin_unvalidated_code(
     struct monad_rv_vm *, struct monad_address const *, struct monad_bv code,
