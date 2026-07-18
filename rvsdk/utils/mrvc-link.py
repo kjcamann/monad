@@ -27,9 +27,6 @@ parser.add_argument('--objcopy', default='objcopy',
 
 parser.add_argument('--nm', default='nm', help='Path to nm utility')
 
-parser.add_argument('-m', '--sym-map-search-dir', action='append',
-  default=[], type=pathlib.Path, help='Add symbol map search path directory')
-
 parser.add_argument('-n', '--dry-run', action='store_true',
   help='Print the commands that would run, without running them')
 
@@ -97,46 +94,6 @@ def output_mrvc_file(args: argparse.Namespace):
       with open(mrvc_path, 'wb') as out_file:
         out_file.write(code_blob)
 
-def create_abi_name_symbol_map(args: args.Namespace) -> pathlib.Path:
-  map_filename = pathlib.Path(args.abi_name + '.map')
-  nm_args = (args.nm, '--export-symbols', args.output)
-
-  if args.dry_run:
-    print(' '.join(nm_args), file=sys.stdout)
-    return map_filename
-
-  nm_proc = subprocess.Popen(nm_args, stdout=subprocess.PIPE, text=True, bufsize=1)
-  redefine_pairs = list()
-  for line in nm_proc.stdout:
-    sym = line.rstrip('\n')
-    redefine_pairs.append((sym, f'!{args.abi_name}:{sym}'))
-
-  with open(map_filename, 'wt') as map_file:
-    for (sym, mangled) in redefine_pairs:
-      print(f'{sym} {mangled}', file=map_file)
-
-  return map_filename
-
-def mangle_versioned_symbols(args: args.Namespace, abi_name: str):
-  map_filename = pathlib.Path(abi_name + '.map')
-  if args.dry_run:
-    # XXX: this is not exactly what runs, because we need to search the
-    # directories for the map files
-    objcopy_args = (args.objcopy, f'--redefine-syms={map_filename}', args.output)
-    print(' '.join(objcopy_args), file=sys.stdout)
-  else:
-    sym_map_files = list(x / map_filename for x in args.sym_map_search_dir if
-                         (x / map_filename).is_file())
-    if not sym_map_files:
-      raise ValueError(f'object `{args.output}` depends on symbol map file ' +
-                       f'`{map_filename}` but it was not found on any path in ' +
-                       f'{args.sym_map_search_dir}')
-    if len(sym_map_files) > 1:
-      print(f'warning: multiple conflicting symbol map files found: {sym_map_files}',
-            file=sys.stderr)
-    objcopy_args = (args.objcopy, f'--redefine-syms={sym_map_files[0]}', args.output)
-    subprocess.run(objcopy_args, check=True)
-
 def main(args: argparse.Namespace) -> int:
   linker = shutil.which(args.linker)
   if not linker:
@@ -167,45 +124,16 @@ def main(args: argparse.Namespace) -> int:
   else:
     subprocess.run(linker_args, check=True)
 
-  # Deduplicate the symbol map search directories while preserving the search
-  # order
-  args.sym_map_search_dir = list(dict.fromkeys(args.sym_map_search_dir))
-
   if args.abi_name:
     # This library is tagged with an explicit "ABI name", an DT_SONAME-like
-    # concept that is used to version shared code; we do two things with a
-    # library that has an ABI name:
-    #
-    #   1. We create an ELF note specifying that name and its keccak-256 hash
-    #
-    #   2. All the public symbols in the object are extracted we generate
-    #      a symbol mapping file that maps <sym> to !<abi-name>:<sym>
-    #
-    # The symbol mapping file will be used by an
-    #
-    #    objdump --redefine-syms=<filename> <object>
-    #
-    # command by any later object that imports the library with that ABI name.
-
-    # Add the ELF note
+    # concept that is used to version shared code; we create an ELF note
+    # specifying that name and its keccak-256 hash
     objcopy_mrvc_note(args, args.abi_name, ELF_NOTE_ABI_NAME_TYPE)
 
-    # Emit the symbol map file
-    create_abi_name_symbol_map(args)
-
   for i in args.named_import:
-    # For each named import we see, we do two things:
-    #
-    #  1. We create an ELF note specifying that name and its keccak-256 hash
-    #
-    #  2. We look for the symbol map file and mangle all the symbols in the
-    #     object to include the ABI name
-
-    # Add the ELF note
+    # For each named import we see, we create an ELF note specifying that
+    # name and its keccak-256 hash
     objcopy_mrvc_note(args, i, ELF_NOTE_NAMED_IMPORT_TYPE)
-
-    # ABI-name-mangle all the import's symbols according to its symbol map file
-    mangle_versioned_symbols(args, i)
 
   if args.bin:
     output_mrvc_file(args)

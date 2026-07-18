@@ -10,39 +10,55 @@ set(CACHE{MRV_ERC20_ABI_VERSION} TYPE INTERNAL VALUE 1)
 # mrvc_link(<primary-static-library-target> [<output-name>]
 #           [SYSTEM] [AUTO_IMPORT]
 #           [NAMED_IMPORTS <import>...]
-#           [SYMBOL_MAP_SEARCH_DIRS <dir>...]
 #           [EXTRA_LIBRARIES] <extra-library-target>...)
 function(mrvc_link target)
   cmake_parse_arguments(PARSE_ARGV 1 ARG "SYSTEM;AUTO_IMPORT" ""
-      "NAMED_IMPORTS;SYMBOL_MAP_SEARCH_DIRS;EXTRA_LIBRARIES")
+      "NAMED_IMPORTS;EXTRA_LIBRARIES")
+
+  set(output_name "")
+
+  if(ARG_SYSTEM)
+    # System object code must use the ABI name
+    get_target_property(output_name ${target} MRV_ABI_NAME)
+    if(NOT output_name)
+      message(FATAL_ERROR "System library ${target} did not set required property MRV_ABI_NAME")
+    endif()
+  endif()
 
   # Optional second positional arg: the output file name.
-  set(OUTPUT_NAME "")
   if(ARG_UNPARSED_ARGUMENTS)
-    list(GET ARG_UNPARSED_ARGUMENTS 0 OUTPUT_NAME)
+    list(GET ARG_UNPARSED_ARGUMENTS 0 output_name)
   endif()
 
   # If not passed as an argument, try a custom property on the static lib
-  if(NOT OUTPUT_NAME)
-    get_target_property(OUTPUT_NAME ${target} MRV_CONTRACT_NAME)
+  if(NOT output_name)
+    get_target_property(output_name ${target} MRV_CONTRACT_NAME)
   endif()
 
   # Fall back to a name derived from the target
-  if(NOT OUTPUT_NAME)
-      set(OUTPUT_NAME "${target}")
+  if(NOT output_name)
+      set(output_name "${target}")
   endif()
 
-  set(OBJECT_FILE ${CMAKE_CURRENT_BINARY_DIR}/${OUTPUT_NAME}.o)
-  set(MRVC_FILE ${CMAKE_CURRENT_BINARY_DIR}/${OUTPUT_NAME}.mrvc)
+  set(object_file ${CMAKE_CURRENT_BINARY_DIR}/${output_name}.o)
 
   if(ARG_SYSTEM)
-    # This .mrvc is a "system" file, meaning it will be placed in the platform
-    # bootstrap code tar file
-    set_property(GLOBAL APPEND PROPERTY MRVC_SYSTEM_FILES "${MRVC_FILE}")
+    # This is a system file, meaning it will be placed in the platform object
+    # archive
+    set_property(GLOBAL APPEND PROPERTY MRV_SYSTEM_OBJECTS "${object_file}")
+
+    # System files only generate regular object files
+    set(output_files "${object_file}")
+    set(bin_arg "")
+  else()
+    # Contracts generate both regular object files and deployable .mrvc files,
+    # using --bin
+    set(mrvc_file ${CMAKE_CURRENT_BINARY_DIR}/${output_name}.mrvc)
+    set(output_files "${object_file}" "${mrvc_file}")
+    set(bin_arg "--bin")
   endif()
 
   set(named_import_args "")
-  set(symbol_map_search_dirs "")
 
   if(ARG_AUTO_IMPORT)
     # AUTO_IMPORT will add NAMED_IMPORTS entries automatically for any
@@ -60,28 +76,14 @@ function(mrvc_link target)
       get_target_property(import ${_dep} MRV_ABI_NAME)
       if(import)
         list(APPEND named_import_args --named-import "${import}")
-        get_target_property(import_binary_dir ${_dep} BINARY_DIR)
-        list(APPEND symbol_map_search_dirs "${import_binary_dir}")
       endif()
     endforeach()
   endif()
-
-  list(REMOVE_DUPLICATES symbol_map_search_dirs)
-  set(symbol_map_args "")
-  foreach(_dir IN LISTS symbol_map_search_dirs)
-    list(APPEND symbol_map_args -m ${_dir})
-  endforeach()
 
   # Turn the NAMED_IMPORTS list into a list of command line argument string
   # pairs `--named-import ${import}`
   foreach(import IN LISTS ARG_NAMED_IMPORTS)
     list(APPEND named_import_args --named-import "${import}")
-  endforeach()
-
-  # Turn the SYMBOL_MAP_SEARCH_DIRS list into a list of command line
-  # argument string pairs `-m ${dir}`
-  foreach(dir IN LISTS ARG_SYMBOL_MAP_SEARCH_DIRS)
-    list(APPEND symbol_map_args -m "${dir}")
   endforeach()
 
   get_target_property(abi_name ${target} MRV_ABI_NAME)
@@ -98,19 +100,18 @@ function(mrvc_link target)
   endforeach()
 
   add_custom_command(
-    OUTPUT ${OBJECT_FILE} ${MRVC_FILE}
+    OUTPUT ${output_files}
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/utils/mrvc-link.py
-            -o "${OBJECT_FILE}" --bin
+            -o ${object_file} ${bin_arg}
             --objcopy "${MRV_OBJCOPY_PROGRAM}"
             ${abi_name_args}
             ${named_import_args}
-            ${symbol_map_args}
             ${link_input_args}
     DEPENDS ${target} "${PROJECT_SOURCE_DIR}/utils/mrvc-link.py"
-    COMMENT "mrvc-link ${target} -> ${OUTPUT_NAME}.mrvc"
+    COMMENT "mrvc-link ${target}"
     VERBATIM)
 
-  add_custom_target(${target}_contract ALL DEPENDS ${MRVC_FILE})
+  add_custom_target(${target}_contract ALL DEPENDS ${output_files})
 endfunction()
 
 if("${CMAKE_C_COMPILER_ARCHITECTURE_ID}" STREQUAL "riscv64")
@@ -143,8 +144,7 @@ if("${CMAKE_C_COMPILER_ARCHITECTURE_ID}" STREQUAL "riscv64")
   target_include_directories(mrv_libc
       PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/libc)
   set_target_properties(mrv_libc PROPERTIES
-      MRV_ABI_NAME "libc.${MRV_LIBC_ABI_VERSION}"
-      MRV_CONTRACT_NAME "libc")
+      MRV_ABI_NAME "libc.${MRV_LIBC_ABI_VERSION}")
   mrvc_link(mrv_libc SYSTEM)
 else()
   set(CACHE{MRV_EVM_PLATFORM} TYPE INTERNAL VALUE "host")
@@ -179,8 +179,7 @@ target_compile_features(monad_core_limited PUBLIC c_std_23)
 target_include_directories(monad_core_limited PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 set_target_properties(monad_core_limited PROPERTIES
-    MRV_ABI_NAME "monad_core.${MRV_MONAD_CORE_ABI_VERSION}"
-    MRV_CONTRACT_NAME "monad_core")
+    MRV_ABI_NAME "monad_core.${MRV_MONAD_CORE_ABI_VERSION}")
 
 if(MRV_EVM_PLATFORM STREQUAL "rv64")
   # The CMA allocator does not need (and cannot use) atomics on RV64
@@ -211,8 +210,7 @@ target_include_directories(mrv_stdlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 target_link_libraries(mrv_stdlib PUBLIC monad_core_limited)
 
 set_target_properties(mrv_stdlib PROPERTIES
-    MRV_ABI_NAME "mrv_stdlib.${MRV_STDLIB_ABI_VERSION}"
-    MRV_CONTRACT_NAME "mrv_stdlib")
+    MRV_ABI_NAME "mrv_stdlib.${MRV_STDLIB_ABI_VERSION}")
 
 # We'll statically link certain symbols (e.g., the start symbols) into every
 # contract
@@ -253,8 +251,7 @@ add_library(mrv_erc20 ${MRV_LIBRARY_TYPE}
 target_link_libraries(mrv_erc20 PUBLIC mrv_stdlib monad_core_limited)
 
 set_target_properties(mrv_erc20 PROPERTIES
-    MRV_ABI_NAME "mrv_erc20.${MRV_ERC20_ABI_VERSION}"
-    MRV_CONTRACT_NAME "mrv_erc20")
+    MRV_ABI_NAME "mrv_erc20.${MRV_ERC20_ABI_VERSION}")
 
 if(MRV_EVM_PLATFORM STREQUAL "rv64")
   target_link_libraries(mrv_erc20 PUBLIC mrv_libc)
@@ -264,19 +261,19 @@ else()
 endif()
 
 if(MRV_EVM_PLATFORM STREQUAL "rv64")
-  set(MRVC_BOOTSTRAP_ARCHIVE ${CMAKE_CURRENT_BINARY_DIR}/sdk-bootstrap.${CMAKE_PROJECT_VERSION_MAJOR}.tar)
-  get_property(_mrvc_tar_inputs GLOBAL PROPERTY MRVC_SYSTEM_FILES)
+  set(system_archive ${CMAKE_CURRENT_BINARY_DIR}/sdk-system-libs.${CMAKE_PROJECT_VERSION_MAJOR}.a)
+  get_property(system_objects GLOBAL PROPERTY MRV_SYSTEM_OBJECTS)
   add_custom_command(
-    OUTPUT ${MRVC_BOOTSTRAP_ARCHIVE}
-    COMMAND ${CMAKE_COMMAND} -E tar cf
-            ${MRVC_BOOTSTRAP_ARCHIVE}
-            ${_mrvc_tar_inputs}
-    DEPENDS ${_mrvc_tar_inputs}
+    OUTPUT ${system_archive}
+    COMMAND ${CMAKE_AR} rs
+            ${system_archive}
+            ${system_objects}
+    DEPENDS ${system_objects}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Bundling system .mrvc libraries into ${MRVC_BOOTSTRAP_ARCHIVE}"
+    COMMENT "Bundling system objects into ${system_archive}"
     VERBATIM)
 
-  add_custom_target(mrvc_bootstrap ALL DEPENDS ${MRVC_BOOTSTRAP_ARCHIVE})
+  add_custom_target(sdk_bootstrap ALL DEPENDS ${system_archive})
 endif()
 
 # mrv_link_contract(<target> LIB_DEPENDS <lib>...)
@@ -333,6 +330,11 @@ endfunction()
 add_subdirectory(examples)
 
 if(MRV_EVM_PLATFORM STREQUAL "host")
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBARCHIVE IMPORTED_TARGET libarchive)
+
+  find_library(libzstd_file zstd REQUIRED)
+
   add_library(monad_rv STATIC
     ../category/rv/rv_code.c
     ../category/rv/rv_code_cache.c
@@ -341,10 +343,8 @@ if(MRV_EVM_PLATFORM STREQUAL "host")
     ../category/rv/rvi_dynlink.c
     ../category/rv/rvi_log_writer.c)
   target_include_directories(monad_rv PRIVATE third_party/musl)
-
-  find_library(libzstd_file zstd REQUIRED)
   target_link_libraries(monad_rv PUBLIC monad_core_limited)
-  target_link_libraries(monad_rv PRIVATE ${libzstd_file})
+  target_link_libraries(monad_rv PRIVATE ${libzstd_file} PkgConfig::LIBARCHIVE)
 
   add_subdirectory(tools)
 endif()
