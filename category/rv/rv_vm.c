@@ -14,12 +14,19 @@ static int init_linker(
     struct monad_rv_vm *const vm,
     struct monad_rv_vm_config const *const vm_config)
 {
+    struct rvi_dynlink_config const dl_config = {
+        .sys_archive = vm_config->sys_archive,
+        .bare_metal = vm_config->no_system_libs,
+        .use_hugepages = vm_config->sys_code_hugepages,
+    };
+
     if (monad_bv_empty(vm_config->sys_archive) && !vm_config->no_system_libs) {
         VM_ERRX("dynamic linker needs a system archive to initialize");
     }
     // Create the dynamic linker, which will load all the system shared
-    // libraries and resolve their relocations
-    return rvi_dynlink_create(&vm->linker, vm, vm_config->sys_code_hugepages);
+    // libraries and relocate them into the final position in the RV64
+    // address space
+    return rvi_dynlink_create(&vm->linker, vm, &dl_config);
 }
 
 int monad_rv_vm_create(
@@ -59,7 +66,7 @@ int monad_rv_vm_create(
 void monad_rv_vm_destroy(struct monad_rv_vm *vm)
 {
     if (vm != nullptr) {
-        // XXX: need to free the link map
+        // XXX: need to free the link map?
         rvi_dynlink_destroy(vm->linker);
         // rvi_code_cache_destroy(vm->code_cache);
         free(vm);

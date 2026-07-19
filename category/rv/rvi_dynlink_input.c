@@ -19,10 +19,9 @@ constexpr char GNU_SYMTAB_NAME[] = "/";
 constexpr char GNU_LONG_FILE_TABLE_NAME[] = "//";
 constexpr char BSD_LONG_FILE_ESCAPE_NAME[] = "#1";
 constexpr char UNEXPECTED_END_MSG[] = "unexpected end of system archive";
-constexpr size_t AR_NAME_BUF_SIZE = 16;
 
 // The parsed form of the on-disk `struct ar`; this further parses the file
-// name into the library name and ABI version, when this is one of our libraries
+// name into a library name and ABI version, for our libraries
 struct parsed_ar_header
 {
     struct monad_rv_syslib_meta syslib_meta;
@@ -39,8 +38,8 @@ struct ar_symtab
 };
 
 // The GNU symbol table annotates a symbol's containing object by recording
-// that object's offset (its file offset in the archive); this structure is the
-// pair (offset, rvi_dynlink_ar_object) and we look up the object descriptor
+// that object's offset (the file offset in the archive); this structure is the
+// pair (offset, ar_obj), and we use it to look up the object descriptor
 // associated with the offset by doing a linear scan through an array of these
 // pairs
 struct offset_object_pair
@@ -62,7 +61,7 @@ static void const *try_consume(
     return r;
 }
 
-// Parse the archive header that is expected to be at the address `ar`
+// Parse the on-disk archive header pointed to by `ar`
 static int parse_ar_header(
     struct parsed_ar_header *const parsed, struct ar_hdr const *const ar,
     struct monad_bv const sys_archive, rvi_log_writer_t const log_wr)
@@ -220,10 +219,6 @@ static int increment_object_symbol_count(
     if (rc != 0) {
         return rc;
     }
-
-    // For now, stash the mapped view of the ELF file in `code_bytes`.
-    // Eventually this field will be reseated to point to the relocated code
-    // text; for now we hang it here for the dynamic linker to find later.
     ar_obj->ar_bytes = monad_bv_from_size(obj_hdr.data, obj_hdr.size);
     ++ar_obj->meta.symbol_count;
     ++dl_input->symbol_count;
@@ -268,12 +263,12 @@ int rvi_dynlink_build_input(
     __builtin_memset(dl_input, 0, sizeof *dl_input);
     STAILQ_INIT(&dl_input->ar_objs);
     if (bare_metal) {
-        // In "bare metal" mode, there are no system libraries; leave the link
+        // In bare metal mode, there are no system libraries; leave the input
         // map empty
         return 0;
     }
 
-    // Make sure this is an archive file
+    // Check for archive magic number
     if (monad_bv_len(sys_archive) < SARMAG ||
         __builtin_memcmp(sys_archive.begin, ARMAG, SARMAG) != 0) {
         return LW_ERR(

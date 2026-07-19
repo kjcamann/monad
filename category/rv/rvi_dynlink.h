@@ -35,7 +35,14 @@ struct rvi_dynlink_input
     uint32_t symbol_count;
 };
 
-int rvi_dynlink_create(struct rvi_dynlink **, struct monad_rv_vm *, bool use_hugepages);
+struct rvi_dynlink_config
+{
+    struct monad_bv sys_archive;
+    bool bare_metal;
+    bool use_hugepages;
+};
+
+int rvi_dynlink_create(struct rvi_dynlink **, struct monad_rv_vm *, struct rvi_dynlink_config const *);
 
 void rvi_dynlink_destroy(struct rvi_dynlink *);
 
