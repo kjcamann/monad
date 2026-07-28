@@ -14,6 +14,7 @@ enum rvi_addr_space : uint8_t
 {
     RVI_AS_PSABI,
     RVI_AS_SHARED_LIBRARY,
+    RVI_AS_STORAGE_DMAP,
 };
 
 typedef enum rvi_addr_space rvi_addr_space_t;
