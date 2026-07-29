@@ -17,7 +17,7 @@ constexpr char MONAD_HEX_UPPER_DIGITS[] = "0123456789ABCDEF";
 
 // A lookup table for fast parsing of hex strings; for the ASCII hex
 // character `c`, the value of MONAD_NIBBLE_TABLE[c] is the binary value of the
-// corresponding nibble, plus one. For example, iMONAD_NIBBLE_TABLE['A'] is
+// corresponding nibble, plus one. For example, MONAD_NIBBLE_TABLE['A'] is
 // 0xB. One is added to detect invalid hex digits, which have value 0x0
 constexpr uint8_t MONAD_NIBBLE_TABLE[255] = {
     ['0'] = 0x1,  ['1'] = 0x2,  ['2'] = 0x3, ['3'] = 0x4, ['4'] = 0x5,
