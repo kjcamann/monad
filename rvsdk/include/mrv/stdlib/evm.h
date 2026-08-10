@@ -97,28 +97,6 @@ void mrv_evm_tload(
 void mrv_evm_tstore(
     struct monad_bytes32 const *key, struct monad_bytes32 const *value);
 
-struct mrv_rcontext
-{
-    long pop_value;
-    mrv_evm_err_t status;
-    struct monad_bv returndata;
-    struct monad_bv *oob_bufs;
-    size_t oob_count;
-};
-
-enum mrv_rcontext_return_kind
-{
-    MRV_RCONTEXT_ENTER = 0,
-    MRV_RCONTEXT_EXIT = 1
-};
-
-enum mrv_rcontext_return_kind
-mrv_rcontext_push(uint64_t gas, struct mrv_rcontext *);
-
-void mrv_rcontext_pop(long value, mrv_evm_exit_type_t, void const *rdata, size_t len);
-
-void mrv_rcontext_append_oob(void const *oob, size_t len);
-
 [[gnu::always_inline, noreturn]] static inline void
 mrv_evm_return(void const *const p, size_t const len)
 {
