@@ -498,6 +498,26 @@ monad_abi_err_t monad_solabi_encode_address(
 }
 
 monad_abi_err_t
+monad_solabi_encode_bytes(struct monad_bv bytes, void *buf, size_t *buflen)
+{
+    void *end;
+    size_t const len = monad_bv_len(bytes);
+    size_t const required = 64 + monad_round_size_to_align(len, 32);
+    struct monad_bytes32 *head = (struct monad_bytes32 *)buf;
+
+    if (*buflen < required) {
+        *buflen = required;
+        return MONAD_ABIERR_NO_BUFFER_SPACE;
+    }
+    monad_uint256_be_from_u64(head++, 32);
+    monad_uint256_be_from_u64(head++, len);
+    end = mempcpy(head, bytes.begin, len);
+    memset(end, 0, required - ((uint8_t const *)end - (uint8_t const *)buf));
+    *buflen = required;
+    return 0;
+}
+
+monad_abi_err_t
 monad_solabi_encode_sv(struct monad_sv sv, void *buf, size_t *buflen)
 {
     void *end;

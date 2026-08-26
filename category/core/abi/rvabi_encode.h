@@ -29,6 +29,21 @@ extern "C"
 }
 
 [[gnu::always_inline]] static inline monad_abi_err_t
+monad_rvabi_encode_bytes(struct monad_bv bytes, void *buf, size_t *buflen)
+{
+    size_t const bvlen = monad_bv_len(bytes);
+    size_t const abilen = sizeof(uint32_t) + bvlen;
+    if (MONAD_UNLIKELY(*buflen < abilen)) {
+        *buflen = abilen;
+        return MONAD_ABIERR_NO_BUFFER_SPACE;
+    }
+    *buflen = abilen;
+    *(uint32_t *)buf = (uint32_t)abilen;
+    *(char *)mempcpy(buf + sizeof(uint32_t), bytes.begin, bvlen) = '\0';
+    return 0;
+}
+
+[[gnu::always_inline]] static inline monad_abi_err_t
 monad_rvabi_encode_sv(struct monad_sv sv, void *buf, size_t *buflen)
 {
     size_t const svlen = monad_sv_len(sv);

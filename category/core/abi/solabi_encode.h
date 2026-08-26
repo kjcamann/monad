@@ -148,6 +148,9 @@ monad_abi_err_t monad_solabi_encode_address(
     struct monad_address const *addr, void *buf, size_t *buflen);
 
 monad_abi_err_t
+monad_solabi_encode_bytes(struct monad_bv bv, void *buf, size_t *buflen);
+
+monad_abi_err_t
 monad_solabi_encode_sv(struct monad_sv sv, void *buf, size_t *buflen);
 
 monad_abi_err_t

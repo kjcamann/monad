@@ -54,6 +54,9 @@ static monad_abi_err_t monad_xabi_encode_address(
     monad_abi_t abi, struct monad_address const *addr, void *buf,
     size_t *buflen);
 
+static monad_abi_err_t monad_xabi_encode_bytes(
+    monad_abi_t abi, struct monad_bv bytes, void *buf, size_t *buflen);
+
 static monad_abi_err_t monad_xabi_encode_sv(
     monad_abi_t abi, struct monad_sv sv, void *buf, size_t *buflen);
 
@@ -160,6 +163,21 @@ monad_xenc_ctx_free(struct monad_xenc_ctx *ctx)
 
     case MONAD_ABI_RV64_V1:
         return monad_rvabi_encode_address(addr, buf, buflen);
+
+    default:
+        return MONAD_ABIERR_ABI_NOT_SUPPORTED;
+    }
+}
+
+[[gnu::always_inline]] inline monad_abi_err_t monad_xabi_encode_bytes(
+    monad_abi_t abi, struct monad_bv bytes, void *buf, size_t *buflen)
+{
+    switch (abi) {
+    case MONAD_ABI_SOLIDITY:
+        return monad_solabi_encode_bytes(bytes, buf, buflen);
+
+    case MONAD_ABI_RV64_V1:
+        return monad_rvabi_encode_bytes(bytes, buf, buflen);
 
     default:
         return MONAD_ABIERR_ABI_NOT_SUPPORTED;
