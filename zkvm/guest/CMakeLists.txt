@@ -319,7 +319,6 @@ if(DEFINED MONAD_ZKVM_GUEST_TARGET)
     # assertion call site expands to zkvm_halt(1) inline, so no separate
     # TU is needed.
     add_library(monad-core OBJECT
-        "${MONAD_ROOT}/category/core/hex.cpp"
         "${MONAD_ROOT}/category/core/rlp/decode_error.cpp"
         "${MONAD_ROOT}/category/core/checked_math.cpp"
         "${MONAD_ROOT}/category/core/seeded_fast_hash.cpp"

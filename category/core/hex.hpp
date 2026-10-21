@@ -18,13 +18,16 @@
 #include <category/core/assert.h>
 #include <category/core/byte_string.hpp>
 #include <category/core/config.hpp>
+#include <category/core/hex.h>
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 MONAD_NAMESPACE_BEGIN
 
@@ -46,17 +49,8 @@ concept FixedBytes = requires(T const &t) {
 /// 4-bit numeric value.  Returns nullopt for non-hex characters.
 constexpr std::optional<uint8_t> from_hex_char(char const c) noexcept
 {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    else if (c >= 'a' && c <= 'f') {
-        return 10 + (c - 'a');
-    }
-    else if (c >= 'A' && c <= 'F') {
-        return 10 + (c - 'A');
-    }
-
-    return std::nullopt;
+    uint8_t const n = MONAD_HEX_TO_NIBBLE_TABLE[static_cast<uint8_t>(c)];
+    return n > 0 ? std::optional<uint8_t>(n - 1) : std::nullopt;
 }
 
 /// Consume the next two hex characters from @p hex and write the decoded byte
@@ -80,66 +74,80 @@ constexpr bool parse_hex_byte(std::string_view &hex, uint8_t &byte) noexcept
     return true;
 }
 
-/// Strip a leading "0x" prefix from @p hex, if present.
-constexpr void skip_optional_hex_prefix(std::string_view &hex) noexcept
+/// Return true if @p hex has a leading "0x" or "0X" prefix
+constexpr bool has_hex_base_prefix(std::string_view const hex) noexcept
 {
-    if (hex.size() >= 2 && hex[0] == '0' && hex[1] == 'x') {
-        hex.remove_prefix(2);
-    }
+    return hex.size() >= 2 && hex[0] == '0' && (hex[1] == 'x' || hex[1] == 'X');
 }
 
 /// Decode a hex string into a fixed-size byte type (e.g. Address, Hash).
-/// The input may optionally start with "0x".  If the decoded length is shorter
-/// than sizeof(T), the result is right-aligned (zero-padded on the left).
-/// Returns nullopt on odd-length input, excess bytes, or invalid hex.
+/// The input may optionally start with "0x" or "0X".  If the decoded length is
+/// shorter than sizeof(T), the result is right-aligned (zero-padded on the
+/// left). Returns nullopt on odd-length input, excess bytes, or invalid hex.
 template <FixedBytes T>
-constexpr std::optional<T> from_hex(std::string_view hex) noexcept
+constexpr std::optional<T> from_hex(std::string_view const hex) noexcept
 {
-    static constexpr size_t output_bytes = sizeof(T);
+    size_t const adjusted_hex_size =
+        has_hex_base_prefix(hex) ? hex.size() - 2 : hex.size();
+    size_t const input_byte_count = adjusted_hex_size / 2;
+    if (input_byte_count > sizeof(T)) {
+        return std::nullopt;
+    }
+    size_t const offset = sizeof(T) - input_byte_count;
+    size_t buflen = sizeof(T) - offset;
     auto ret = T{};
-
-    skip_optional_hex_prefix(hex);
-
-    if (hex.size() % 2 != 0) {
+    int const rc =
+        monad_parse_hex(hex.data(), hex.size(), ret.bytes + offset, &buflen);
+    if (rc != 0 || buflen != input_byte_count) {
         return std::nullopt;
     }
-
-    size_t const input_bytes = hex.size() / 2;
-    if (input_bytes > output_bytes) {
-        return std::nullopt;
-    }
-
-    auto const offset = output_bytes - input_bytes;
-
-    for (size_t i = 0; i < input_bytes; ++i) {
-        if (!parse_hex_byte(hex, ret.bytes[i + offset])) {
-            return std::nullopt;
-        }
-    }
-
     return ret;
 }
 
 /// Decode a hex string into a variable-length byte_string.
-/// The input may optionally start with "0x".  Returns nullopt on odd-length
-/// input or invalid hex characters.
-std::optional<byte_string> from_hex(std::string_view hex);
+/// The input may optionally start with "0x" or "0X".  Returns nullopt on
+/// odd-length input or invalid hex characters.
+constexpr std::optional<byte_string> from_hex(std::string_view const hex)
+{
+    size_t const adjusted_hex_size =
+        has_hex_base_prefix(hex) ? hex.size() - 2 : hex.size();
+    size_t buflen = adjusted_hex_size / 2;
+    byte_string ret;
+    ret.resize(buflen);
+    if (monad_parse_hex(hex.data(), hex.size(), ret.data(), &buflen) != 0 ||
+        buflen != ret.size()) {
+        return std::nullopt;
+    }
+    return ret;
+}
 
 /// Encode a 4-bit value (0-15) as a lowercase hex character.
 /// Asserts that @p value < 16.
 constexpr char to_hex_char(uint8_t const value) noexcept
 {
     MONAD_ASSERT(value < 16);
-    static constexpr std::string_view hex_digits = "0123456789abcdef";
-    return hex_digits[value];
+    return MONAD_HEX_LOWER_DIGITS[value];
 }
 
 /// Encode a single byte as a two-character lowercase hex string.
-std::string to_hex(uint8_t byte);
+constexpr std::string to_hex(uint8_t const byte)
+{
+    uint8_t const high = byte >> 4;
+    uint8_t const low = byte & 0x0F;
+    return std::string{to_hex_char(high), to_hex_char(low)};
+}
 
 /// Encode a byte sequence as a contiguous lowercase hex string (no "0x"
 /// prefix).
-std::string to_hex(byte_string_view bytes);
+constexpr std::string to_hex(byte_string_view const bytes)
+{
+    std::string ret;
+    ret.resize(bytes.size() * 2);
+    // Return value is safe to ignore; neither ERANGE nor EINVAL can happen
+    (void)monad_format_hex(
+        bytes.data(), bytes.size(), ret.data(), ret.size(), MONAD_HEX_DEFAULT);
+    return ret;
+}
 
 /// Encode a FixedBytes type (e.g. Address, Hash) as a contiguous lowercase
 /// hex string (no "0x" prefix), by delegating to the byte_string_view overload.
@@ -153,7 +161,10 @@ namespace literals
 {
     /// User-defined literal for hex-encoded byte strings: `0xdeadbeef_bytes`.
     /// Throws std::bad_optional_access if the input is not valid hex.
-    byte_string operator""_bytes(char const *s);
+    constexpr byte_string operator""_bytes(char const *const s)
+    {
+        return from_hex(s).value();
+    }
 }
 
 MONAD_NAMESPACE_END

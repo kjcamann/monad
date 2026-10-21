@@ -123,41 +123,6 @@ TEST(ParseHexByte, fails_when_second_nibble_is_invalid)
     EXPECT_EQ(in, "1g"sv);
 }
 
-TEST(SkipOptionalHexPrefix, strips_lowercase_0x_prefix)
-{
-    auto in = "0x1a2b"sv;
-    skip_optional_hex_prefix(in);
-    EXPECT_EQ(in, "1a2b"sv);
-}
-
-TEST(SkipOptionalHexPrefix, leaves_input_without_prefix_unchanged)
-{
-    auto in = "1a2b"sv;
-    skip_optional_hex_prefix(in);
-    EXPECT_EQ(in, "1a2b"sv);
-}
-
-TEST(SkipOptionalHexPrefix, leaves_single_zero_unchanged)
-{
-    auto in = "0"sv;
-    skip_optional_hex_prefix(in);
-    EXPECT_EQ(in, "0"sv);
-}
-
-TEST(SkipOptionalHexPrefix, strips_prefix_in_invalid)
-{
-    auto in = "0x$$"sv;
-    skip_optional_hex_prefix(in);
-    EXPECT_EQ(in, "$$"sv);
-}
-
-TEST(SkipOptionalHexPrefix, leaves_empty_input_unchanged)
-{
-    auto in = ""sv;
-    skip_optional_hex_prefix(in);
-    EXPECT_EQ(in, ""sv);
-}
-
 TEST(FromHexFixed, decodes_full_length_address)
 {
     auto const hex = "0123456789abcdef0123456789abcdef01234567"sv;
@@ -248,6 +213,14 @@ TEST(FromHexDynamic, decodes_variable_length_bytes)
 TEST(FromHexDynamic, accepts_0x_prefix)
 {
     auto const hex = "0x0123456789abcdef"sv;
+    auto const expected =
+        byte_string{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+    EXPECT_EQ(from_hex(hex).value(), expected);
+}
+
+TEST(FromHexDynamic, accepts_0X_prefix)
+{
+    auto const hex = "0X0123456789abcdef"sv;
     auto const expected =
         byte_string{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
     EXPECT_EQ(from_hex(hex).value(), expected);

@@ -127,7 +127,7 @@ add_library(
   "format_err.c"
   "format_err.h"
   "hash.hpp"
-  "hex.cpp"
+  "hex.h"
   "hex.hpp"
   "int.hpp"
   "is_specialization_of.hpp"
