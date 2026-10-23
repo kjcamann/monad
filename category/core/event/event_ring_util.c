@@ -281,7 +281,7 @@ int monad_event_ring_init_simple(
 
 int monad_event_ring_check_content_type(
     struct monad_event_ring const *const event_ring,
-    enum monad_event_content_type const content_type,
+    monad_event_content_type_t const content_type,
     uint8_t const *const schema_hash)
 {
     if (event_ring == nullptr || event_ring->header == nullptr) {
