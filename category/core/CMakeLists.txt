@@ -165,8 +165,7 @@ add_library(
   "cli/help_formatter.cpp"
   "cli/help_formatter.hpp"
   # event
-  "event/event_iterator.h"
-  "event/event_iterator_inline.h"
+  "event/event_def.h"
   "event/event_metadata.h"
   "event/event_recorder.cpp"
   "event/event_recorder.h"
@@ -174,6 +173,8 @@ add_library(
   "event/event_recorder_inline.h"
   "event/event_ring.c"
   "event/event_ring.h"
+  "event/event_ring_inline.h"
+  "event/event_ring_iter.h"
   "event/event_ring_util.c"
   "event/event_ring_util.h"
   "event/owned_event_ring.cpp"
