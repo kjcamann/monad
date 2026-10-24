@@ -24,6 +24,8 @@
 
 #include <stdint.h>
 
+#include <category/core/bytes32.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -42,6 +44,24 @@ typedef enum monad_event_content_type : uint16_t
     MONAD_EVENT_CONTENT_TYPE_EXEC,  ///< Core execution events
     MONAD_EVENT_CONTENT_TYPE_COUNT  ///< Total number of content types
 } monad_event_content_type_t;
+
+/// Event content types, e.g. execution events, can opt into a less strict
+/// versioning scheme where only major version changes are ABI-breaking
+struct monad_event_content_version
+{
+    unsigned major; ///< Incremented when schema changes are ABI-breaking
+    unsigned minor; ///< Within same major version, changes are ABI-compatible
+};
+
+/// Each version table entry associates a content version with its schema
+/// hash; an array of these (the "version table") is used to look up the
+/// version tag for a particular schema hash
+struct monad_event_content_version_table_entry
+{
+    struct monad_event_content_version
+        version;
+    monad_bytes32 schema_hash;
+};
 
 /// Descriptor for an event; this fixed-size object describes the common
 /// attributes of an event, and is broadcast to other threads via a shared
@@ -63,6 +83,12 @@ struct monad_event_descriptor
 // clang-format on
 
 static_assert(sizeof(struct monad_event_descriptor) == 64);
+
+/// Given a schema hash, get the corresponding VTE
+int monad_event_content_lookup_version(
+    monad_bytes32 const *schema_hash,
+    struct monad_event_content_version_table_entry const *,
+    struct monad_event_content_version const **);
 
 /// Array of human-readable names for the event ring content types
 extern char const
