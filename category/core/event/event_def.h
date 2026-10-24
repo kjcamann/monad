@@ -24,8 +24,6 @@
 
 #include <stdint.h>
 
-#include <category/core/bytes32.h>
-
 #ifdef __cplusplus
 extern "C"
 {
@@ -58,9 +56,8 @@ struct monad_event_content_version
 /// version tag for a particular schema hash
 struct monad_event_content_version_table_entry
 {
-    struct monad_event_content_version
-        version;
-    monad_bytes32 schema_hash;
+    struct monad_event_content_version version;
+    uint8_t schema_hash[32];
 };
 
 /// Descriptor for an event; this fixed-size object describes the common
@@ -84,11 +81,11 @@ struct monad_event_descriptor
 
 static_assert(sizeof(struct monad_event_descriptor) == 64);
 
-/// Given a schema hash, get the corresponding VTE
-int monad_event_content_lookup_version(
-    monad_bytes32 const *schema_hash,
-    struct monad_event_content_version_table_entry const *,
-    struct monad_event_content_version const **);
+/// Look up the content version associated with the given schema hash
+struct monad_event_content_version const *
+monad_event_content_lookup_version(
+    uint8_t const (*schema_hash)[32],
+    struct monad_event_content_version_table_entry const *);
 
 /// Array of human-readable names for the event ring content types
 extern char const
