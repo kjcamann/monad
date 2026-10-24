@@ -462,9 +462,3 @@ char const *monad_event_ring_get_last_error()
 {
     return _g_monad_event_ring_error_buf;
 }
-
-char const *g_monad_event_content_type_names[MONAD_EVENT_CONTENT_TYPE_COUNT] = {
-    [MONAD_EVENT_CONTENT_TYPE_NONE] = "none",
-    [MONAD_EVENT_CONTENT_TYPE_TEST] = "test",
-    [MONAD_EVENT_CONTENT_TYPE_EXEC] = "exec",
-};

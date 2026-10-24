@@ -36,6 +36,8 @@ enum monad_event_content_type : uint16_t;
 typedef enum monad_event_content_type monad_event_content_type_t;
 
 struct monad_event_ring;
+struct monad_event_content_version;
+struct monad_event_content_version_table_entry;
 
 /// Value passed to monad_event_resolve_ring_file's `default_path` parameter,
 /// to request the hugetlbfs path that is dynamically computed by the
@@ -73,9 +75,19 @@ int monad_event_ring_init_simple(
 
 /// Check that the event ring content type and schema hash match the assumed
 /// values
-int monad_event_ring_check_content_type(
+int monad_event_ring_check_content_hash(
     struct monad_event_ring const *, monad_event_content_type_t,
     uint8_t const (*schema_hash)[32]);
+
+/// Check that the event ring content type matches the assumed value, and that
+/// the event ring file is ABI-compatible with the current version of the SDK
+/// software, given the schema hash and content version table as inputs
+int monad_event_ring_check_content_version(
+    struct monad_event_ring const *, monad_event_content_type_t,
+    struct monad_event_content_version_table_entry const *,
+    uint8_t const (*schema_hash)[32],
+    struct monad_event_content_version const **sdk_version_p,
+    struct monad_event_content_version const **ring_version_p);
 
 /// Query information about every process that holds an flock on the file
 /// referred to by the given file descriptor; the flock(2) system call is used
