@@ -20,7 +20,7 @@ C_CODEGEN_WARNING_FORMAT = \
 {0}"""
 
 GPL_V3_LICENSE_COMMENT = \
-"""// Copyright (C) 2025 Category Labs, Inc.
+"""// Copyright (C) 2025-26 Category Labs, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by

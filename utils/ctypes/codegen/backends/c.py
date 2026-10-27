@@ -37,7 +37,10 @@ def emit_module_header_prologue(emit_warning: bool, module: ModuleInfo, out: Tex
   module_include_lines += module.lang_attrs.get('c', {}).get('extra_includes', [])
   if module.is_event_module:
     module_include_lines.insert(0, '#include <stddef.h>') # Need size_t for _EVENT_COUNT
-    module_include_lines.append('#include <category/core/event/event_metadata.h>')
+    module_include_lines += [
+        '#include <category/core/event/event_def.h>',
+        '#include <category/core/event/event_metadata.h>'
+    ]
   if module_include_lines:
     module_include_lines += ['']
   print(GPL_V3_LICENSE_COMMENT, file=out)
@@ -174,10 +177,20 @@ def emit_module_header_file(
     print(
 f"""constexpr size_t {event_count_constant} = {n_types};
 extern struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{event_count_constant}];
+
 extern uint8_t const g_{event_type_prefix}_event_schema_hash[32];
 
 constexpr char MONAD_EVENT_DEFAULT_{event_ring_type.upper()}_FILE_NAME[] = \\
     "monad-{event_ring_type}-events";
+""", file=out)
+
+    if module.event_config.schema_versions:
+      version_count_constant = f'{event_type_prefix.upper()}_VERSION_COUNT'
+      n_versions = len(module.event_config.schema_versions) + 1
+      print(
+f"""constexpr size_t {version_count_constant} = {n_versions};
+extern struct monad_event_content_version_table_entry const
+    g_{event_type_prefix}_version_table[{version_count_constant}];
 """, file=out)
 
   emit_module_header_epilogue(out)
@@ -189,6 +202,7 @@ constexpr char MONAD_EVENT_DEFAULT_{event_ring_type.upper()}_FILE_NAME[] = \\
 METADATA_PROLOGUE = \
 """#include <stdint.h>
 
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_metadata.h>
 #include <{0}>
 
@@ -215,7 +229,8 @@ def emit_metadata_prologue(emit_warning: bool, module: ModuleInfo, out: TextIO):
 def emit_metadata_epilogue(out: TextIO):
   print(METADATA_EPILOGUE, file=out)
 
-def emit_metadata_array(module: ModuleInfo, out: TextIO):
+def emit_metadata_arrays(module: ModuleInfo, out: TextIO):
+  # Metadata about individual events
   event_type_prefix = get_c_type_name_prefix(module)
   event_count_constant = f'{event_type_prefix.upper()}_EVENT_COUNT'
   print(
@@ -233,6 +248,7 @@ f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{even
     print(f'         .description = "{short_doc_comment}"}},', file=out)
   print('};', file=out)
 
+  # Schema hash of event module
   print(file=out)
   evt_hash = module.compute_hash()
   print(f'uint8_t const g_{event_type_prefix}_event_schema_hash[32] = {{', file=out)
@@ -241,10 +257,22 @@ f'''struct monad_event_metadata const g_{event_type_prefix}_event_metadata[{even
     print(f'    {hash_initializer},', file=out)
   print('};', file=out)
 
+  # Optional version table of event module, if we have one
+  if module.event_config.schema_versions:
+    version_count_constant = f'{event_type_prefix.upper()}_VERSION_COUNT'
+    print(file=out)
+    print(f'struct monad_event_content_version_table_entry const g_{event_type_prefix}_version_table[{version_count_constant}] = {{', file=out)
+    for i, (version, schema_hash) in enumerate(module.event_config.schema_versions.items()):
+      hash_initializer = ', '.join(f'0x{b:02x}' for b in schema_hash)
+      print(
+f'[{i}] = {{.version = {{{version.major}, {version.minor}}}, .schema_hash = {{{hash_initializer}}}}},',
+      file=out)
+    print('};', file=out)
+
 def emit_event_metadata_file(args: argparse.Namespace, module: ModuleInfo,
                              out: TextIO):
   emit_metadata_prologue(not args.no_warning, module, out)
-  emit_metadata_array(module, out)
+  emit_metadata_arrays(module, out)
   emit_metadata_epilogue(out)
 
 def c_main(args: argparse.Namespace, module_map: Mapping[str, ModuleInfo]) -> int:

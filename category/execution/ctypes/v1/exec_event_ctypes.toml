@@ -2,6 +2,10 @@
 doc = "Definitions of event payloads used with the EXEC event ring"
 depends = ["eth_ctypes", "monad_ctypes"]
 lang.c.header_output_dir = "category/execution/ethereum/event"
+lang.c.extra_includes = [
+  '#include <category/core/address.h>',
+  "#include <category/core/bytes32.h>",
+]
 lang.cxx_format.header_output_dir = "category/execution/ethereum/event"
 lang.cxx_format.extra_includes = [
   "#include <category/core/event/event_ring_fmt.hpp>",
@@ -10,6 +14,9 @@ lang.cxx_format.extra_includes = [
 
 [settings.event]
 event_ring_type = "exec"
+
+[settings.event.schema_versions]
+"0.0" = "8933f907c432c98ac0c8db62f9aa164c0c3f1672f41290e4ea3408df6c6723f3"
 
 [flow_type]
 doc = "Stored in event descriptor's `content_ext` array to tag the block & transaction context of event"
