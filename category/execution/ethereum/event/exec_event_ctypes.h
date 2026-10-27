@@ -29,6 +29,7 @@
  */
 
 #include <category/core/bytes32.h>
+#include <category/core/event/event_def.h>
 #include <category/core/event/event_metadata.h>
 #include <category/execution/ethereum/core/eth_ctypes.h>
 #include <category/execution/monad/core/monad_ctypes.h>
@@ -297,7 +298,12 @@ struct monad_exec_evm_error
 constexpr size_t MONAD_EXEC_EVENT_COUNT = 25;
 extern struct monad_event_metadata const
     g_monad_exec_event_metadata[MONAD_EXEC_EVENT_COUNT];
+
 extern uint8_t const g_monad_exec_event_schema_hash[32];
+
+constexpr size_t MONAD_EXEC_VERSION_TABLE_COUNT = 2;
+extern struct monad_event_content_version_table_entry const
+    g_monad_exec_version_table[MONAD_EXEC_VERSION_TABLE_COUNT];
 
 constexpr char MONAD_EVENT_DEFAULT_EXEC_FILE_NAME[] = "monad-exec-events";
 
