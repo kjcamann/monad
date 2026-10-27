@@ -179,7 +179,7 @@ def emit_formatter(module: ModuleInfo, type_info: TypeInfo, out: TextIO):
 
 def emit_format_as_function(module: ModuleInfo, out: TextIO):
   event_type_prefix = get_c_type_name_prefix(module)
-  event_ring_type = module.event_config.event_ring_type
+  event_content_type = module.event_config.event_content_type
   enum_type = f'{event_type_prefix}_event_type'
   print(
 f'''namespace category_labs {{
@@ -209,7 +209,7 @@ f'''       case {event_code}: return o;''', file=out)
 
   print(
 f'''        default:
-            return std::format_to(o, "unknown {event_ring_type} type code {{}}",
+            return std::format_to(o, "unknown {event_content_type} type code {{}}",
                                   std::to_underlying(event_type));
     }}
     std::unreachable();

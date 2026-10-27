@@ -20,7 +20,7 @@ C_CODEGEN_WARNING_FORMAT = \
 {0}"""
 
 GPL_V3_LICENSE_COMMENT = \
-"""// Copyright (C) 2025 Category Labs, Inc.
+"""// Copyright (C) 2025-26 Category Labs, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -63,7 +63,7 @@ def get_c_type_name_prefix(module: ModuleInfo) -> str:
   `prefix` C language attribute."""
   default_prefix = 'monad_c'
   if module.is_event_module:
-    default_prefix = f'monad_{module.event_config.event_ring_type}'
+    default_prefix = f'monad_{module.event_config.event_content_type}'
   type_prefix = module.lang_attrs.get('c', {}).get('prefix', default_prefix)
   if not isinstance(type_prefix, str) or not type_prefix.isidentifier():
     raise ValueError(f'module `{module.name}` has invalid type prefix `{type_prefix}`')

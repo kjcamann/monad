@@ -25,8 +25,14 @@ parser.add_argument('-m', '--module', action='append', default=list(),
 parser.add_argument('-s', '--source', action='append', type=pathlib.Path,
     default=list(), metavar='<source>', help='directory containing TOML files to translate')
 
+parser.add_argument('--schema-version', action='append', default=list(),
+    metavar='<schema-module>=<major>.<minor>', help='version of event schema')
+
 parser.add_argument('--print-schema-hash', action='store_true',
     help='print the schema hashes of the loaded type modules to stdout')
+
+parser.add_argument('--print-version-table', action='store_true',
+    help='print the version table of any event modules that are present')
 
 def register_backends(p: argparse.ArgumentParser):
   # The immediate subcommand is the name of the language backend
@@ -46,18 +52,58 @@ def register_backends(p: argparse.ArgumentParser):
       backend_module.register_backend(subparsers)
 
 def main(args: argparse.Namespace) -> int:
-  from typeinfo import load_type_modules
+  from typeinfo import load_type_modules, SchemaVersion
   module_map = load_type_modules(args.source)
   if args.verbose > 1:
     print(f'dump of {len(module_map)} type modules:', file=sys.stderr)
     for k, v in module_map.items():
       print(f'{k}: {v}\n', file=sys.stderr)
 
+  # Handle the --schema-version command line arguments
+  schema_version_modules = set()
+  for s in args.schema_version:
+    module_name, _, version_str = s.partition('=')
+    if module_name not in module_map:
+      raise ValueError(f'"{s}" specifies version of non-existent schema module {module_name}')
+    module = module_map[module_name]
+    version = SchemaVersion.parse(version_str)
+    if not module.has_event_version_table:
+      raise ValueError(f'{s} specifies version for module "{module_name}" but it '
+                       f'is not versioned (introduce a "{version_str}" set to "")')
+    if version not in module.event_config.schema_versions:
+      raise ValueError(f'{s} speicifes version for module "{module_name}" but this '
+                       f'version does not exist (introduce a "{version_str}" set to "")')
+    old_schema_hash = module.event_config.schema_versions[version]
+    new_schema_hash = module.compute_hash()
+    if old_schema_hash not in (new_schema_hash, bytes()):
+      raise ValueError(f'event schema module "{module_name}" already has version '
+                       f'{version_str} with hash {old_schema_hash.hex()}; user is '
+                       f'trying to replace with {new_schema_hash.hex()}')
+    module.event_config.schema_versions[version] = new_schema_hash
+    schema_version_modules.add(module_name)
+
+  # Don't permit the generation of a module with an explicit schema version
+  # if they didn't specify one
+  for module_name, module in module_map.items():
+    if module.has_event_version_table and not module_name in schema_version_modules:
+      raise ValueError(f'module {module_name} is versioned but no --schema-version '
+                       'was specified on the command line')
+
   if args.print_schema_hash:
     print('schema hashes:', file=sys.stdout)
     max_identifier = max(len(k) for k in module_map.keys()) + 1
     for k, v in module_map.items():
       print(f'{k:{max_identifier}}: {v.compute_hash().hex()}', file=sys.stdout)
+
+  if args.print_version_table:
+    print('version tables:', file=sys.stdout)
+    for k, v in module_map.items():
+      if not v.has_event_version_table:
+        continue
+      versions = v.event_config.schema_versions
+      print(f'\n{k} ({len(versions)} versions):', file=sys.stdout)
+      for version, schema_hash in versions.items():
+        print(f'\t{version} => {schema_hash.hex()}', file=sys.stdout)
 
   # Module filtering
   args.module = set(args.module)

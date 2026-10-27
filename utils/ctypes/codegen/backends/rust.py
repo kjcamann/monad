@@ -14,7 +14,7 @@ from typeinfo import *
 #
 
 GPL_V3_LICENSE_COMMENT = \
-"""// Copyright (C) 2025 Category Labs, Inc.
+"""// Copyright (C) 2025-26 Category Labs, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -171,8 +171,8 @@ pub struct {struct_info.type_name} {{""", file=out)
   print('}\n', file=out)
 
 def emit_format_as_function(module: ModuleInfo, out: TextIO):
-  event_ring_type = module.event_config.event_ring_type
-  event_enum_type = f'{event_ring_type}_event_type'
+  event_content_type = module.event_config.event_content_type
+  event_enum_type = f'{event_content_type}_event_type'
   print(
 f'''pub fn format_as(bytes: &[u8], event_type: {event_enum_type}) -> String {{
     match event_type {{''', file=out)
@@ -189,12 +189,12 @@ f'''pub fn format_as(bytes: &[u8], event_type: {event_enum_type}) -> String {{
   print('    }\n}', file=out)
 
 def emit_event_enum_type(module: ModuleInfo, out: TextIO):
-  event_ring_type = module.event_config.event_ring_type
+  event_content_type = module.event_config.event_content_type
   print(
 f"""/// Each type of event is assigned a unique value in this enumeration
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 #[repr(u16)]
-pub enum {event_ring_type}_event_type
+pub enum {event_content_type}_event_type
 {{
     #[default]""", file=out)
 
@@ -205,10 +205,10 @@ pub enum {event_ring_type}_event_type
   print('}\n', file=out)
 
 def emit_event_metadata_array(module: ModuleInfo, out: TextIO):
-  event_ring_type = module.event_config.event_ring_type
-  metadata_array_name = f'{event_ring_type.upper()}_EVENT_METADATA'
+  event_content_type = module.event_config.event_content_type
+  metadata_array_name = f'{event_content_type.upper()}_EVENT_METADATA'
   n_types = module.event_count
-  event_count_constant = f'{event_ring_type.upper()}_EVENT_COUNT'
+  event_count_constant = f'{event_content_type.upper()}_EVENT_COUNT'
   print(f'''
 pub const {event_count_constant}: usize = {n_types};
 pub const {metadata_array_name}: [EventMetadata; {event_count_constant}] = [''', file=out)
@@ -219,7 +219,7 @@ pub const {metadata_array_name}: [EventMetadata; {event_count_constant}] = [''',
     short_doc_comment = td.doc_comment.split('\n')[0]
     print(f'''
     EventMetadata {{
-        event_type: {event_ring_type}_event_type::{name_upper} as u16,
+        event_type: {event_content_type}_event_type::{name_upper} as u16,
         c_name: "{name_upper}",
         description: "{short_doc_comment}",
     }},''', file=out)
@@ -231,7 +231,7 @@ pub const {metadata_array_name}: [EventMetadata; {event_count_constant}] = [''',
     hash_initializer_lines.append(', '.join(f'{b:#02x}' for b in evt_hash[b:b+8]))
 
   print(f"""
-pub static {event_ring_type.upper()}_EVENT_DOMAIN_METADATA: EventDomainMetadata = EventDomainMetadata {{
+pub static {event_content_type.upper()}_EVENT_DOMAIN_METADATA: EventDomainMetadata = EventDomainMetadata {{
     schema_hash: [
 {'\n'.join(f'{"":>8}{line},' for line in hash_initializer_lines)}
     ],
@@ -240,8 +240,8 @@ pub static {event_ring_type.upper()}_EVENT_DOMAIN_METADATA: EventDomainMetadata 
 """, file=out)
 
   print(f'''
-pub const {event_ring_type.upper()}_EVENT_DEFAULT_FILE_NAME: &str =
-    "monad-{event_ring_type}-events";
+pub const {event_content_type.upper()}_EVENT_DEFAULT_FILE_NAME: &str =
+    "monad-{event_content_type}-events";
 ''', file=out)
 
 def emit_module_file(module: ModuleInfo, out: TextIO):

@@ -7,7 +7,7 @@ lang.rust.use_decls = [
 [address]
 doc = "Ethereum address"
 [address.external]
-c = "monad_c_address"
+c = "monad_address"
 rust = "Address"
 
 [b64]
@@ -19,17 +19,17 @@ rust = "[u8; 8]"
 [hash32]
 doc = "32 byte hash values"
 [hash32.external]
-c = "monad_c_bytes32"
+c = "monad_bytes32"
 rust = "B256"
 
 [b256]
 doc = "32 byte values"
 [b256.external]
-c = "monad_c_bytes32"
+c = "monad_bytes32"
 rust = "B256"
 
 [u256]
-doc = "Native endian big integers, 256 bits"
+doc = "Host endian big integers, 256 bits"
 [u256.external]
 c = "monad_c_uint256_ne"
 rust = "U256"
