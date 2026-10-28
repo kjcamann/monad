@@ -14,17 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 fn main() {
-    println!("cargo:rerun-if-changed=CMakeLists.txt");
     println!("cargo:rerun-if-changed=include/ffi.h");
-    println!("cargo:rerun-if-changed=src/ffi.cpp");
-    println!("cargo:rerun-if-changed=../../../category");
-
-    if let Some(execution_dir) = monad_build::execution_dir() {
-        monad_build::MonadCMake::new(".", monad_build::MonadCMakeLinkage::Dynamic)
-            .define("MONAD_EXECUTION_DIR", execution_dir)
-            .with_rpath()
-            .build("triedb_driver");
-    }
 
     monad_build::bindgen::MonadBindgen::default()
         .header("include/ffi.h")

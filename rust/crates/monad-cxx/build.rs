@@ -16,11 +16,13 @@
 fn main() {
     if monad_build::should_build_execution() {
         let root = monad_build::repository_root();
-        for path in ["CMakeLists.txt", "cmake", "category", "third_party"] {
+        for path in ["CMakeLists.txt", "cmake", "category", "third_party",
+                     "rust/crates/monad-triedb/include", "rust/crates/monad-triedb/src"] {
             println!("cargo:rerun-if-changed={}", root.join(path).display());
         }
-        monad_build::MonadCMake::new(&root, monad_build::MonadCMakeLinkage::Dynamic)
-            .build("monad_execution");
+        monad_build::MonadCMake::new(&root, monad_build::MonadCMakeLinkage::Static)
+            .define("MONAD_BUILD_TRIEDB_DRIVER", "ON")
+            .build("triedb_driver") // Builds monad_execution as a dependency
     }
 
     monad_build::bindgen::MonadBindgen::default()

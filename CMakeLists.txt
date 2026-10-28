@@ -37,6 +37,7 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(MONAD_BUILD_TRIEDB_DRIVER "Build the triedb C API" OFF)
 option(MONAD_COMPILER_COVERAGE "Build with coverage" OFF)
 option(MONAD_COMPILER_TESTING "Build compiler tests" OFF)
 option(MONAD_COMPILER_BENCHMARKS "Build compiler benchmarks" OFF)
@@ -316,6 +317,15 @@ target_link_libraries(
          monad-vm-interpreter
          monad-vm-runtime
          monad-vm-utils)
+
+if(MONAD_BUILD_TRIEDB_DRIVER)
+  add_library(triedb_driver
+      rust/crates/monad-triedb/include/ffi.h
+      rust/crates/monad-triedb/src/ffi.cpp)
+  monad_compile_options(triedb_driver)
+  target_include_directories(triedb_driver PUBLIC rust/crates/monad-triedb/include)
+  target_link_libraries(triedb_driver PRIVATE monad_execution)
+endif()
 
 include(cmake/c_headers.cmake)
 

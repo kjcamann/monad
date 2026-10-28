@@ -16,6 +16,7 @@
 #include "ffi.h"
 
 #include <category/core/byte_string.hpp>
+#include <category/core/bytes32.h>
 #include <category/core/log.hpp>
 #include <category/core/nibble.h>
 #include <category/execution/ethereum/db/util.hpp>
