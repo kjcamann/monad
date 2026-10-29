@@ -22,7 +22,7 @@ fn main() {
         }
         monad_build::MonadCMake::new(&root, monad_build::MonadCMakeLinkage::Static)
             .define("MONAD_BUILD_TRIEDB_DRIVER", "ON")
-            .build("triedb_driver") // Builds monad_execution as a dependency
+            .build("triedb_driver_link_probe") // Builds all our dependencies
     }
 
     monad_build::bindgen::MonadBindgen::default()

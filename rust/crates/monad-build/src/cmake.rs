@@ -83,6 +83,7 @@ impl MonadCMake {
         let dst = cmake.build_target(target).build();
 
         println!("cargo:rustc-link-search=native={}/build", dst.display());
+/* XXX put this back later
         println!(
             "cargo:rustc-link-lib={}={}",
             match linkage {
@@ -91,6 +92,7 @@ impl MonadCMake {
             },
             target
         );
+*/
         println!("cargo:CMAKE_BINARY_DIR={}/build", dst.display());
 
         if with_rpath {

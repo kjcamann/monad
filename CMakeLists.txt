@@ -325,6 +325,9 @@ if(MONAD_BUILD_TRIEDB_DRIVER)
   monad_compile_options(triedb_driver)
   target_include_directories(triedb_driver PUBLIC rust/crates/monad-triedb/include)
   target_link_libraries(triedb_driver PRIVATE monad_execution)
+
+  add_executable(triedb_driver_link_probe cmake/link_probe.c)
+  target_link_libraries(triedb_driver_link_probe PRIVATE triedb_driver)
 endif()
 
 include(cmake/c_headers.cmake)
