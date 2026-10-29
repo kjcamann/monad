@@ -326,8 +326,14 @@ if(MONAD_BUILD_TRIEDB_DRIVER)
   target_include_directories(triedb_driver PUBLIC rust/crates/monad-triedb/include)
   target_link_libraries(triedb_driver PRIVATE monad_execution)
 
+  # Make a dummy link probe target, so that we can capture the full link line
+  # that an executable needing triedb_driver needs and feed it to Cargo
   add_executable(triedb_driver_link_probe cmake/link_probe.c)
   target_link_libraries(triedb_driver_link_probe PRIVATE triedb_driver)
+
+  set_target_properties(triedb_driver_link_probe PROPERTIES
+      LINKER_LANGUAGE C
+      C_LINKER_LAUNCHER "sh;${PROJECT_SOURCE_DIR}/cmake/record_link_line.sh;${CMAKE_BINARY_DIR}/triedb_driver.link_args")
 endif()
 
 include(cmake/c_headers.cmake)

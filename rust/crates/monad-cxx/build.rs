@@ -20,7 +20,7 @@ fn main() {
                      "rust/crates/monad-triedb/include", "rust/crates/monad-triedb/src"] {
             println!("cargo:rerun-if-changed={}", root.join(path).display());
         }
-        monad_build::MonadCMake::new(&root, monad_build::MonadCMakeLinkage::Static)
+        monad_build::MonadCMake::new(&root, monad_build::MonadCMakeLinkage::LinkProbe{file_name: "triedb_driver.link_args"})
             .define("MONAD_BUILD_TRIEDB_DRIVER", "ON")
             .build("triedb_driver_link_probe") // Builds all our dependencies
     }
