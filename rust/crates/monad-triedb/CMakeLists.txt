@@ -48,3 +48,5 @@ target_link_libraries(triedb_driver PUBLIC asmjit::asmjit evmc intx
 
 monad_compile_options(triedb_driver)
 target_compile_definitions(triedb_driver PRIVATE MONAD_CXX_CTYPES_USE_EVMC_HPP=1)
+
+target_link_options(triedb_driver PRIVATE "LINKER:--exclude-libs,ALL")
