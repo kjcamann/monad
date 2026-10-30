@@ -305,8 +305,8 @@ if(MONAD_BUILD_HERMETIC_API)
   set_target_properties(monad_execution PROPERTIES
     LINK_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/hermetic.map")
   target_link_options(monad_execution PRIVATE
-    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/cmake/hermetic.map"
-    "LINKER:--no-undefined-version"
+    #"LINKER:--version-script=${CMAKE_SOURCE_DIR}/cmake/hermetic.map"
+    #"LINKER:--no-undefined-version"
     "LINKER:--exclude-libs,ALL")
 else()
   add_library(monad_execution)

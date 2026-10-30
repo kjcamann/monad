@@ -53,4 +53,10 @@ function(monad_compile_options target)
   # currently available to us
   # https://gcc.gnu.org/bugzilla//show_bug.cgi?id=109647
   target_compile_definitions(${target} PUBLIC "JSON_HAS_RANGES=0")
+
+  #set_target_properties(${target} PROPERTIES
+  #    CXX_VISIBILITY_PRESET hidden
+  #    VISIBILITY_INLINES_HIDDEN ON
+  #    #LINK_DEPENDS "${FOO_VERSION_SCRIPT}"
+  #)
 endfunction()
