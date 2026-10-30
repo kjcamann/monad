@@ -314,14 +314,16 @@ add_library(
 # build can reuse it without pulling in the full execution dependency tree.
 # ##############################################################################
 
+add_library(monad_precompiles_ssl_obj OBJECT
+  "ethereum/precompiles_ssl.cpp")
+
 add_library(
   monad_precompiles OBJECT
   "ethereum/precompiles.cpp"
   "ethereum/precompiles.hpp"
   "ethereum/precompiles_gas_cost_impl.cpp"
   "ethereum/precompiles_bls12.cpp"
-  "ethereum/precompiles_bls12.hpp"
-)
+  "ethereum/precompiles_bls12.hpp")
 
 target_include_directories(
   monad_execution_ethereum
