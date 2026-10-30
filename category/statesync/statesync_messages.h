@@ -25,6 +25,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 enum monad_sync_type : uint8_t
 {
     SYNC_TYPE_REQUEST = 0,
@@ -73,6 +75,8 @@ struct monad_sync_done
 
 static_assert(sizeof(struct monad_sync_done) == 24);
 static_assert(alignof(struct monad_sync_done) == 8);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }

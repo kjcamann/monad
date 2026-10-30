@@ -19,6 +19,13 @@
 
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#pragma GCC visibility push(default)
+
 struct monad_statesync_server;
 struct monad_statesync_server_context;
 struct monad_statesync_server_network;
@@ -38,3 +45,9 @@ struct monad_statesync_server *monad_statesync_server_create(
 void monad_statesync_server_run_once(struct monad_statesync_server *);
 
 void monad_statesync_server_destroy(struct monad_statesync_server *);
+
+#pragma GCC visibility pop
+
+#ifdef __cplusplus
+}
+#endif

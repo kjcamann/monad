@@ -23,6 +23,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 struct monad_state_override;
 
 struct monad_state_override *monad_state_override_create();
@@ -148,6 +150,8 @@ void add_block_override_withdrawal_at(
     struct monad_block_override_vec *, size_t index, uint64_t withdrawal_index,
     uint64_t validator_index, uint64_t amount, uint8_t const *recipient_addr,
     size_t recipient_addr_len);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }

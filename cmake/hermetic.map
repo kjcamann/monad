@@ -1,0 +1,28 @@
+monad_execution_1.0 {
+  global:
+    MONAD_*;
+    monad_*;
+
+    add_override_*;
+    set_override_*;
+    add_block_override_*;
+    set_block_override_*;
+
+    init_tl_tid;
+    tl_tid;
+
+    #monad::decode_storage_page;
+    #monad::decode_storage_db_ignore_key;
+    monad::staking::read_valset;
+    monad::mpt::*;
+    monad::async::*;
+    monad::literals::operator*;
+
+    #"monad::io::Ring::~Ring()";
+    #"monad::io::Buffers::~Buffers()";
+    #"quill::v12::detail::get_thread_id()";
+    #"quill::v12::detail::get_thread_name[abi:cxx11]()";
+
+  local:
+    *;
+};

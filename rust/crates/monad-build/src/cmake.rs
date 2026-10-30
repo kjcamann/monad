@@ -17,6 +17,7 @@
 pub enum MonadCMakeLinkage {
     Static,
     Dynamic,
+    Hermetic,
 }
 
 pub struct MonadCMake {
@@ -35,7 +36,7 @@ impl MonadCMake {
         let mut cmake = cmake::Config::new(path);
 
         match linkage {
-            MonadCMakeLinkage::Static => {}
+            MonadCMakeLinkage::Static | MonadCMakeLinkage::Hermetic => {}
             MonadCMakeLinkage::Dynamic => {
                 cmake.define("BUILD_SHARED_LIBS", "ON");
             }
@@ -87,7 +88,7 @@ impl MonadCMake {
             "cargo:rustc-link-lib={}={}",
             match linkage {
                 MonadCMakeLinkage::Static => "static",
-                MonadCMakeLinkage::Dynamic => "dylib",
+                MonadCMakeLinkage::Dynamic | MonadCMakeLinkage::Hermetic => "dylib",
             },
             target
         );

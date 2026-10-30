@@ -1,0 +1,6 @@
+triedb_driver_1.0 {
+  global:
+    triedb_*;
+  local:
+    *;
+};

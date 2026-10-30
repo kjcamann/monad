@@ -37,6 +37,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 /// Object passed to external consumers of log messages:
 /// `message` is not guaranteed to be null-terminated.
 struct monad_log
@@ -78,6 +80,8 @@ int monad_log_init(
 
 /// Return a string description of the last error that occurred on this thread
 char const *monad_log_get_last_error();
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 } // extern "C"

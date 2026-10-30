@@ -48,7 +48,8 @@ namespace fmt = fmtquill;
     };
 
 // Global root logger
-extern quill::Logger *monad_root_logger;
+extern "C" __attribute__((visibility("default")))
+quill::Logger *monad_root_logger;
 
 #define LOG_DEBUG(fmt, ...)                                                    \
     QUILL_LOG_DEBUG(monad_root_logger, fmt, ##__VA_ARGS__)

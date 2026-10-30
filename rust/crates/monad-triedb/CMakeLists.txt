@@ -48,3 +48,10 @@ target_link_libraries(triedb_driver PUBLIC asmjit::asmjit evmc intx
 
 monad_compile_options(triedb_driver)
 target_compile_definitions(triedb_driver PRIVATE MONAD_CXX_CTYPES_USE_EVMC_HPP=1)
+
+set_target_properties(triedb_driver PROPERTIES
+  LINK_DEPENDS "${PROJECT_SOURCE_DIR}/export.map")
+target_link_options(triedb_driver PRIVATE
+  "LINKER:--version-script=${PROJECT_SOURCE_DIR}/export.map"
+  "LINKER:--no-undefined-version"
+  "LINKER:--exclude-libs,ALL")

@@ -26,6 +26,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 typedef struct TriedbRoInner TriedbRoInner;
 
 int triedb_open(
@@ -232,6 +234,8 @@ void triedb_free_valset(validator_set *);
 
 validator_set *
 triedb_read_valset(TriedbRoInner *, size_t block_num, uint64_t requested_epoch);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }

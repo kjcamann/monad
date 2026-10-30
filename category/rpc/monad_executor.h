@@ -27,6 +27,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 static uint64_t const MONAD_ETH_CALL_LOW_GAS_LIMIT = 8'100'000;
 
 struct monad_executor;
@@ -133,6 +135,8 @@ void monad_executor_eth_simulate_submit(
     struct monad_block_override_vec const *const block_overrides,
     bool emit_native_transfer_logs,
     void (*complete)(monad_executor_result *, void *user), void *user);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }

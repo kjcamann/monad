@@ -22,6 +22,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 // Components of a statesync protocol version. These are the single source of
 // the {major, minor} pairs monad-bft's StateSyncVersion also names, and bindgen
 // exports them to the rust side.
@@ -51,6 +53,8 @@ enum monad_statesync_protocol_version : uint32_t
 uint32_t monad_statesync_version();
 
 bool monad_statesync_client_compatible(uint32_t version);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }

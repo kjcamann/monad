@@ -29,20 +29,21 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   endif()
 endif()
 
-if(BUILD_SHARED_LIBS)
-  # BUILD_SHARED_LIBS=ON does not automatically set -fPIC, leading to
-  # relocations being emitted in object files that can't be patched
-  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-endif()
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(MONAD_BUILD_HERMETIC_API "Build the hermetic version of monad_execution" OFF)
 option(MONAD_COMPILER_COVERAGE "Build with coverage" OFF)
 option(MONAD_COMPILER_TESTING "Build compiler tests" OFF)
 option(MONAD_COMPILER_BENCHMARKS "Build compiler benchmarks" OFF)
 option(MONAD_COMPILER_DUMP_ASM "Dump assembly files into build/asm" OFF)
 option(MONAD_COMPILER_STATS "Print statistics about the compiler" OFF)
 option(MONAD_COMPILER_HOT_PATH_STATS "Print statistics about the vm" OFF)
+
+if(BUILD_SHARED_LIBS OR MONAD_BUILD_HERMETIC_API)
+  # BUILD_SHARED_LIBS=ON does not automatically set -fPIC, leading to
+  # relocations being emitted in object files that can't be patched
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 include(cmake/test.cmake)
 
@@ -296,9 +297,21 @@ add_subdirectory("category/rpc")
 add_subdirectory("category/statesync")
 add_subdirectory("category/vm")
 
-# Assemble all the object libraries into complete monad runtime library,
+# Assemble all the object libraries into a complete monad runtime library,
 # monad_execution
-add_library(monad_execution)
+
+if(MONAD_BUILD_HERMETIC_API)
+  add_library(monad_execution SHARED)
+  set_target_properties(monad_execution PROPERTIES
+    LINK_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/hermetic.map")
+  target_link_options(monad_execution PRIVATE
+    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/cmake/hermetic.map"
+    "LINKER:--no-undefined-version"
+    "LINKER:--exclude-libs,ALL")
+else()
+  add_library(monad_execution)
+endif()
+
 target_link_libraries(
   monad_execution
   PUBLIC monad_core

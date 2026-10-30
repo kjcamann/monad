@@ -22,6 +22,8 @@ extern "C"
 {
 #endif
 
+#pragma GCC visibility push(default)
+
 extern unsigned const MONAD_SQPOLL_DISABLED;
 
 struct monad_statesync_client;
@@ -59,6 +61,8 @@ bool monad_statesync_client_finalize(struct monad_statesync_client_context *);
 
 void monad_statesync_client_context_destroy(
     struct monad_statesync_client_context *);
+
+#pragma GCC visibility pop
 
 #ifdef __cplusplus
 }
