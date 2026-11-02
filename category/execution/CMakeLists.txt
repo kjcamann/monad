@@ -320,8 +320,7 @@ add_library(
   "ethereum/precompiles.hpp"
   "ethereum/precompiles_gas_cost_impl.cpp"
   "ethereum/precompiles_bls12.cpp"
-  "ethereum/precompiles_bls12.hpp"
-)
+  "ethereum/precompiles_bls12.hpp")
 
 target_include_directories(
   monad_execution_ethereum
@@ -362,7 +361,6 @@ target_link_libraries(
   PUBLIC monad_crypto
   PUBLIC blst::blst
   PUBLIC c-kzg-4844
-  PRIVATE aws_lc::crypto
   PUBLIC ethash::keccak
   PUBLIC evmc
   PUBLIC immer
@@ -371,6 +369,50 @@ target_link_libraries(
   PUBLIC silkpre
   PUBLIC unordered_dense)
 monad_compile_options(monad_precompiles)
+
+# ##############################################################################
+# Precompiles using SSL crypto APIs — we link to the AWS implementation of the
+# libcrypto API, which creates conflicts at link time if a downstream target
+# wants to link both aws_lc::crypto and the system libcrypto.so. For dynamic
+# libraries this can be managed somewhat by manipulating symbol visibility, but
+# it doesn't fix conflicts between a static link of aws_lc::crypto and a dynamic
+# link of -lcrypto; whomever wins depends on the link line ordering.
+#
+# To prevent this, we do the following:
+#
+#    - Collect all functions which need libcrypto API routines to the
+#      monad_precompiles_lc_obj target
+#
+#    - Link the needed aws_lc::crypto functions into a target object file using
+#      a partial link
+#
+#    - objcopy the partial linked object to a new one, which only keeps global
+#      symbols for the functions that were directly defined in source files
+#      for the monad_precompiles_lc_obj target
+#
+# The final object will be a new static library, monad_precompiles_lc
+# ##############################################################################
+
+add_library(monad_precompiles_lc_obj OBJECT "ethereum/precompiles_p256.cpp")
+monad_compile_options(monad_precompiles_lc_obj)
+target_link_libraries(monad_precompiles_lc_obj PRIVATE monad_core aws_lc::crypto)
+
+set(_sealed_lc_obj "${CMAKE_CURRENT_BINARY_DIR}/precompiles_lc_sealed.o")
+add_custom_command(
+  OUTPUT ${_sealed_lc_obj}
+  COMMAND ${CMAKE_LINKER} -r -o precompiles_lc_merged.o
+          $<TARGET_OBJECTS:monad_precompiles_lc_obj> $<TARGET_FILE:aws_lc::crypto>
+  COMMAND ${CMAKE_NM} -g --defined-only -j
+          $<TARGET_OBJECTS:monad_precompiles_lc_obj> > precompiles_lc_globals.txt
+  COMMAND ${CMAKE_OBJCOPY} --keep-global-symbols=precompiles_lc_globals.txt
+          precompiles_lc_merged.o ${_sealed_lc_obj}
+  DEPENDS $<TARGET_OBJECTS:monad_precompiles_lc_obj> monad_precompiles_lc_obj aws_lc::crypto
+  COMMAND_EXPAND_LISTS VERBATIM)
+
+add_library(monad_precompiles_lc STATIC ${_sealed_lc_obj})
+set_target_properties(monad_precompiles_lc PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(monad_precompiles_lc PUBLIC monad_core)
+target_link_libraries(monad_precompiles PUBLIC monad_precompiles_lc)
 
 target_link_libraries(
   monad_execution_ethereum
